@@ -2,7 +2,7 @@
 
 `CSA-iLEM` means `Codespaces & Actions -> Into Local Environment Mac`.
 
-Version: `0.0.05`  
+Version: `0.0.06`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -45,7 +45,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production CLI bundle into `~/.local/share/csa-ilem/0.0.05`
+- copies the production CLI bundle into `~/.local/share/csa-ilem/0.0.06`
 - creates a stable `current` symlink under `~/.local/share/csa-ilem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -110,6 +110,7 @@ Supported batch behavior:
 - `FULL AUTO + CLEANUP PREVIEW`
 - resume from a repo number in all-repos mode
 - post-batch one-by-one review in VS Code
+- one-by-one cost-control review with yes / ok / no / skip flow
 
 ## Browser And Open Flows
 
@@ -118,6 +119,7 @@ The browser can show:
 - installed local devcontainers
 - active local containers
 - local Actions runners
+- a one-project-at-a-time cost-control review
 
 Project status tags include:
 - `split`
@@ -138,7 +140,23 @@ csa-ilem-open
 openproj
 ```
 
-Both jump straight into the local devcontainer/browser opener flow using the saved Diamond roots.
+Both jump straight into the full local project browser using the saved Diamond roots.
+
+From that browser you can:
+- open a plain repo or runtime workspace in VS Code
+- inspect active local containers and local runner state
+- run `Cost-control review (one project at a time)`
+
+The recommended no-spend safeguard plan can:
+- disable GitHub Actions at the repo settings level
+- disable workflows and delete workflow runs, artifacts, caches, and Codespaces
+- stop the local runner service
+- stop active local devcontainer containers
+- patch workflow files to self-hosted labels for future use
+- optionally commit and push the workflow patch after the hard stop is in place
+
+Important:
+- disabling GitHub Actions at the repo settings level is a hard stop; self-hosted runners also stop receiving jobs until you re-enable Actions for that repo
 
 ## Built-In Metadata And Legal Flags
 

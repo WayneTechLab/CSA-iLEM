@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iLEM"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.05')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.06')"
 INSTALL_ROOT="${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-ilem}"
 BIN_DIR="${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}"
 INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"

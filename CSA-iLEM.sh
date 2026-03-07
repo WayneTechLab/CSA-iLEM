@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 APP_NAME="CSA-iLEM"
-APP_VERSION="0.0.05"
+APP_VERSION="0.0.06"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_VENDOR_URL="https://www.WayneTechLab.com"
 APP_RISK_NOTICE="Use at your own risk."
@@ -690,6 +690,7 @@ Usage:
   $(basename "$0") --profile wtl
   $(basename "$0") --profile diamond
   $(basename "$0") --browse
+  $(basename "$0") --browse --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
 
@@ -706,11 +707,14 @@ What it does:
   - Can install a repo-level self-hosted Mac Actions runner
   - Can patch common GitHub-hosted runs-on values to self-hosted Mac labels
   - Can run generic GitHub cleanup for workflows, runs, artifacts, caches, and Codespaces
+  - Can apply a recommended no-spend safeguard plan project by project from the browser
+  - Can disable GitHub Actions at the repo settings level when you want a hard stop
+  - Can stop local runner services and active local devcontainer containers
   - Supports dry-run cleanup previews before deleting anything
   - Can optionally commit and push workflow changes
   - Includes a browser for imported projects, active local containers, and local Actions runners
   - Lets you open an imported project in VS Code and optionally start its devcontainer
-  - Can jump directly into a local browser for imported projects or installed devcontainers
+  - Can jump directly into the local project browser or installed devcontainer browser
   - Can be installed into ~/.local/bin on any supported Mac with the included install.sh
   - Returns to a main menu after single operations instead of exiting immediately
   - Restores your original GitHub account when the script exits if it switched accounts
@@ -2442,9 +2446,10 @@ browse_project_actions() {
     echo "2) Open runtime/local Codespace workspace"
     echo "3) Force start/update runtime devcontainer now"
     echo "4) Show local Actions runner status"
-    echo "5) Back"
+    echo "5) Apply recommended no-spend safeguards"
+    echo "6) Back"
     echo
-    read -r -p "Enter choice [1-5]: " choice
+    read -r -p "Enter choice [1-6]: " choice
 
     case "$choice" in
       1)
@@ -2463,6 +2468,10 @@ browse_project_actions() {
         pause
         ;;
       5)
+        run_recommended_cost_control_for_slug "$slug" || true
+        pause
+        ;;
+      6)
         break
         ;;
       *)
@@ -2692,10 +2701,11 @@ browse_active_containers() {
           echo "1) Open current runtime workspace in VS Code"
           echo "2) Open plain repo in VS Code"
           echo "3) Open project actions"
-          echo "4) Back"
+          echo "4) Apply recommended no-spend safeguards"
+          echo "5) Back"
           echo
 
-          read -r -p "Enter choice [1-4]: " action
+          read -r -p "Enter choice [1-5]: " action
           case "$action" in
             1)
               if [[ -n "$project_path" ]]; then
@@ -2721,6 +2731,14 @@ browse_active_containers() {
               fi
               ;;
             4)
+              if [[ -n "$slug" ]]; then
+                run_recommended_cost_control_for_slug "$slug" || true
+                pause
+              else
+                warn "No project slug was detected for this container."
+              fi
+              ;;
+            5)
               break
               ;;
             *)
@@ -2826,16 +2844,18 @@ browse_local_resources() {
     printf '2) Installed local devcontainers (%s total, %s starters, %s checked-in)\n' "$devcontainer_total" "$starter_total" "$codespaces_ready_total"
     printf '3) Active local containers (%s projects)\n' "$active_total"
     printf '4) Local Actions runners (%s projects)\n' "$runner_total"
-    echo "5) Back"
+    echo "5) Cost-control review (one project at a time)"
+    echo "6) Back"
     echo
 
-    read -r -p "Enter choice [1-5]: " choice
+    read -r -p "Enter choice [1-6]: " choice
     case "$choice" in
       1) browse_imported_projects ;;
       2) browse_installed_devcontainers ;;
       3) browse_active_containers ;;
       4) browse_local_runners ;;
-      5) return 0 ;;
+      5) browse_cost_control_review ;;
+      6) return 0 ;;
       *) warn "Invalid choice." ;;
     esac
   done
@@ -2937,6 +2957,107 @@ review_projects_one_by_one() {
             break
             ;;
           s|S|"")
+            choice=""
+            break
+            ;;
+          *)
+            warn "Invalid choice."
+            ;;
+        esac
+      done
+
+      if [[ "$choice" == "r" || "$choice" == "R" ]]; then
+        continue
+      fi
+
+      break
+    done
+
+    idx=$((idx + 1))
+  done
+}
+
+browse_cost_control_review() {
+  local review_slugs=()
+  local idx=1
+  local total=0
+  local slug=""
+  local choice=""
+
+  collect_imported_projects
+  review_slugs=("${IMPORTED_PROJECT_SLUGS[@]}")
+  total="${#review_slugs[@]}"
+
+  if [[ "$total" -eq 0 ]]; then
+    echo
+    print_line
+    echo "Cost Control Review"
+    print_line
+    echo "No imported projects were found under the current root."
+    pause
+    return 0
+  fi
+
+  while [[ "$idx" -le "$total" ]]; do
+    slug="${review_slugs[$((idx - 1))]}"
+
+    while true; do
+      ensure_github_ready_for_browser_actions
+      show_cost_control_summary_for_slug "$slug"
+      echo
+      echo "Y or Enter = yes, apply recommended no-spend safeguards now"
+      echo "O = open runtime/local workspace in VS Code first"
+      echo "P = open plain repo in VS Code first"
+      echo "S = skip this project"
+      echo "N or Q = stop this review"
+      echo
+      read -r -p "Choice: " choice
+
+      case "$choice" in
+        n|N|q|Q)
+          return 0
+          ;;
+        s|S)
+          break
+          ;;
+        o|O)
+          if ! open_project_for_review "$slug" "runtime"; then
+            break
+          fi
+          continue
+          ;;
+        p|P)
+          if ! open_project_for_review "$slug" "plain"; then
+            break
+          fi
+          continue
+          ;;
+        ""|y|Y)
+          run_recommended_cost_control_for_slug "$slug" || true
+          ;;
+        *)
+          warn "Invalid choice."
+          continue
+          ;;
+      esac
+
+      while true; do
+        echo
+        echo "O or Enter = OK / next project"
+        echo "R = review this project again"
+        echo "S = skip this project"
+        echo "N or Q = stop this review"
+        echo
+        read -r -p "After checking $slug: " choice
+
+        case "$choice" in
+          n|N|q|Q)
+            return 0
+            ;;
+          r|R)
+            break
+            ;;
+          o|O|s|S|"")
             choice=""
             break
             ;;
@@ -3129,6 +3250,212 @@ current_dev_workspace_dir() {
   else
     printf '%s' "$REPO_DIR"
   fi
+}
+
+ensure_github_ready_for_browser_actions() {
+  if ! command -v gh >/dev/null 2>&1; then
+    install_brew_if_missing
+    ensure_brew_shellenv_in_profile
+    install_tool_if_missing gh gh
+  fi
+
+  require_cmd gh "Install GitHub CLI first."
+
+  if [[ -z "$HOST" ]]; then
+    select_host
+  fi
+
+  if [[ -z "$ACCOUNT" ]]; then
+    select_account
+  fi
+
+  ensure_api_ready
+}
+
+repo_actions_permissions_state() {
+  local enabled=""
+
+  enabled="$(gh api --hostname "$HOST" "repos/${OWNER}/${REPO}/actions/permissions" --jq '.enabled' 2>/dev/null || true)"
+  case "$enabled" in
+    true) printf 'enabled' ;;
+    false) printf 'disabled' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+repo_has_github_hosted_runs_on_values() {
+  [[ -d "$REPO_DIR/.github/workflows" ]] || return 1
+  grep -REq 'runs-on:[[:space:]]*(ubuntu-latest|macos-latest|macos-13|macos-14|windows-latest)' "$REPO_DIR/.github/workflows"
+}
+
+disable_repo_actions_in_settings() {
+  local current_state=""
+
+  current_state="$(repo_actions_permissions_state)"
+  case "$current_state" in
+    disabled)
+      info "GitHub Actions are already disabled in repo settings."
+      return 0
+      ;;
+    unknown)
+      warn "Could not read the repo-level GitHub Actions setting."
+      ;;
+  esac
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "Dry run: GitHub Actions would be disabled in repo settings."
+    return 0
+  fi
+
+  if gh api --method PUT --hostname "$HOST" "repos/${OWNER}/${REPO}/actions/permissions" -F enabled=false >/dev/null 2>&1; then
+    info "Disabled GitHub Actions in repo settings."
+    return 0
+  fi
+
+  warn "Failed to disable GitHub Actions in repo settings."
+  return 1
+}
+
+stop_runner_service_for_dir() {
+  local runner_path="$1"
+  local service_state=""
+
+  if [[ ! -d "$runner_path" ]]; then
+    info "No local runner directory was found."
+    return 0
+  fi
+
+  if [[ ! -x "$runner_path/svc.sh" ]]; then
+    info "No runner service helper was found."
+    return 0
+  fi
+
+  service_state="$(runner_service_status_state_for_dir "$runner_path")"
+  case "$service_state" in
+    running)
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        info "Dry run: local runner service would be stopped."
+        return 0
+      fi
+
+      echo "Stopping local runner service..." | tee -a "$REPORT_FILE"
+      if (
+        cd "$runner_path" && ./svc.sh stop
+      ) 2>&1 | tee -a "$REPORT_FILE"; then
+        info "Stopped local runner service."
+        return 0
+      fi
+
+      warn "Failed to stop the local runner service."
+      return 1
+      ;;
+    stopped)
+      info "Local runner service is already stopped."
+      ;;
+    not-installed)
+      info "Local runner service is not installed."
+      ;;
+    configured)
+      info "Local runner is configured, but the service is not running."
+      ;;
+    *)
+      info "No running local runner service was detected."
+      ;;
+  esac
+
+  return 0
+}
+
+collect_active_container_ids_for_slug() {
+  local slug="$1"
+  local seen_ids="|"
+  local repo_path=""
+  local container_id=""
+
+  for repo_path in "$(project_runtime_workspace_dir_for_slug "$slug")" "$(project_plain_repo_dir_for_slug "$slug")"; do
+    [[ -n "$repo_path" ]] || continue
+    while IFS= read -r container_id; do
+      [[ -n "$container_id" ]] || continue
+      [[ "$seen_ids" == *"|$container_id|"* ]] && continue
+      seen_ids="${seen_ids}${container_id}|"
+      printf '%s\n' "$container_id"
+    done < <(repo_active_container_ids "$repo_path")
+  done
+}
+
+stop_active_containers_for_slug() {
+  local slug="$1"
+  local container_ids=()
+  local container_id=""
+
+  if ! command -v docker >/dev/null 2>&1; then
+    info "Docker CLI is not installed, so no local containers can be stopped."
+    return 0
+  fi
+
+  if ! docker_engine_ready; then
+    info "Docker is not running, so no local containers can be stopped."
+    return 0
+  fi
+
+  while IFS= read -r container_id; do
+    [[ -n "$container_id" ]] && container_ids+=("$container_id")
+  done < <(collect_active_container_ids_for_slug "$slug")
+
+  if [[ "${#container_ids[@]}" -eq 0 ]]; then
+    info "No active local containers were found for $slug."
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "Dry run: ${#container_ids[@]} local container(s) would be stopped for $slug."
+    printf '  %s\n' "${container_ids[@]}"
+    return 0
+  fi
+
+  info "Stopping ${#container_ids[@]} local container(s) for $slug."
+  if docker stop "${container_ids[@]}" >/dev/null 2>&1; then
+    info "Stopped local containers for $slug."
+    return 0
+  fi
+
+  warn "Failed to stop one or more local containers for $slug."
+  return 1
+}
+
+show_cost_control_summary_for_slug() {
+  local slug="$1"
+  local runner_path=""
+  local runner_state="not present"
+  local actions_state="unknown"
+  local active_containers="0"
+
+  prepare_repo_vars "$slug"
+  runner_path="$(runner_dir_for_slug "$slug")"
+  if [[ -d "$runner_path" ]]; then
+    runner_state="$(runner_service_status_state_for_dir "$runner_path")"
+  fi
+
+  actions_state="$(repo_actions_permissions_state)"
+  active_containers="$(collect_active_container_ids_for_slug "$slug" | awk 'NF {count++} END {print count+0}')"
+
+  echo
+  print_line
+  printf 'Cost Control Review: %s\n' "$slug"
+  print_line
+  printf 'GitHub Actions repo setting: %s\n' "$actions_state"
+  printf 'Workflow files present: %s\n' "$([[ -d "$REPO_DIR/.github/workflows" ]] && printf yes || printf no)"
+  printf 'GitHub-hosted runs-on found in code: %s\n' "$(repo_has_github_hosted_runs_on_values && printf yes || printf no)"
+  printf 'Local runner configured: %s\n' "$([[ -f "$runner_path/.runner" ]] && printf yes || printf no)"
+  printf 'Local runner service state: %s\n' "$runner_state"
+  printf 'Active local containers: %s\n' "$active_containers"
+  echo
+  echo "Recommended no-spend safeguards:"
+  echo "- Disable GitHub Actions in repo settings."
+  echo "- Disable workflows and delete runs, artifacts, caches, and Codespaces."
+  echo "- Stop the local runner service."
+  echo "- Stop active local devcontainer containers."
+  echo "- Patch workflow files in code to self-hosted labels for future use."
 }
 
 reset_cleanup_plan() {
@@ -4163,7 +4490,7 @@ backup_workflows() {
   fi
 }
 
-patch_workflows_for_self_hosted() {
+patch_workflows_for_self_hosted_apply() {
   local changed="false"
   local file=""
 
@@ -4173,10 +4500,6 @@ patch_workflows_for_self_hosted() {
 
   if [[ ! -d "$REPO_DIR/.github/workflows" ]]; then
     info "No workflow folder found. Skipping workflow patch."
-    return
-  fi
-
-  if ! confirm "Patch workflow files to use the self-hosted Mac runner for $SLUG?"; then
     return
   fi
 
@@ -4204,6 +4527,14 @@ patch_workflows_for_self_hosted() {
   fi
 }
 
+patch_workflows_for_self_hosted() {
+  if ! confirm "Patch workflow files to use the self-hosted Mac runner for $SLUG?"; then
+    return
+  fi
+
+  patch_workflows_for_self_hosted_apply
+}
+
 offer_commit_workflow_changes() {
   if [[ ! -d "$REPO_DIR/.github/workflows" ]]; then
     return
@@ -4229,6 +4560,69 @@ offer_commit_workflow_changes() {
     git push origin HEAD
     echo "Workflow changes pushed." | tee -a "$REPORT_FILE"
   fi
+}
+
+run_recommended_cost_control_for_slug() {
+  local slug="$1"
+  local old_mode="$MODE"
+  local cost_failed=0
+
+  ensure_github_ready_for_browser_actions
+  prepare_repo_vars "$slug"
+  MODE="cost_control"
+  write_report_header
+  show_cost_control_summary_for_slug "$slug" | tee -a "$REPORT_FILE"
+  echo | tee -a "$REPORT_FILE"
+
+  if ! disable_repo_actions_in_settings; then
+    cost_failed=1
+  fi
+
+  reset_cleanup_plan
+  DO_DISABLE=1
+  DO_RUNS=1
+  DO_ARTIFACTS=1
+  DO_CACHES=1
+  DO_CODESPACES=1
+
+  if ! disable_workflows_cleanup; then
+    cost_failed=1
+  fi
+  if ! delete_runs_cleanup; then
+    cost_failed=1
+  fi
+  if ! delete_artifacts_cleanup; then
+    cost_failed=1
+  fi
+  if ! delete_caches_cleanup; then
+    cost_failed=1
+  fi
+  if ! delete_codespaces_cleanup; then
+    cost_failed=1
+  fi
+  if ! stop_runner_service_for_dir "$RUNNER_DIR"; then
+    cost_failed=1
+  fi
+  if ! stop_active_containers_for_slug "$slug"; then
+    cost_failed=1
+  fi
+
+  if [[ -d "$REPO_DIR/.github/workflows" ]]; then
+    patch_workflows_for_self_hosted_apply
+    offer_commit_workflow_changes
+  fi
+
+  MODE="$old_mode"
+
+  echo | tee -a "$REPORT_FILE"
+  if [[ "$cost_failed" -eq 1 ]]; then
+    warn "Recommended no-spend safeguards finished with errors for $REPO_SPEC"
+  else
+    info "Recommended no-spend safeguards finished for $REPO_SPEC"
+  fi
+
+  printf 'Cost-control report saved to: %s\n' "$REPORT_FILE"
+  return "$cost_failed"
 }
 
 runner_is_configured() {
