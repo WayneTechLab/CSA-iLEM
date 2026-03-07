@@ -1,0 +1,15 @@
+CSA-iLEM Proprietary Software Notice
+Copyright (c) 2026 Wayne Tech Lab LLC. All rights reserved.
+
+This software and accompanying documentation are proprietary materials provided by Wayne Tech Lab LLC.
+
+Use of this software is subject to:
+- TERMS-OF-SERVICE.md
+- PRIVACY-NOTICE.md
+- DISCLAIMER.md
+- any separate written agreement, license, or distribution authorization provided by Wayne Tech Lab LLC
+
+No ownership rights are transferred by possession, download, copy, or installation of this package unless expressly stated in a separate written agreement.
+
+For product information, visit:
+https://www.WayneTechLab.com
