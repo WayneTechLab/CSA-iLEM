@@ -1,4 +1,5 @@
-CSA-iLEM Proprietary Software Notice
+CSA-iEM Proprietary Software Notice
+Full name: Container Setup & Action Import Engine Manager
 Copyright (c) 2026 Wayne Tech Lab LLC. All rights reserved.
 
 This software and accompanying documentation are proprietary materials provided by Wayne Tech Lab LLC.

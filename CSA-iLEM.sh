@@ -2,8 +2,8 @@
 set -euo pipefail
 
 #########################################################
-# CSA-iLEM
-# Codespaces & Actions -> Into Local Environment Mac
+# CSA-iEM
+# Container Setup & Action Import Engine Manager
 #
 # Migrates / prepares:
 # - GitHub Codespaces
@@ -17,8 +17,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-APP_NAME="CSA-iLEM"
-APP_VERSION="0.0.06"
+APP_NAME="CSA-iEM"
+APP_FULL_NAME="Container Setup & Action Import Engine Manager"
+APP_LEGACY_NAME="CSA-iLEM"
+APP_VERSION="0.0.13"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_VENDOR_URL="https://www.WayneTechLab.com"
 APP_RISK_NOTICE="Use at your own risk."
@@ -27,12 +29,18 @@ APP_NOTICE_FILE="$SCRIPT_DIR/NOTICE.md"
 APP_TERMS_FILE="$SCRIPT_DIR/TERMS-OF-SERVICE.md"
 APP_PRIVACY_FILE="$SCRIPT_DIR/PRIVACY-NOTICE.md"
 APP_DISCLAIMER_FILE="$SCRIPT_DIR/DISCLAIMER.md"
-PUBLIC_DEFAULT_ROOT="$HOME/CSA-iLEM"
+PUBLIC_DEFAULT_ROOT="$HOME/CSA-iEM"
 WTL_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 DIAMOND_CODE_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
 DIAMOND_RUNTIME_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 PUBLIC_CUSTOM_EXAMPLE_ROOT="$WTL_DEFAULT_ROOT"
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-ilem"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-iem"
+LEGACY_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-ilem"
+APP_SUPPORT_DIR="$HOME/Library/Application Support/CSA-iEM"
+LAST_SESSION_FILE="$APP_SUPPORT_DIR/last-session.env"
+LEGACY_LAST_SESSION_FILE="$HOME/Library/Application Support/CSA-iLEM/last-session.env"
+CLEANER_LAST_SESSION_FILE="$HOME/Library/Application Support/GH Workflow Clean/last-session.env"
+LEGACY_CLEANER_LAST_SESSION_FILE="$HOME/Library/Application Support/GitHub Action Clean-Up Tool/last-session.env"
 USER_BIN_DIR="$HOME/.local/bin"
 
 PROFILE_NAME="${CSA_PROFILE:-}"
@@ -45,6 +53,12 @@ ORIGINAL_ACCOUNT=""
 SWITCHED_ACCOUNT=0
 DOCKER_INSTALLED_THIS_RUN=0
 AUTO_USE_CURRENT_ROOT=0
+ASSUME_YES=0
+NO_COLOR=0
+DIRECT_CLEANUP_MODE=0
+LAST_HOST=""
+LAST_ACCOUNT=""
+LAST_REPO_SPEC=""
 
 DEFAULT_ROOT=""
 SAVED_DEFAULT_ROOT=""
@@ -95,6 +109,35 @@ IMPORTED_PROJECT_SLUGS=()
 IMPORTED_PROJECT_CODE_DIRS=()
 IMPORTED_PROJECT_RUNTIME_DIRS=()
 
+C_RESET=""
+C_RED=""
+C_GREEN=""
+C_YELLOW=""
+C_BLUE=""
+C_BOLD=""
+
+supports_color() {
+  [[ -t 1 ]] && [[ "$NO_COLOR" -eq 0 ]]
+}
+
+init_colors() {
+  if supports_color; then
+    C_RESET=$'\033[0m'
+    C_RED=$'\033[31m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_BLUE=$'\033[34m'
+    C_BOLD=$'\033[1m'
+  else
+    C_RESET=""
+    C_RED=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_BLUE=""
+    C_BOLD=""
+  fi
+}
+
 print_line() {
   printf '%*s\n' "${COLUMNS:-80}" '' | tr ' ' '='
 }
@@ -123,10 +166,13 @@ show_about() {
   print_line
   printf '%s v%s\n' "$APP_NAME" "$APP_VERSION"
   print_line
+  printf 'Full name: %s\n' "$APP_FULL_NAME"
+  printf 'Legacy compatibility name: %s\n' "$APP_LEGACY_NAME"
   printf 'Provided by: %s\n' "$APP_VENDOR"
   printf 'Website: %s\n' "$APP_VENDOR_URL"
   printf 'Notice: %s\n' "$APP_RISK_NOTICE"
   echo
+  echo "$APP_FULL_NAME"
   echo "$APP_TAGLINE"
   echo
   echo "Included documents:"
@@ -140,15 +186,15 @@ show_about() {
 }
 
 info() {
-  printf '[INFO] %s\n' "$*"
+  printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*"
 }
 
 warn() {
-  printf '[WARN] %s\n' "$*"
+  printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*"
 }
 
 err() {
-  printf '[ERROR] %s\n' "$*" >&2
+  printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2
 }
 
 pause() {
@@ -161,6 +207,11 @@ confirm() {
 
   if [[ "$FULL_AUTO" -eq 1 ]]; then
     info "FULL AUTO: yes -> $prompt"
+    return 0
+  fi
+
+  if [[ "$ASSUME_YES" -eq 1 ]]; then
+    info "Assume yes -> $prompt"
     return 0
   fi
 
@@ -196,6 +247,10 @@ profile_config_file() {
   printf '%s/%s.env' "$CONFIG_DIR" "$PROFILE_NAME"
 }
 
+legacy_profile_config_file() {
+  printf '%s/%s.env' "$LEGACY_CONFIG_DIR" "$PROFILE_NAME"
+}
+
 save_profile_config() {
   local config_file=""
 
@@ -210,12 +265,65 @@ EOF
 
 load_profile_config() {
   local config_file=""
+  local legacy_file=""
 
   config_file="$(profile_config_file)"
+  legacy_file="$(legacy_profile_config_file)"
   if [[ -f "$config_file" ]]; then
     # shellcheck disable=SC1090
     . "$config_file"
+  elif [[ -f "$legacy_file" ]]; then
+    # shellcheck disable=SC1090
+    . "$legacy_file"
   fi
+}
+
+load_last_session() {
+  local source_file=""
+  local line=""
+  local key=""
+  local value=""
+
+  if [[ -f "$LAST_SESSION_FILE" ]]; then
+    source_file="$LAST_SESSION_FILE"
+  elif [[ -f "$LEGACY_LAST_SESSION_FILE" ]]; then
+    source_file="$LEGACY_LAST_SESSION_FILE"
+  elif [[ -f "$CLEANER_LAST_SESSION_FILE" ]]; then
+    source_file="$CLEANER_LAST_SESSION_FILE"
+  elif [[ -f "$LEGACY_CLEANER_LAST_SESSION_FILE" ]]; then
+    source_file="$LEGACY_CLEANER_LAST_SESSION_FILE"
+  else
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      HOST) LAST_HOST="$value" ;;
+      ACCOUNT) LAST_ACCOUNT="$value" ;;
+      REPO) LAST_REPO_SPEC="$value" ;;
+    esac
+  done < "$source_file"
+}
+
+save_last_session() {
+  local previous_umask=""
+
+  [[ -n "$HOST" && -n "$ACCOUNT" && -n "$OWNER" && -n "$REPO" ]] || return 0
+
+  mkdir -p "$APP_SUPPORT_DIR"
+  chmod 700 "$APP_SUPPORT_DIR" >/dev/null 2>&1 || true
+
+  previous_umask="$(umask)"
+  umask 077
+  cat > "$LAST_SESSION_FILE" <<EOF
+HOST=$HOST
+ACCOUNT=$ACCOUNT
+REPO=$HOST/$OWNER/$REPO
+EOF
+  umask "$previous_umask"
 }
 
 set_profile_defaults() {
@@ -261,7 +369,7 @@ select_profile() {
 
   echo
   print_line
-  echo "CSA-iLEM Edition"
+  echo "$APP_NAME Edition"
   print_line
   echo "1) Public"
   echo "2) WTL"
@@ -544,13 +652,21 @@ ensure_auth_for_host() {
 select_host() {
   local hosts=()
   local line=""
+  local default_host=""
+
+  if [[ -n "$HOST" ]]; then
+    ensure_auth_for_host "$HOST"
+    info "Using GitHub host $HOST"
+    return 0
+  fi
 
   while IFS= read -r line; do
     [[ -n "$line" ]] && hosts+=("$line")
   done < <(load_hosts)
 
   if [[ "${#hosts[@]}" -eq 0 ]]; then
-    HOST="$(prompt_nonempty "GitHub host" "github.com")"
+    default_host="${LAST_HOST:-github.com}"
+    HOST="$(prompt_nonempty "GitHub host" "$default_host")"
     ensure_auth_for_host "$HOST"
     return 0
   fi
@@ -560,6 +676,17 @@ select_host() {
     ensure_auth_for_host "$HOST"
     info "Using GitHub host $HOST"
     return 0
+  fi
+
+  if [[ -n "$LAST_HOST" ]]; then
+    for line in "${hosts[@]}"; do
+      if [[ "$line" == "$LAST_HOST" ]]; then
+        HOST="$LAST_HOST"
+        ensure_auth_for_host "$HOST"
+        info "Using GitHub host $HOST"
+        return 0
+      fi
+    done
   fi
 
   HOST="$(choose_from_list "Available GitHub Hosts" "${hosts[@]}")"
@@ -599,10 +726,54 @@ select_account() {
     fi
   done
 
+  if [[ -n "$ACCOUNT" ]]; then
+    for line in "${lines[@]}"; do
+      IFS=$'\t' read -r login state <<<"$line"
+      if [[ "$login" == "$ACCOUNT" ]]; then
+        if [[ "$ACCOUNT" != "$active_account" ]]; then
+          if [[ "$SWITCHED_ACCOUNT" -eq 0 ]]; then
+            ORIGINAL_ACCOUNT="$active_account"
+          fi
+          SWITCHED_ACCOUNT=1
+          info "Switching active GitHub account on $HOST to $ACCOUNT"
+          gh auth switch --hostname "$HOST" --user "$ACCOUNT" >/dev/null || {
+            err "Failed to switch the GitHub account."
+            exit 1
+          }
+        fi
+        return 0
+      fi
+    done
+    err "Authenticated account $ACCOUNT was not found on $HOST."
+    exit 1
+  fi
+
   if [[ "${#lines[@]}" -eq 1 ]]; then
     IFS=$'\t' read -r ACCOUNT state <<<"${lines[0]}"
     info "Using GitHub account $ACCOUNT on $HOST"
     return 0
+  fi
+
+  if [[ -n "$LAST_ACCOUNT" ]]; then
+    for line in "${lines[@]}"; do
+      IFS=$'\t' read -r login state <<<"$line"
+      if [[ "$login" == "$LAST_ACCOUNT" ]]; then
+        ACCOUNT="$LAST_ACCOUNT"
+        if [[ -n "$active_account" && "$ACCOUNT" != "$active_account" ]]; then
+          if [[ "$SWITCHED_ACCOUNT" -eq 0 ]]; then
+            ORIGINAL_ACCOUNT="$active_account"
+          fi
+          SWITCHED_ACCOUNT=1
+          info "Switching active GitHub account on $HOST to $ACCOUNT"
+          gh auth switch --hostname "$HOST" --user "$ACCOUNT" >/dev/null || {
+            err "Failed to switch the GitHub account."
+            exit 1
+          }
+        fi
+        info "Using GitHub account $ACCOUNT on $HOST"
+        return 0
+      fi
+    done
   fi
 
   for line in "${lines[@]}"; do
@@ -669,9 +840,19 @@ ensure_api_ready() {
   fi
 }
 
+verify_repo_access() {
+  local target_spec="$1"
+
+  if ! gh repo view "$target_spec" --json nameWithOwner >/dev/null 2>&1; then
+    err "Cannot access repository $target_spec on $HOST."
+    return 1
+  fi
+}
+
 show_help() {
   cat <<EOF
 $APP_NAME v$APP_VERSION
+$APP_FULL_NAME
 $APP_TAGLINE
 Provided by $APP_VENDOR
 $APP_VENDOR_URL
@@ -690,9 +871,17 @@ Usage:
   $(basename "$0") --profile wtl
   $(basename "$0") --profile diamond
   $(basename "$0") --browse
+  $(basename "$0") --browse-projects
   $(basename "$0") --browse --use-current-root
+  $(basename "$0") --browse-projects --use-current-root
+  $(basename "$0") --browse-cost-control
+  $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
+  $(basename "$0") --repo OWNER/REPO --all --yes
+  $(basename "$0") --profile diamond --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
+  $(basename "$0") --repo https://github.com/OWNER/REPO --delete-runs --run https://github.com/OWNER/REPO/actions/runs/123456789 --yes
+  $(basename "$0") --host github.com --account USER --repo OWNER/REPO --delete-runs --run-filter "release" --dry-run --yes
 
 What it does:
   - Scans the current machine before any install prompts
@@ -714,10 +903,27 @@ What it does:
   - Can optionally commit and push workflow changes
   - Includes a browser for imported projects, active local containers, and local Actions runners
   - Lets you open an imported project in VS Code and optionally start its devcontainer
-  - Can jump directly into the local project browser or installed devcontainer browser
+  - Can jump directly into imported projects, the full local browser, cost-control review, or installed devcontainers
+  - Accepts cleaner-style direct cleanup flags for host, account, repo, workflows, runs, artifacts, caches, and Codespaces
   - Can be installed into ~/.local/bin on any supported Mac with the included install.sh
   - Returns to a main menu after single operations instead of exiting immediately
   - Restores your original GitHub account when the script exits if it switched accounts
+
+Direct cleanup flags:
+  --host HOST
+  --account USER
+  --repo TARGET
+  --disable-workflows
+  --delete-runs
+  --run TARGET
+  --run-filter TEXT
+  --delete-artifacts
+  --delete-caches
+  --delete-codespaces
+  --all
+  --yes
+  --dry-run
+  --no-color
 
 Built-in default roots:
   Public: $PUBLIC_DEFAULT_ROOT
@@ -728,16 +934,27 @@ Built-in default roots:
 Wrapper scripts:
   install.sh
   uninstall.sh
+  run-gui.sh
+  build-gui-app.sh
   CSA-iLEM-Public.sh
   CSA-iLEM-WTL.sh
   CSA-iLEM-Diamond.sh
   CSA-iLEM-Open.sh
   openproj
+  csa-iem
+  csa-iem-public
+  csa-iem-wtl
+  csa-iem-diamond
+  csa-iem-open
+  csa-iem-gui
+  csa-iem-build-gui
   csa-ilem
   csa-ilem-public
   csa-ilem-wtl
   csa-ilem-diamond
   csa-ilem-open
+  csa-ilem-gui
+  csa-ilem-build-gui
 
 Folders created:
   Single-root editions:
@@ -1238,13 +1455,13 @@ show_workspace_root_guide() {
   print_line
   echo "Workspace Root Guide"
   print_line
-  echo "What CSA-iLEM does:"
+  echo "What $APP_NAME does:"
   echo "- Clones GitHub repos into local workspaces."
   echo "- Prepares local devcontainers / Codespaces-style runtime workspaces."
   echo "- Installs repo-level self-hosted GitHub Actions runners."
   echo "- Saves reports and workflow backups for repeatable local operations."
   echo
-  echo "Why CSA-iLEM uses these folders:"
+  echo "Why $APP_NAME uses these folders:"
   if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
     echo "- The code root stays clean for normal editing, Codex, and CLI work."
     echo "- The runtime root is isolated for local Codespaces-style work, containers, reports, backups, and runners."
@@ -1254,7 +1471,7 @@ show_workspace_root_guide() {
     echo "- This makes the whole local setup portable and predictable."
   fi
   echo
-  echo "Where CSA-iLEM saves files:"
+  echo "Where $APP_NAME saves files:"
   if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
     printf '  Plain repo clones: %s/Repos/<owner>/<repo>\n' "$effective_code_root"
     printf '  Runtime workspaces: %s/Repos/<owner>/<repo>\n' "$effective_runtime_root"
@@ -1270,7 +1487,7 @@ show_workspace_root_guide() {
     printf '  Helper scripts: %s/Scripts\n' "$effective_root"
   fi
   echo
-  echo "Other places CSA-iLEM may write:"
+  echo "Other places $APP_NAME may write:"
   printf '  Saved root settings: %s/%s.env\n' "$CONFIG_DIR" "$PROFILE_NAME"
   echo "  macOS runner services: ~/Library/LaunchAgents/"
   echo "  macOS runner logs: ~/Library/Logs/"
@@ -1374,14 +1591,14 @@ choose_root() {
     echo "2) Set my own default Diamond roots for next time"
     echo "3) Use one-time Diamond roots"
     echo "4) Reset the saved Diamond roots back to the built-in defaults"
-    echo "5) Explain how CSA-iLEM works, why it uses these folders, and where it saves files"
+    echo "5) Explain how $APP_NAME works, why it uses these folders, and where it saves files"
   else
     echo "Press Enter to use the current default root and continue to the Main Menu."
     echo "1) Use current default root"
     echo "2) Set my own default root for next time"
     echo "3) Use a one-time custom root"
     echo "4) Reset the saved default back to the built-in default"
-    echo "5) Explain how CSA-iLEM works, why it uses this root, and where it saves files"
+    echo "5) Explain how $APP_NAME works, why it uses this root, and where it saves files"
   fi
   echo
 
@@ -2102,6 +2319,7 @@ project_smart_open_dir_for_slug() {
 }
 
 collect_imported_projects() {
+  local include_docker="${1:-1}"
   IMPORTED_PROJECT_SLUGS=()
   IMPORTED_PROJECT_CODE_DIRS=()
   IMPORTED_PROJECT_RUNTIME_DIRS=()
@@ -2118,9 +2336,7 @@ collect_imported_projects() {
       slug="$(project_slug_from_repo_dir "$repo_path")"
       add_imported_project "$slug" "$repo_path" "code"
     done < <(
-      find "$CODE_REPOS_DIR" \( -name .git -type d -o -name .git -type f \) -print 2>/dev/null \
-        | while IFS= read -r git_path; do dirname "$git_path"; done \
-        | LC_ALL=C sort -u
+      find "$CODE_REPOS_DIR" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | LC_ALL=C sort
     )
   fi
 
@@ -2132,9 +2348,7 @@ collect_imported_projects() {
       slug="$(project_slug_from_repo_dir "$repo_path")"
       add_imported_project "$slug" "$repo_path" "runtime"
     done < <(
-      find "$RUNTIME_REPOS_DIR" \( -name .git -type d -o -name .git -type f \) -print 2>/dev/null \
-        | while IFS= read -r git_path; do dirname "$git_path"; done \
-        | LC_ALL=C sort -u
+      find "$RUNTIME_REPOS_DIR" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | LC_ALL=C sort
     )
   fi
 
@@ -2149,7 +2363,7 @@ collect_imported_projects() {
     fi
   done < <(find "$RUNNERS_DIR" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | LC_ALL=C sort)
 
-  if command -v docker >/dev/null 2>&1 && docker_engine_ready; then
+  if [[ "$include_docker" -eq 1 ]] && command -v docker >/dev/null 2>&1 && docker_engine_ready; then
     while IFS= read -r container_path; do
       [[ -n "$container_path" ]] || continue
       [[ -d "$container_path" ]] || continue
@@ -2337,7 +2551,7 @@ smart_open_project() {
   fi
 
   if project_has_generated_devcontainer_by_slug "$slug"; then
-    info "$slug is using a CSA-iLEM-generated local starter devcontainer."
+    info "$slug is using a $APP_NAME-generated local starter devcontainer."
     echo "Open it in VS Code and tune the generated .devcontainer for this repo as needed."
     echo "Use 'Force start/update local devcontainer now' only when you explicitly want to test the generated starter."
     return 0
@@ -2476,6 +2690,56 @@ browse_project_actions() {
         ;;
       *)
         warn "Invalid choice."
+        ;;
+    esac
+  done
+}
+
+browse_imported_projects_quick() {
+  local idx=""
+  local i=1
+
+  collect_imported_projects 0
+
+  if [[ "${#IMPORTED_PROJECT_SLUGS[@]}" -eq 0 ]]; then
+    echo
+    print_line
+    echo "Imported Projects"
+    print_line
+    echo "No imported projects were found under the current root."
+    pause
+    return 0
+  fi
+
+  while true; do
+    echo
+    print_line
+    echo "Imported Projects"
+    print_line
+    printf 'Detected imported projects: %s\n' "${#IMPORTED_PROJECT_SLUGS[@]}"
+    echo
+    i=1
+    while [[ "$i" -le "${#IMPORTED_PROJECT_SLUGS[@]}" ]]; do
+      printf '%3d) %s\n' "$i" "${IMPORTED_PROJECT_SLUGS[$((i - 1))]}"
+      i=$((i + 1))
+    done
+    echo "  B) Back"
+    echo
+
+    read -r -p "Select a project: " idx
+    case "$idx" in
+      b|B)
+        return 0
+        ;;
+      ''|*[!0-9]*)
+        warn "Invalid selection."
+        ;;
+      *)
+        if [[ "$idx" -lt 1 || "$idx" -gt "${#IMPORTED_PROJECT_SLUGS[@]}" ]]; then
+          warn "Selection is out of range."
+        else
+          browse_project_actions "${IMPORTED_PROJECT_SLUGS[$((idx - 1))]}"
+        fi
         ;;
     esac
   done
@@ -3154,6 +3418,7 @@ normalize_repo_input() {
   local owner_input="$1"
   local repo_input="${2:-}"
   local combined=""
+  local parsed_host=""
 
   owner_input="$(trim "$owner_input")"
   repo_input="$(trim "$repo_input")"
@@ -3168,18 +3433,40 @@ normalize_repo_input() {
     combined="$owner_input/$repo_input"
   fi
 
-  combined="${combined#https://github.com/}"
-  combined="${combined#http://github.com/}"
-  combined="${combined#github.com/}"
-  combined="${combined#https://www.github.com/}"
-  combined="${combined#http://www.github.com/}"
-  combined="${combined#www.github.com/}"
+  if [[ "$combined" =~ ^https?://([^/]+)/([^/]+)/([^/]+)/?$ ]]; then
+    parsed_host="${BASH_REMATCH[1]}"
+    OWNER="${BASH_REMATCH[2]}"
+    REPO="${BASH_REMATCH[3]}"
+    REPO="${REPO%.git}"
+    [[ -n "$parsed_host" ]] && HOST="$parsed_host"
+    printf '%s/%s' "$OWNER" "$REPO"
+    return 0
+  fi
+
+  if [[ "$combined" =~ ^git@([^:]+):([^/]+)/([^/]+)\.git$ ]]; then
+    parsed_host="${BASH_REMATCH[1]}"
+    OWNER="${BASH_REMATCH[2]}"
+    REPO="${BASH_REMATCH[3]}"
+    [[ -n "$parsed_host" ]] && HOST="$parsed_host"
+    printf '%s/%s' "$OWNER" "$REPO"
+    return 0
+  fi
+
+  combined="${combined#https://}"
+  combined="${combined#http://}"
+  combined="${combined#www.}"
   combined="${combined#${HOST}/}"
 
   while [[ "$combined" == */ && "$combined" != "/" ]]; do
     combined="${combined%/}"
   done
   combined="${combined%.git}"
+
+  if [[ "$combined" == */*/* ]]; then
+    parsed_host="${combined%%/*}"
+    combined="${combined#*/}"
+    [[ -n "$parsed_host" ]] && HOST="$parsed_host"
+  fi
 
   case "$combined" in
     */*)
@@ -3314,6 +3601,28 @@ disable_repo_actions_in_settings() {
 
   warn "Failed to disable GitHub Actions in repo settings."
   return 1
+}
+
+cleanup_actions_requested() {
+  (( FULL_CLEANUP + DO_DISABLE + DO_RUNS + DO_ARTIFACTS + DO_CACHES + DO_CODESPACES > 0 ))
+}
+
+resolve_cleanup_targets() {
+  local parsed_run_id=""
+
+  if [[ "$DO_RUNS" -ne 1 ]]; then
+    return 0
+  fi
+
+  if [[ -n "$TARGET_RUN_ID" ]]; then
+    if ! parsed_run_id="$(parse_run_target "$TARGET_RUN_ID")"; then
+      err "Run target must be a numeric workflow run ID or a GitHub Actions run URL."
+      return 1
+    fi
+    TARGET_RUN_ID="$parsed_run_id"
+  fi
+
+  return 0
 }
 
 stop_runner_service_for_dir() {
@@ -3657,6 +3966,45 @@ configure_cleanup_plan() {
   local target_value=""
   local parsed_run_id=""
 
+  if [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
+    if ! cleanup_actions_requested; then
+      if confirm "Run full cleanup for $REPO_SPEC (disable workflows, delete runs, artifacts, caches, Codespaces)?" "Y"; then
+        FULL_CLEANUP=1
+        DO_DISABLE=1
+        DO_RUNS=1
+        DO_ARTIFACTS=1
+        DO_CACHES=1
+        DO_CODESPACES=1
+      else
+        confirm "Disable all workflows?" && DO_DISABLE=1
+        confirm "Delete workflow runs?" && DO_RUNS=1
+        confirm "Delete Actions artifacts?" && DO_ARTIFACTS=1
+        confirm "Delete Actions caches?" && DO_CACHES=1
+        confirm "Delete Codespaces?" && DO_CODESPACES=1
+      fi
+    fi
+
+    if (( DO_DISABLE + DO_RUNS + DO_ARTIFACTS + DO_CACHES + DO_CODESPACES == 0 )); then
+      err "No cleanup action selected."
+      return 1
+    fi
+
+    if [[ "$DO_RUNS" -eq 1 && -z "$TARGET_RUN_ID" && -z "$RUN_FILTER" && "$ASSUME_YES" -eq 0 ]]; then
+      target_value="$(prompt_optional "Specific run URL or ID (optional, blank for none)")"
+      if [[ -n "$target_value" ]]; then
+        parsed_run_id="$(parse_run_target "$target_value")" || {
+          err "Run target must be a numeric workflow run ID or a GitHub Actions run URL."
+          return 1
+        }
+        TARGET_RUN_ID="$parsed_run_id"
+      else
+        RUN_FILTER="$(prompt_optional "Workflow run filter (optional substring, blank for all runs)")"
+      fi
+    fi
+
+    return 0
+  fi
+
   reset_cleanup_plan
 
   if ! confirm "Run GitHub cleanup for $REPO_SPEC now?"; then
@@ -3974,6 +4322,7 @@ EOF
 
 run_cleanup_flow() {
   local cleanup_failed=0
+  local plan_is_preconfigured=0
 
   if [[ "$FULL_AUTO" -eq 1 && "$MODE" != "cleanup_only" ]]; then
     if [[ "$FULL_AUTO_CLEANUP" -eq 1 ]]; then
@@ -3988,13 +4337,23 @@ run_cleanup_flow() {
     fi
   else
     ensure_api_ready
+    if cleanup_actions_requested; then
+      plan_is_preconfigured=1
+    fi
 
-    if ! configure_cleanup_plan; then
-      return 0
+    if [[ "$plan_is_preconfigured" -eq 0 ]]; then
+      if ! configure_cleanup_plan; then
+        return 0
+      fi
+    fi
+
+    if ! resolve_cleanup_targets; then
+      return 1
     fi
 
     show_cleanup_summary
-    if ! confirm "Proceed with cleanup?"; then
+
+    if [[ "$ASSUME_YES" -ne 1 ]] && ! confirm "Proceed with cleanup?"; then
       warn "Cleanup cancelled."
       return 0
     fi
@@ -4308,15 +4667,15 @@ EOF
 EOF
   fi
 
-  cat > "$workspace_dir/.devcontainer/.csa-ilem-generated" <<'EOF'
-generated_by=CSA-iLEM
+  cat > "$workspace_dir/.devcontainer/.csa-ilem-generated" <<EOF
+generated_by=$APP_NAME
 EOF
 
   {
     echo "-- Created starter .devcontainer/devcontainer.json --"
     printf 'Target workspace: %s\n' "$workspace_dir"
     cat "$workspace_dir/.devcontainer/devcontainer.json"
-    echo "-- Marked as a CSA-iLEM-generated local starter --"
+    echo "-- Marked as a $APP_NAME-generated local starter --"
     echo
   } | tee -a "$REPORT_FILE"
 }
@@ -4351,7 +4710,7 @@ offer_local_devcontainer_start() {
     echo "Recommended default: quick startup check only."
   fi
   if project_has_generated_devcontainer "$workspace_dir"; then
-    echo "This workspace is a CSA-iLEM-generated local starter."
+    echo "This workspace is a $APP_NAME-generated local starter."
   fi
   if devcontainer_config_has_post_create "$workspace_dir"; then
     echo "This repo has a postCreateCommand and a full setup may take a while."
@@ -4393,7 +4752,7 @@ offer_local_devcontainer_start() {
 
   if [[ "$test_mode" == "full" ]]; then
     if project_has_generated_devcontainer "$workspace_dir"; then
-      warn "This repo is using a CSA-iLEM-generated local starter devcontainer, not an original checked-in Codespaces config."
+      warn "This repo is using a $APP_NAME-generated local starter devcontainer, not an original checked-in Codespaces config."
     fi
     if devcontainer_config_has_post_create "$workspace_dir" || devcontainer_config_uses_dind "$workspace_dir"; then
       if ! confirm "Full setup may take a while or look stuck. Continue anyway?"; then
@@ -4457,7 +4816,7 @@ offer_codespace_guidance() {
     fi
     if ! repo_has_devcontainer_file "$REPO_DIR"; then
       echo "This repo does not include a checked-in devcontainer yet."
-      echo "CSA-iLEM can generate a local starter, but that is not the same as a portable existing Codespaces definition."
+      printf '%s can generate a local starter, but that is not the same as a portable existing Codespaces definition.\n' "$APP_NAME"
       echo
     fi
     if ! codespace_scope_available; then
@@ -4553,7 +4912,7 @@ offer_commit_workflow_changes() {
   fi
 
   git add .github/workflows
-  git commit -m "CSA-iLEM: switch workflows to self-hosted mac runner"
+  git commit -m "CSA-iEM: switch workflows to self-hosted mac runner"
   echo "Workflow changes committed locally." | tee -a "$REPORT_FILE"
 
   if confirm "Push this commit to origin now?"; then
@@ -4824,22 +5183,35 @@ open_in_vscode_tip() {
 
 process_repo() {
   prepare_repo_vars "$1"
+  save_last_session
 
   echo
   print_line
   printf 'Processing: %s\n' "$REPO_SPEC"
   print_line
 
-  if ! clone_or_update_repo; then
-    err "Failed to prepare $REPO_SPEC"
-    return 1
-  fi
-  write_report_header
-  audit_repo
-  show_devcontainer_preview
-
   case "$MODE" in
+    cleanup_only)
+      if ! verify_repo_access "$REPO_SPEC"; then
+        return 1
+      fi
+      write_report_header
+      {
+        echo "== Cleanup Only =="
+        echo
+        echo "Cleanup-only mode skips local clone/update, devcontainer, and runner preparation."
+        echo
+      } | tee -a "$REPORT_FILE"
+      run_cleanup_flow
+      ;;
     codespace_to_local)
+      if ! clone_or_update_repo; then
+        err "Failed to prepare $REPO_SPEC"
+        return 1
+      fi
+      write_report_header
+      audit_repo
+      show_devcontainer_preview
       offer_codespace_guidance
       create_basic_devcontainer_if_missing
       offer_local_devcontainer_start
@@ -4851,11 +5223,25 @@ process_repo() {
       run_cleanup_flow
       ;;
     repo_to_local)
+      if ! clone_or_update_repo; then
+        err "Failed to prepare $REPO_SPEC"
+        return 1
+      fi
+      write_report_header
+      audit_repo
+      show_devcontainer_preview
       create_basic_devcontainer_if_missing
       offer_local_devcontainer_start
       open_in_vscode_tip
       ;;
     repo_to_local_plus)
+      if ! clone_or_update_repo; then
+        err "Failed to prepare $REPO_SPEC"
+        return 1
+      fi
+      write_report_header
+      audit_repo
+      show_devcontainer_preview
       create_basic_devcontainer_if_missing
       offer_local_devcontainer_start
       install_repo_runner
@@ -4863,9 +5249,6 @@ process_repo() {
       offer_commit_workflow_changes
       offer_validation_notes
       open_in_vscode_tip
-      run_cleanup_flow
-      ;;
-    cleanup_only)
       run_cleanup_flow
       ;;
   esac
@@ -4978,8 +5361,123 @@ parse_cli_args() {
       --profile=*)
         PROFILE_NAME="${1#*=}"
         ;;
+      --host)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--host requires a value."
+          exit 1
+        fi
+        HOST="$1"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --host=*)
+        HOST="${1#*=}"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --account)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--account requires a value."
+          exit 1
+        fi
+        ACCOUNT="$1"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --account=*)
+        ACCOUNT="${1#*=}"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --repo)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--repo requires a value."
+          exit 1
+        fi
+        REPO_SPEC="$1"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --repo=*)
+        REPO_SPEC="${1#*=}"
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --disable-workflows)
+        DO_DISABLE=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --delete-runs)
+        DO_RUNS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --run)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--run requires a value."
+          exit 1
+        fi
+        TARGET_RUN_ID="$1"
+        DO_RUNS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --run=*)
+        TARGET_RUN_ID="${1#*=}"
+        DO_RUNS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --run-filter)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--run-filter requires a value."
+          exit 1
+        fi
+        RUN_FILTER="$1"
+        DO_RUNS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --run-filter=*)
+        RUN_FILTER="${1#*=}"
+        DO_RUNS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --delete-artifacts)
+        DO_ARTIFACTS=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --delete-caches)
+        DO_CACHES=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --delete-codespaces)
+        DO_CODESPACES=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --all)
+        FULL_CLEANUP=1
+        DO_DISABLE=1
+        DO_RUNS=1
+        DO_ARTIFACTS=1
+        DO_CACHES=1
+        DO_CODESPACES=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --yes)
+        ASSUME_YES=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --dry-run)
+        DRY_RUN=1
+        DIRECT_CLEANUP_MODE=1
+        ;;
+      --no-color)
+        NO_COLOR=1
+        ;;
       --browse)
         ENTRY_MODE="browse"
+        ;;
+      --browse-projects)
+        ENTRY_MODE="projects"
+        ;;
+      --browse-cost-control)
+        ENTRY_MODE="costcontrol"
         ;;
       --browse-devcontainers)
         ENTRY_MODE="devcontainers"
@@ -4994,15 +5492,31 @@ parse_cli_args() {
     esac
     shift
   done
+
+  if [[ -n "$REPO_SPEC" ]]; then
+    if [[ "$REPO_SPEC" =~ ^https?://([^/]+)/ ]]; then
+      HOST="${BASH_REMATCH[1]}"
+    elif [[ "$REPO_SPEC" == */*/* ]]; then
+      HOST="${REPO_SPEC%%/*}"
+    fi
+  fi
+
+  if [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
+    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="public"
+    AUTO_USE_CURRENT_ROOT=1
+  fi
 }
 
 main() {
   ensure_macos
   trap cleanup_on_exit EXIT
   parse_cli_args "$@"
+  init_colors
+  load_last_session
 
   print_line
   printf '%s v%s\n' "$APP_NAME" "$APP_VERSION"
+  echo "$APP_FULL_NAME"
   echo "$APP_TAGLINE"
   printf 'Provided by %s | %s | %s\n' "$APP_VENDOR" "$APP_VENDOR_URL" "$APP_RISK_NOTICE"
   print_line
@@ -5012,7 +5526,7 @@ main() {
   select_profile
   info "Using the $PROFILE_LABEL edition."
 
-  if [[ "$ENTRY_MODE" == "interactive" ]]; then
+  if [[ "$ENTRY_MODE" == "interactive" || "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
     install_brew_if_missing
     ensure_brew_shellenv_in_profile
 
@@ -5036,8 +5550,22 @@ main() {
 
   if [[ "$ENTRY_MODE" == "browse" ]]; then
     browse_local_resources
+  elif [[ "$ENTRY_MODE" == "projects" ]]; then
+    browse_imported_projects_quick
+  elif [[ "$ENTRY_MODE" == "costcontrol" ]]; then
+    browse_cost_control_review
   elif [[ "$ENTRY_MODE" == "devcontainers" ]]; then
     browse_installed_devcontainers
+  elif [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
+    MODE="cleanup_only"
+    if [[ -z "$REPO_SPEC" ]]; then
+      REPO_SPEC="$(prompt_nonempty "GitHub repo (OWNER/REPO, HOST/OWNER/REPO, or https://HOST/OWNER/REPO)" "${LAST_REPO_SPEC#*/}")"
+    fi
+    if ! REPO_SPEC="$(normalize_repo_input "$REPO_SPEC")"; then
+      exit 1
+    fi
+    SELECTED_REPOS=("$REPO_SPEC")
+    process_selected_repositories
   else
     main_menu_loop
   fi

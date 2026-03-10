@@ -2,18 +2,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME="CSA-iLEM"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.06')"
-INSTALL_ROOT="${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-ilem}"
-BIN_DIR="${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}"
+APP_NAME="CSA-iEM"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.13')"
+INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
+BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"
 
 COMMANDS=(
+  "csa-iem"
+  "csa-iem-public"
+  "csa-iem-wtl"
+  "csa-iem-diamond"
+  "csa-iem-open"
+  "csa-iem-gui"
+  "csa-iem-build-gui"
   "csa-ilem"
   "csa-ilem-public"
   "csa-ilem-wtl"
   "csa-ilem-diamond"
   "csa-ilem-open"
+  "csa-ilem-gui"
+  "csa-ilem-build-gui"
   "openproj"
 )
 
