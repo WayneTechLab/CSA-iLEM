@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.1.0`  
+Version: `0.2.1`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -60,7 +60,7 @@ Advanced compatibility wrappers still ship:
 Stable public install from any supported Mac terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.1.0/install-remote.sh | bash -s -- --ref 0.1.0
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.1/install-remote.sh | bash -s -- --ref 0.2.1
 ```
 
 Install the latest `main` build:
@@ -90,7 +90,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production bundle into `~/.local/share/csa-iem/0.1.0`
+- copies the production bundle into `~/.local/share/csa-iem/0.2.1`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -151,12 +151,17 @@ dist/CSA-iEM.app
 ```
 
 The GUI is a SwiftUI macOS app that:
-- uses simple task pages for `Home`, `Projects`, `Cleanup`, `Workspace`, and `About`
+- uses simple task pages for `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
 - keeps project browsing on-screen with native search, targeting, and direct VS Code / Finder open actions
-- lets the native local project library feed cleanup targeting directly
+- adds a native jobs center for background operations, status, retries, and logs
+- adds a dedicated `GitHub Account` page for host, account, organization, and repository management while staying connected to the same `gh` session
+- adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
+- adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/runtime/runner combinations to another folder or external drive
+- adds native backup presets, previews, snapshots, restore actions, storage insights, sync status, per-project task templates, and local port monitoring
+- lets the native local project library feed cleanup and local-file targeting directly
 - treats custom-drive setups as auto-detected workspace examples instead of exposing internal preset names
 - keeps terminal launchers in an advanced area instead of making them the main navigation model
-- runs `--about`, `--help`, and `--version` directly inside the app
+- runs the CLI engine in the background for cleanup and file operations while the user stays in the GUI
 - displays bundled docs inside the app
 - resolves the local CLI bundle automatically from either the repo or the packaged `.app`
 - uses a temp SwiftPM scratch path by default so GUI builds stay fast even when the repo is on an external drive
@@ -205,6 +210,18 @@ Supported batch behavior:
 - resume from a repo number in all-repos mode
 - post-batch one-by-one review in VS Code
 - one-by-one cost-control review with yes / ok / no / skip flow
+
+## Native GUI Surfaces
+
+The current GUI-first production surface includes:
+- `Home` for summary, session state, and next actions
+- `Jobs` for background operations, logs, and retries
+- `GitHub Account` for host/account/org/repo inventory plus workflow/runs/Codespaces/admin views
+- `Projects` for searchable imported projects, favorites, task templates, live devcontainers, and runner services
+- `Local Files` for move/export previews, backup presets, and snapshots
+- `Cleanup` for preview-first destructive flows
+- `Workspace` for simple single-folder or split-folder setup
+- `Settings` for onboarding defaults, tool paths, and saved contexts/views
 
 ## Direct Cleanup CLI
 

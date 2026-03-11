@@ -1,6 +1,6 @@
 CSA-iEM
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.1.0
+Version: 0.2.1
 
 Provided by Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com

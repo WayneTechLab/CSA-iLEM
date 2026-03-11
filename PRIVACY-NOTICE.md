@@ -1,6 +1,6 @@
 CSA-iEM Privacy Notice
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.1.0
+Version: 0.2.1
 Provider: Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
 

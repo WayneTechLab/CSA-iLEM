@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.1.0')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.2.1')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 INSTALL_DIR=""
@@ -105,6 +105,28 @@ ensure_profile_line() {
   fi
 }
 
+build_path_export_line() {
+  local bin_path="$1"
+  local escaped=""
+
+  if [[ "$bin_path" == "$HOME" ]]; then
+    printf '%s' 'export PATH="$HOME:$PATH"'
+    return
+  fi
+
+  if [[ "$bin_path" == "$HOME/"* ]]; then
+    local suffix="${bin_path#$HOME}"
+    suffix="${suffix//\\/\\\\}"
+    suffix="${suffix//\"/\\\"}"
+    printf 'export PATH="$HOME%s:$PATH"' "$suffix"
+    return
+  fi
+
+  escaped="${bin_path//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  printf 'export PATH="%s:$PATH"' "$escaped"
+}
+
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --help|-h)
@@ -200,7 +222,7 @@ for command_name in "${COMMANDS[@]}"; do
 done
 
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
-  ensure_profile_line "$HOME/.zprofile" 'export PATH="$HOME/.local/bin:$PATH"'
+  ensure_profile_line "$HOME/.zprofile" "$(build_path_export_line "$BIN_DIR")"
 fi
 
 echo

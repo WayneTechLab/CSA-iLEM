@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.1
+
+- made workspace relocation safer by staging multi-root moves before switching destinations and reporting cleanup warnings instead of leaving a silent half-moved state
+- fixed the local-file export preview so the previewed destination matches the execution destination for the prepared export run
+- corrected the GitHub admin panels to report partial failures for secrets, variables, rulesets, and branch protection instead of silently showing empty results as success
+- stopped requesting GitHub variable values in the GUI inventory so the app only loads the metadata it actually displays
+- fixed the native `Open Repo Settings` action so it opens repository settings instead of the owner page
+- fixed terminal installs with custom `--bin-dir` values so the profile PATH update matches the actual chosen command directory
+- made the uninstaller preserve command links and the shared `current` symlink when they belong to another installed version
+- added a remote installer version/ref sanity check for tag-based installs
+
+## 0.2.0
+
+- added native `Jobs` and `Settings` pages so the GUI can manage background work, onboarding, saved contexts, and GUI-first defaults without forcing users into the CLI
+- expanded the `GitHub Account` page into a real admin surface with repo health, workflow control, workflow runs, Codespaces, secrets/variables inventory, and branch protection/ruleset views
+- expanded the `Projects` page with favorites, saved views, task templates, sync status, storage insights, port monitoring, and richer local devcontainer/runner controls
+- expanded the `Local Files` page with backup presets, preview-first move/export flows, and snapshot/restore controls
+- added native background job retry/cancel/clear flows and integrated more local operations into the GUI instead of Terminal fallbacks
+- updated production docs and install metadata for the `0.2.0` GUI-first release
+
+## 0.1.1
+
+- added a dedicated `GitHub Account` page so host, account, organization, and repository management no longer has to live on the main dashboard
+- added a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/runtime/runner combinations to another location or external drive
+- polished the `Local Files` UX with clearer action labels for copy vs move operations and one-project vs full-workspace flows
+- kept the GUI as the primary surface while the CLI continues to run in the background for cleanup and file operations
+- updated the public install and product docs to reflect the new GUI page model and `0.1.1` production bundle
+
 ## 0.1.0
 
 - redesigned the native app into task pages for `Home`, `Projects`, `Cleanup`, `Workspace`, and `About`

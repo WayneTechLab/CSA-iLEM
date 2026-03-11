@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
-REMOTE_INSTALLER_VERSION="0.1.0"
+REMOTE_INSTALLER_VERSION="0.2.1"
 DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
 DEFAULT_REF="${CSA_IEM_REF:-main}"
 INSTALL_ROOT=""
@@ -129,6 +129,17 @@ tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"
 SOURCE_DIR="$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 if [[ -z "${SOURCE_DIR:-}" || ! -f "$SOURCE_DIR/install.sh" ]]; then
   echo "The downloaded archive does not contain install.sh." >&2
+  exit 1
+fi
+
+ARCHIVE_VERSION="$(sed -n '1p' "$SOURCE_DIR/VERSION" 2>/dev/null || true)"
+if [[ -z "$ARCHIVE_VERSION" ]]; then
+  echo "The downloaded archive does not contain a readable VERSION file." >&2
+  exit 1
+fi
+
+if [[ "$REF_VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$ARCHIVE_VERSION" != "$REF_VALUE" ]]; then
+  echo "Requested ref $REF_VALUE, but the extracted archive reports VERSION $ARCHIVE_VERSION." >&2
   exit 1
 fi
 
