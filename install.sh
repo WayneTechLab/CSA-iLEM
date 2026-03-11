@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.14')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.1.0')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 INSTALL_DIR=""
@@ -216,10 +216,14 @@ if ! command -v swift >/dev/null 2>&1; then
   echo "  Install Xcode Command Line Tools or Xcode before using csa-iem-gui or csa-iem-build-gui."
   echo
 fi
-echo "Available commands:"
-for command_name in "${COMMANDS[@]}"; do
-  printf '  %s\n' "$command_name"
-done
+echo "Primary commands:"
+printf '  %s\n' "csa-iem" "csa-iem-gui" "csa-iem-build-gui" "csa-iem-open" "openproj"
+echo
+echo "Advanced compatibility commands:"
+printf '  %s\n' \
+  "csa-iem-public" "csa-iem-wtl" "csa-iem-diamond" \
+  "csa-ilem" "csa-ilem-public" "csa-ilem-wtl" "csa-ilem-diamond" \
+  "csa-ilem-open" "csa-ilem-gui" "csa-ilem-build-gui"
 echo
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
   echo "Run this in a new shell or now in the current one:"

@@ -6,11 +6,13 @@ import UniformTypeIdentifiers
 private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
-private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.14"
+private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
 private let publicDefaultRoot = NSString(string: "~/CSA-iEM").expandingTildeInPath
+private let genericSplitCodeDefaultRoot = (publicDefaultRoot as NSString).appendingPathComponent("Code")
+private let genericSplitRuntimeDefaultRoot = (publicDefaultRoot as NSString).appendingPathComponent("Runtime")
 private let wtlDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 private let diamondCodeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
 private let diamondRuntimeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
@@ -70,6 +72,37 @@ enum LaunchProfile: String, CaseIterable, Identifiable {
     case .public: return "Public"
     }
   }
+}
+
+enum WorkspaceStyle: String, CaseIterable, Identifiable {
+  case single
+  case split
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .single: return "Single Folder"
+    case .split: return "Split Folders"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .single:
+      return "One root folder for repos, runtime work, reports, and runners."
+    case .split:
+      return "Separate code and runtime folders for a cleaner local setup."
+    }
+  }
+}
+
+struct WorkspaceSuggestion {
+  let style: WorkspaceStyle
+  let title: String
+  let detail: String
+  let codeRoot: String
+  let runtimeRoot: String
 }
 
 struct AuthHostConfig {
@@ -157,6 +190,37 @@ struct LocalProjectEntry: Identifiable, Hashable {
   }
 }
 
+struct LiveContainerEntry: Identifiable, Hashable {
+  let containerID: String
+  let name: String
+  let image: String
+  let status: String
+  let workspacePath: String
+  let slug: String
+  let repo: String
+  let codePath: String?
+  let runtimePath: String?
+
+  var id: String { containerID }
+}
+
+struct RunnerServiceEntry: Identifiable, Hashable {
+  let slug: String
+  let repo: String
+  let runnerPath: String
+  let serviceLabel: String
+  let servicePlistPath: String?
+  let isRunning: Bool
+  let codePath: String?
+  let runtimePath: String?
+
+  var id: String { slug }
+
+  var statusLabel: String {
+    isRunning ? "running" : "stopped"
+  }
+}
+
 enum StatusKind {
   case ready
   case warning
@@ -183,7 +247,10 @@ enum StatusKind {
 }
 
 private enum AppDestination: String, CaseIterable, Identifiable {
-  case controlCenter
+  case home
+  case projects
+  case cleanup
+  case workspace
   case helpCenter
   case terms
   case security
@@ -196,7 +263,10 @@ private enum AppDestination: String, CaseIterable, Identifiable {
 
   var title: String {
     switch self {
-    case .controlCenter: return "Control Center"
+    case .home: return "Home"
+    case .projects: return "Projects"
+    case .cleanup: return "Cleanup"
+    case .workspace: return "Workspace"
     case .helpCenter: return "Help Center"
     case .terms: return "Terms of Service"
     case .security: return "Security Notes"
@@ -209,8 +279,14 @@ private enum AppDestination: String, CaseIterable, Identifiable {
 
   var subtitle: String {
     switch self {
-    case .controlCenter:
-      return "Primary operations workspace for GitHub auth, repository targeting, safety, and execution."
+    case .home:
+      return "Simple starting point with session state, workspace summary, and the next best actions."
+    case .projects:
+      return "Browse imported local projects on-screen, search them, and open them without dropping into Terminal."
+    case .cleanup:
+      return "Choose repositories, review scope, and run cleanup in the GUI while the CLI works in the background."
+    case .workspace:
+      return "Set where your local data lives, use the standard setup, or apply the detected setup on this Mac."
     case .helpCenter:
       return "Operational guidance, safety model, target selection rules, and first-run workflow."
     case .terms:
@@ -230,7 +306,10 @@ private enum AppDestination: String, CaseIterable, Identifiable {
 
   var icon: String {
     switch self {
-    case .controlCenter: return "switch.2"
+    case .home: return "house"
+    case .projects: return "shippingbox"
+    case .cleanup: return "trash"
+    case .workspace: return "internaldrive"
     case .helpCenter: return "questionmark.circle"
     case .terms: return "checklist"
     case .security: return "lock.shield"
@@ -243,7 +322,10 @@ private enum AppDestination: String, CaseIterable, Identifiable {
 
   var tint: Color {
     switch self {
-    case .controlCenter: return DashboardTheme.accent
+    case .home: return DashboardTheme.accent
+    case .projects: return DashboardTheme.deepBlue
+    case .cleanup: return DashboardTheme.warning
+    case .workspace: return DashboardTheme.success
     case .helpCenter: return DashboardTheme.success
     case .terms: return DashboardTheme.warning
     case .security: return DashboardTheme.deepBlue
@@ -262,7 +344,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .controlCenter, .about: return nil
+    case .home, .projects, .cleanup, .workspace, .about: return nil
     }
   }
 
@@ -278,15 +360,16 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.controlCenter, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .projects, .cleanup, .workspace, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
 final class CleanupViewModel: ObservableObject {
-  @Published var selectedProfile: LaunchProfile = .diamond {
+  @Published var selectedProfile: LaunchProfile = .public {
     didSet {
       if selectedProfile != oldValue {
         safetyArmEnabled = false
+        syncWorkspaceDraftsFromResolvedRoots()
         refreshLocalProjects()
       }
     }
@@ -294,10 +377,14 @@ final class CleanupViewModel: ObservableObject {
   @Published var useCurrentRoot = true {
     didSet {
       if useCurrentRoot != oldValue {
+        syncWorkspaceDraftsFromResolvedRoots()
         refreshLocalProjects()
       }
     }
   }
+  @Published var workspaceSingleRootDraft = publicDefaultRoot
+  @Published var workspaceCodeRootDraft = genericSplitCodeDefaultRoot
+  @Published var workspaceRuntimeRootDraft = genericSplitRuntimeDefaultRoot
   @Published var host = "github.com" {
     didSet {
       if host != oldValue {
@@ -355,6 +442,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var availableAccounts: [String] = []
   @Published var availableRepos: [RepoCatalogEntry] = []
   @Published var localProjects: [LocalProjectEntry] = []
+  @Published var activeContainers: [LiveContainerEntry] = []
+  @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var selectedRepos: Set<String> = [] {
     didSet {
       if selectedRepos != oldValue {
@@ -363,7 +452,8 @@ final class CleanupViewModel: ObservableObject {
     }
   }
   @Published var repoCatalogStatus = "Load repositories for the selected GitHub account or owner."
-  @Published var localProjectStatus = "Scan local imported projects for the current profile roots."
+  @Published var localProjectStatus = "Scan local imported projects for the current workspace roots."
+  @Published var liveServicesStatus = "Scan active local devcontainers and runner services for the current workspace."
   @Published var logText = "[gui] CSA-iEM ready.\n"
   @Published var statusTitle = "Checking GitHub CLI"
   @Published var statusDetail = "Loading local GitHub configuration."
@@ -373,6 +463,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var isLoggingOut = false
   @Published var isLoadingRepos = false
   @Published var isLoadingLocalProjects = false
+  @Published var isLoadingLiveServices = false
 
   private var hostConfigs: [AuthHostConfig] = []
   private var runningProcess: Process?
@@ -457,6 +548,10 @@ final class CleanupViewModel: ObservableObject {
     }
 
     return nil
+  }
+
+  var dockerPath: String? {
+    executablePath(named: "docker")
   }
 
   var bundledIcon: NSImage? {
@@ -617,6 +712,18 @@ final class CleanupViewModel: ObservableObject {
     localProjects.filter(\.hasRunner).count
   }
 
+  var activeContainerCount: Int {
+    activeContainers.count
+  }
+
+  var runningRunnerServiceCount: Int {
+    runnerServices.filter(\.isRunning).count
+  }
+
+  var liveServiceSummary: String {
+    "\(activeContainerCount) active devcontainers · \(runningRunnerServiceCount) running runners · \(runnerServices.count) configured runner services"
+  }
+
   var selectedLocalProjectCount: Int {
     localProjects.filter { selectedRepos.contains($0.slug) }.count
   }
@@ -627,6 +734,67 @@ final class CleanupViewModel: ObservableObject {
 
   var profileRootSummary: (codeRoot: String, runtimeRoot: String) {
     resolvedProfileRoots()
+  }
+
+  var selectedWorkspaceStyle: WorkspaceStyle {
+    selectedProfile == .diamond ? .split : .single
+  }
+
+  var workspaceStyleLabel: String {
+    selectedWorkspaceStyle.label
+  }
+
+  var workspaceHeadline: String {
+    switch selectedWorkspaceStyle {
+    case .single:
+      return "Single workspace folder"
+    case .split:
+      return "Split code and runtime folders"
+    }
+  }
+
+  var workspaceSummary: String {
+    let roots = resolvedProfileRoots()
+    switch selectedWorkspaceStyle {
+    case .single:
+      return roots.runtimeRoot
+    case .split:
+      return "Code: \(roots.codeRoot)\nRuntime: \(roots.runtimeRoot)"
+    }
+  }
+
+  var workspaceExecutionLabel: String {
+    switch selectedWorkspaceStyle {
+    case .single:
+      return "single-folder workspace"
+    case .split:
+      return "split-folder workspace"
+    }
+  }
+
+  var standardWorkspaceSuggestion: WorkspaceSuggestion {
+    switch selectedWorkspaceStyle {
+    case .single:
+      return WorkspaceSuggestion(
+        style: .single,
+        title: "Standard local workspace",
+        detail: "Best default for public use. Everything lives in one root under your home folder.",
+        codeRoot: publicDefaultRoot,
+        runtimeRoot: publicDefaultRoot
+      )
+    case .split:
+      return WorkspaceSuggestion(
+        style: .split,
+        title: "Standard split workspace",
+        detail: "Generic public example with one code folder and one runtime folder under your home directory.",
+        codeRoot: genericSplitCodeDefaultRoot,
+        runtimeRoot: genericSplitRuntimeDefaultRoot
+      )
+    }
+  }
+
+  var detectedWorkspaceSuggestion: WorkspaceSuggestion? {
+    detectedWorkspaceConfiguration()
   }
 
   var cleanupTargets: [String] {
@@ -682,9 +850,80 @@ final class CleanupViewModel: ObservableObject {
       repoOwner = account
     }
 
+    adoptDetectedWorkspaceIfNeeded()
+    syncWorkspaceDraftsFromResolvedRoots()
     reloadAuthInventory()
     refreshAuthStatus()
     refreshLocalProjects()
+  }
+
+  func setWorkspaceStyle(_ style: WorkspaceStyle) {
+    switch style {
+    case .single:
+      selectedProfile = .public
+    case .split:
+      selectedProfile = .diamond
+    }
+  }
+
+  func applyStandardWorkspace() {
+    let suggestion = standardWorkspaceSuggestion
+    applyWorkspaceSuggestion(suggestion)
+  }
+
+  func applyDetectedWorkspace() {
+    guard let suggestion = detectedWorkspaceSuggestion else {
+      appendLog("[gui] No detected workspace setup was found on this Mac.\n")
+      return
+    }
+    applyWorkspaceSuggestion(suggestion)
+  }
+
+  func saveWorkspaceDrafts() {
+    switch selectedWorkspaceStyle {
+    case .single:
+      let root = normalizeWorkspacePath(workspaceSingleRootDraft.isEmpty ? publicDefaultRoot : workspaceSingleRootDraft)
+      writeProfileConfig(
+        profile: .public,
+        values: ["SAVED_DEFAULT_ROOT": root]
+      )
+      selectedProfile = .public
+    case .split:
+      let codeRoot = normalizeWorkspacePath(workspaceCodeRootDraft.isEmpty ? genericSplitCodeDefaultRoot : workspaceCodeRootDraft)
+      let runtimeRoot = normalizeWorkspacePath(workspaceRuntimeRootDraft.isEmpty ? genericSplitRuntimeDefaultRoot : workspaceRuntimeRootDraft)
+      writeProfileConfig(
+        profile: .diamond,
+        values: [
+          "SAVED_CODE_ROOT": codeRoot,
+          "SAVED_RUNTIME_ROOT": runtimeRoot
+        ]
+      )
+      selectedProfile = .diamond
+    }
+    useCurrentRoot = true
+    syncWorkspaceDraftsFromResolvedRoots()
+    refreshLocalProjects()
+  }
+
+  func chooseSingleWorkspaceFolder() {
+    let startingPath = workspaceSingleRootDraft.isEmpty ? profileRootSummary.runtimeRoot : workspaceSingleRootDraft
+    if let selectedPath = chooseDirectory(startingAt: startingPath) {
+      workspaceSingleRootDraft = selectedPath
+    }
+  }
+
+  func chooseCodeWorkspaceFolder() {
+    let startingPath = workspaceCodeRootDraft.isEmpty ? profileRootSummary.codeRoot : workspaceCodeRootDraft
+    if let selectedPath = chooseDirectory(startingAt: startingPath) {
+      workspaceCodeRootDraft = selectedPath
+    }
+  }
+
+  func chooseRuntimeWorkspaceFolder() {
+    let startingPath = workspaceRuntimeRootDraft.isEmpty ? profileRootSummary.runtimeRoot : workspaceRuntimeRootDraft
+    if let selectedPath = chooseDirectory(startingAt: startingPath) {
+      workspaceRuntimeRootDraft = selectedPath
+    }
   }
 
   func reloadAuthInventory() {
@@ -749,14 +988,14 @@ final class CleanupViewModel: ObservableObject {
 
   func refreshLocalProjects() {
     isLoadingLocalProjects = true
-    localProjectStatus = "Scanning local projects for the \(selectedProfile.label) profile..."
-    let profileLabel = selectedProfile.label
+    localProjectStatus = "Scanning local projects for the \(workspaceStyleLabel.lowercased()) workspace..."
+    let workspaceLabel = workspaceStyleLabel
     let roots = resolvedProfileRoots()
 
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
       let result = Self.scanLocalProjects(
-        profileLabel: profileLabel,
+        workspaceLabel: workspaceLabel,
         codeRoot: roots.codeRoot,
         runtimeRoot: roots.runtimeRoot
       )
@@ -765,23 +1004,43 @@ final class CleanupViewModel: ObservableObject {
         self.isLoadingLocalProjects = false
         self.localProjects = result.projects
         self.localProjectStatus = result.status
+        self.refreshLiveServices()
+      }
+    }
+  }
+
+  func refreshLiveServices() {
+    isLoadingLiveServices = true
+    liveServicesStatus = "Scanning active devcontainers and runner services for the current workspace..."
+    let roots = resolvedProfileRoots()
+    let currentProjects = localProjects
+    let environment = baseEnvironment()
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.scanLiveServices(
+        localProjects: currentProjects,
+        runtimeRoot: roots.runtimeRoot,
+        environment: environment
+      )
+
+      DispatchQueue.main.async {
+        self.isLoadingLiveServices = false
+        self.activeContainers = result.containers
+        self.runnerServices = result.runners
+        self.liveServicesStatus = result.status
       }
     }
   }
 
   func openLocalProject(_ project: LocalProjectEntry, preferRuntime: Bool) {
-    let targetPath = preferRuntime ? (project.runtimePath ?? project.codePath) : (project.codePath ?? project.runtimePath)
-    guard let targetPath else {
-      appendLog("[gui] No local path was found for \(project.slug)\n")
-      return
-    }
-
-    if let codePath = executablePath(named: "code") {
-      launchDetached(executable: codePath, arguments: [targetPath])
-      return
-    }
-
-    launchDetached(executable: "/usr/bin/open", arguments: ["-a", "Visual Studio Code", targetPath])
+    openProjectPaths(
+      codePath: project.codePath,
+      runtimePath: project.runtimePath,
+      fallbackPath: project.preferredOpenPath,
+      preferRuntime: preferRuntime,
+      label: project.slug
+    )
   }
 
   func revealLocalProject(_ project: LocalProjectEntry) {
@@ -800,6 +1059,85 @@ final class CleanupViewModel: ObservableObject {
   func revealRuntimeRoot() {
     let roots = resolvedProfileRoots()
     revealPath(roots.runtimeRoot)
+  }
+
+  func openContainerProject(_ entry: LiveContainerEntry, preferRuntime: Bool) {
+    openProjectPaths(
+      codePath: entry.codePath,
+      runtimePath: entry.runtimePath,
+      fallbackPath: entry.workspacePath,
+      preferRuntime: preferRuntime,
+      label: entry.slug
+    )
+  }
+
+  func revealContainer(_ entry: LiveContainerEntry) {
+    revealPath(entry.workspacePath)
+  }
+
+  func stopContainer(_ entry: LiveContainerEntry) {
+    guard let dockerPath else {
+      appendLog("[gui] Docker CLI was not found.\n")
+      return
+    }
+
+    appendLog("[gui] Stopping devcontainer \(entry.name) for \(entry.slug)\n")
+    let environment = baseEnvironment()
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(
+        executable: dockerPath,
+        arguments: ["stop", entry.containerID],
+        environment: environment
+      )
+
+      DispatchQueue.main.async {
+        if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+          self.appendLog(result.output + "\n")
+        }
+        self.refreshLiveServices()
+      }
+    }
+  }
+
+  func openRunnerProject(_ entry: RunnerServiceEntry, preferRuntime: Bool) {
+    openProjectPaths(
+      codePath: entry.codePath,
+      runtimePath: entry.runtimePath,
+      fallbackPath: entry.runnerPath,
+      preferRuntime: preferRuntime,
+      label: entry.slug
+    )
+  }
+
+  func revealRunnerService(_ entry: RunnerServiceEntry) {
+    revealPath(entry.runnerPath)
+  }
+
+  func stopRunnerService(_ entry: RunnerServiceEntry) {
+    let svcPath = (entry.runnerPath as NSString).appendingPathComponent("svc.sh")
+    guard FileManager.default.isExecutableFile(atPath: svcPath) else {
+      appendLog("[gui] Runner service script was not found for \(entry.slug)\n")
+      return
+    }
+
+    appendLog("[gui] Stopping runner service for \(entry.slug)\n")
+    let environment = baseEnvironment()
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(
+        executable: "/bin/bash",
+        arguments: ["-lc", "cd \(shellQuote(entry.runnerPath)) && ./svc.sh stop"],
+        environment: environment
+      )
+
+      DispatchQueue.main.async {
+        if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+          self.appendLog(result.output + "\n")
+        }
+        self.refreshLiveServices()
+      }
+    }
   }
 
   func refreshAuthStatus() {
@@ -1190,8 +1528,8 @@ final class CleanupViewModel: ObservableObject {
     cancellationRequested = false
     statusKind = .running
     statusTitle = dryRun ? "Running Dry Run" : "Running Cleanup"
-    statusDetail = "\(selectedAccount) -> \(selectedTargets.count) target(s) on \(selectedProfile.label)"
-    logText = "[gui] Starting cleanup across \(selectedTargets.count) target(s) with \(selectedAccount) using \(selectedProfile.label)\n"
+    statusDetail = "\(selectedAccount) -> \(selectedTargets.count) target(s) in \(workspaceExecutionLabel)"
+    logText = "[gui] Starting cleanup across \(selectedTargets.count) target(s) with \(selectedAccount) using the \(workspaceExecutionLabel)\n"
     isRunning = true
     launchCleanup(for: pendingRepoTargets.removeFirst(), using: cliPath, account: selectedAccount)
   }
@@ -1480,19 +1818,188 @@ final class CleanupViewModel: ObservableObject {
     return result
   }
 
+  private func shellEscapeForConfig(_ value: String) -> String {
+    var escaped = ""
+    let charactersToEscape = CharacterSet(charactersIn: " \\\"'`$&|;<>*?()[]{}!#")
+
+    for scalar in value.unicodeScalars {
+      if charactersToEscape.contains(scalar) {
+        escaped.append("\\")
+      }
+      escaped.append(String(scalar))
+    }
+
+    return escaped
+  }
+
+  private func normalizeWorkspacePath(_ value: String) -> String {
+    NSString(string: value.trimmingCharacters(in: .whitespacesAndNewlines)).expandingTildeInPath
+  }
+
+  private func writeProfileConfig(profile: LaunchProfile, values: [String: String]) {
+    let fm = FileManager.default
+    try? fm.createDirectory(atPath: profileConfigDir, withIntermediateDirectories: true)
+    let configPath = (profileConfigDir as NSString).appendingPathComponent("\(profile.rawValue).env")
+    let contents = values
+      .filter { !$0.value.isEmpty }
+      .sorted { $0.key < $1.key }
+      .map { "\($0.key)=\(shellEscapeForConfig($0.value))" }
+      .joined(separator: "\n")
+
+    try? (contents + "\n").write(toFile: configPath, atomically: true, encoding: .utf8)
+  }
+
+  private func chooseDirectory(startingAt path: String) -> String? {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Choose Folder"
+
+    let normalized = normalizeWorkspacePath(path)
+    if !normalized.isEmpty {
+      panel.directoryURL = URL(fileURLWithPath: normalized, isDirectory: true)
+    }
+
+    return panel.runModal() == .OK ? panel.urls.first?.path : nil
+  }
+
+  private func applyWorkspaceSuggestion(_ suggestion: WorkspaceSuggestion) {
+    switch suggestion.style {
+    case .single:
+      writeProfileConfig(profile: .public, values: ["SAVED_DEFAULT_ROOT": suggestion.runtimeRoot])
+      selectedProfile = .public
+    case .split:
+      writeProfileConfig(
+        profile: .diamond,
+        values: [
+          "SAVED_CODE_ROOT": suggestion.codeRoot,
+          "SAVED_RUNTIME_ROOT": suggestion.runtimeRoot
+        ]
+      )
+      selectedProfile = .diamond
+    }
+
+    useCurrentRoot = true
+    syncWorkspaceDraftsFromResolvedRoots()
+    refreshLocalProjects()
+  }
+
+  private func syncWorkspaceDraftsFromResolvedRoots() {
+    let roots = resolvedProfileRoots()
+    workspaceSingleRootDraft = roots.runtimeRoot
+    workspaceCodeRootDraft = roots.codeRoot
+    workspaceRuntimeRootDraft = roots.runtimeRoot
+  }
+
+  private func savedWorkspaceConfiguration() -> WorkspaceSuggestion? {
+    let diamondValues = loadProfileConfigValues(profile: .diamond)
+    let savedCodeRoot = normalizeWorkspacePath(diamondValues["SAVED_CODE_ROOT"] ?? "")
+    let savedRuntimeRoot = normalizeWorkspacePath(diamondValues["SAVED_RUNTIME_ROOT"] ?? "")
+    if !savedCodeRoot.isEmpty, !savedRuntimeRoot.isEmpty {
+      return WorkspaceSuggestion(
+        style: .split,
+        title: "Saved workspace setup",
+        detail: "Using the split workspace you already configured on this Mac.",
+        codeRoot: savedCodeRoot,
+        runtimeRoot: savedRuntimeRoot
+      )
+    }
+
+    let publicValues = loadProfileConfigValues(profile: .public)
+    let savedPublicRoot = normalizeWorkspacePath(publicValues["SAVED_DEFAULT_ROOT"] ?? "")
+    if !savedPublicRoot.isEmpty {
+      return WorkspaceSuggestion(
+        style: .single,
+        title: "Saved workspace setup",
+        detail: "Using the single workspace folder you already configured on this Mac.",
+        codeRoot: savedPublicRoot,
+        runtimeRoot: savedPublicRoot
+      )
+    }
+
+    let wtlValues = loadProfileConfigValues(profile: .wtl)
+    let savedLegacyRoot = normalizeWorkspacePath(wtlValues["SAVED_DEFAULT_ROOT"] ?? "")
+    if !savedLegacyRoot.isEmpty {
+      return WorkspaceSuggestion(
+        style: .single,
+        title: "Saved workspace setup",
+        detail: "Using a legacy single-folder setup detected from an earlier build.",
+        codeRoot: savedLegacyRoot,
+        runtimeRoot: savedLegacyRoot
+      )
+    }
+
+    return nil
+  }
+
+  private func detectedWorkspaceConfiguration() -> WorkspaceSuggestion? {
+    let fm = FileManager.default
+
+    if let saved = savedWorkspaceConfiguration() {
+      return saved
+    }
+
+    let hasLegacySplit = fm.fileExists(atPath: diamondCodeDefaultRoot) && fm.fileExists(atPath: diamondRuntimeDefaultRoot)
+    if hasLegacySplit {
+      return WorkspaceSuggestion(
+        style: .split,
+        title: "Detected current Mac setup",
+        detail: "The app found your existing external-drive code and runtime folders and can use them automatically.",
+        codeRoot: diamondCodeDefaultRoot,
+        runtimeRoot: diamondRuntimeDefaultRoot
+      )
+    }
+
+    if fm.fileExists(atPath: wtlDefaultRoot) {
+      return WorkspaceSuggestion(
+        style: .single,
+        title: "Detected current Mac setup",
+        detail: "The app found your existing external-drive workspace and can use it automatically as a single-folder setup.",
+        codeRoot: wtlDefaultRoot,
+        runtimeRoot: wtlDefaultRoot
+      )
+    }
+
+    return nil
+  }
+
+  private func adoptDetectedWorkspaceIfNeeded() {
+    if let saved = savedWorkspaceConfiguration() {
+      selectedProfile = saved.style == .split ? .diamond : .public
+      return
+    }
+
+    if let detected = detectedWorkspaceConfiguration() {
+      selectedProfile = detected.style == .split ? .diamond : .public
+      return
+    }
+
+    selectedProfile = .public
+  }
+
   private func resolvedProfileRoots() -> (codeRoot: String, runtimeRoot: String) {
     let values = loadProfileConfigValues(profile: selectedProfile)
 
     switch selectedProfile {
     case .public:
-      let root = useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? publicDefaultRoot) : publicDefaultRoot
+      let detectedRoot = detectedWorkspaceConfiguration()?.style == .single ? detectedWorkspaceConfiguration()?.runtimeRoot : nil
+      let root = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? detectedRoot ?? publicDefaultRoot) : publicDefaultRoot
+      )
       return (root, root)
     case .wtl:
-      let root = useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? wtlDefaultRoot) : wtlDefaultRoot
+      let root = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? wtlDefaultRoot) : wtlDefaultRoot)
       return (root, root)
     case .diamond:
-      let codeRoot = useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? diamondCodeDefaultRoot) : diamondCodeDefaultRoot
-      let runtimeRoot = useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? diamondRuntimeDefaultRoot) : diamondRuntimeDefaultRoot
+      let detectedSplit = detectedWorkspaceConfiguration()?.style == .split ? detectedWorkspaceConfiguration() : nil
+      let codeRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? detectedSplit?.codeRoot ?? genericSplitCodeDefaultRoot) : genericSplitCodeDefaultRoot
+      )
+      let runtimeRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? detectedSplit?.runtimeRoot ?? genericSplitRuntimeDefaultRoot) : genericSplitRuntimeDefaultRoot
+      )
       return (codeRoot, runtimeRoot)
     }
   }
@@ -1532,7 +2039,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private nonisolated static func scanLocalProjects(
-    profileLabel: String,
+    workspaceLabel: String,
     codeRoot: String,
     runtimeRoot: String
   ) -> (projects: [LocalProjectEntry], status: String) {
@@ -1608,8 +2115,8 @@ final class CleanupViewModel: ObservableObject {
 
     let projects = merged.values.sorted { $0.slug.localizedCaseInsensitiveCompare($1.slug) == .orderedAscending }
     let status = projects.isEmpty
-      ? "No imported local projects were found under the current \(profileLabel) roots."
-      : "Loaded \(projects.count) imported local projects from the current \(profileLabel) roots."
+      ? "No imported local projects were found under the current \(workspaceLabel.lowercased()) workspace."
+      : "Loaded \(projects.count) imported local projects from the current \(workspaceLabel.lowercased()) workspace."
     return (projects, status)
   }
 
@@ -1675,6 +2182,21 @@ final class CleanupViewModel: ObservableObject {
     NSWorkspace.shared.activateFileViewerSelecting([targetURL])
   }
 
+  private func openProjectPaths(codePath: String?, runtimePath: String?, fallbackPath: String?, preferRuntime: Bool, label: String) {
+    let targetPath = preferRuntime ? (runtimePath ?? codePath ?? fallbackPath) : (codePath ?? runtimePath ?? fallbackPath)
+    guard let targetPath else {
+      appendLog("[gui] No local path was found for \(label)\n")
+      return
+    }
+
+    if let codePath = executablePath(named: "code") {
+      launchDetached(executable: codePath, arguments: [targetPath])
+      return
+    }
+
+    launchDetached(executable: "/usr/bin/open", arguments: ["-a", "Visual Studio Code", targetPath])
+  }
+
   private func openTerminalCommand(_ command: String) {
     let appleScript = """
     tell application "Terminal"
@@ -1723,6 +2245,151 @@ final class CleanupViewModel: ObservableObject {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
     return CommandResult(status: process.terminationStatus, output: output)
+  }
+
+  private nonisolated static func scanLiveServices(
+    localProjects: [LocalProjectEntry],
+    runtimeRoot: String,
+    environment: [String: String]
+  ) -> (containers: [LiveContainerEntry], runners: [RunnerServiceEntry], status: String) {
+    let fm = FileManager.default
+    var projectsByPath: [String: LocalProjectEntry] = [:]
+    for project in localProjects {
+      if let codePath = project.codePath {
+        projectsByPath[NSString(string: codePath).standardizingPath] = project
+      }
+      if let runtimePath = project.runtimePath {
+        projectsByPath[NSString(string: runtimePath).standardizingPath] = project
+      }
+    }
+
+    var containers: [LiveContainerEntry] = []
+    if let dockerPath = resolveExecutablePath(named: "docker") {
+      let idsResult = runCommand(executable: dockerPath, arguments: ["ps", "-q"], environment: environment)
+      if idsResult.status == 0 {
+        let containerIDs = idsResult.output.split(whereSeparator: \.isNewline).map(String.init)
+        for containerID in containerIDs {
+          let inspectResult = runCommand(
+            executable: dockerPath,
+            arguments: [
+              "inspect",
+              "--format",
+              "{{ index .Config.Labels \"devcontainer.local_folder\" }}|{{ .Name }}|{{ .Config.Image }}|{{ .State.Status }}",
+              containerID
+            ],
+            environment: environment
+          )
+          guard inspectResult.status == 0 else {
+            continue
+          }
+
+          let parts = inspectResult.output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map(String.init)
+          guard parts.count >= 4 else {
+            continue
+          }
+
+          let workspacePath = NSString(string: parts[0]).standardizingPath
+          guard !workspacePath.isEmpty else {
+            continue
+          }
+
+          let project = projectsByPath[workspacePath]
+          let name = parts[1].hasPrefix("/") ? String(parts[1].dropFirst()) : parts[1]
+          let repo = project?.repo ?? ((workspacePath as NSString).lastPathComponent)
+          let slug = project?.slug ?? repo
+
+          containers.append(
+            LiveContainerEntry(
+              containerID: containerID,
+              name: name,
+              image: parts[2],
+              status: parts[3],
+              workspacePath: workspacePath,
+              slug: slug,
+              repo: repo,
+              codePath: project?.codePath,
+              runtimePath: project?.runtimePath
+            )
+          )
+        }
+      }
+    }
+
+    var activeLabels: Set<String> = []
+    if let launchctlPath = resolveExecutablePath(named: "launchctl") {
+      let launchctlResult = runCommand(executable: launchctlPath, arguments: ["list"], environment: environment)
+      if launchctlResult.status == 0 {
+        for line in launchctlResult.output.split(whereSeparator: \.isNewline).dropFirst() {
+          let columns = line.split(whereSeparator: \.isWhitespace)
+          if let label = columns.last {
+            activeLabels.insert(String(label))
+          }
+        }
+      }
+    }
+
+    var runners: [RunnerServiceEntry] = []
+    let runnersRoot = (runtimeRoot as NSString).appendingPathComponent("Runners")
+    let owners = (try? fm.contentsOfDirectory(atPath: runnersRoot))?.sorted() ?? []
+    for owner in owners {
+      let ownerPath = (runnersRoot as NSString).appendingPathComponent(owner)
+      var isOwnerDir: ObjCBool = false
+      guard fm.fileExists(atPath: ownerPath, isDirectory: &isOwnerDir), isOwnerDir.boolValue else {
+        continue
+      }
+
+      let repos = (try? fm.contentsOfDirectory(atPath: ownerPath))?.sorted() ?? []
+      for repo in repos {
+        let runnerPath = (ownerPath as NSString).appendingPathComponent(repo)
+        let runnerConfigPath = (runnerPath as NSString).appendingPathComponent(".runner")
+        guard fm.fileExists(atPath: runnerConfigPath) else {
+          continue
+        }
+
+        let slug = "\(owner)/\(repo)"
+        let project = localProjects.first(where: { $0.slug == slug })
+        let serviceFilePath = (runnerPath as NSString).appendingPathComponent(".service")
+        let rawServicePlistPath = try? String(contentsOfFile: serviceFilePath, encoding: .utf8)
+        let servicePlistPath = rawServicePlistPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serviceLabel: String
+        if let servicePlistPath, !servicePlistPath.isEmpty {
+          serviceLabel = URL(fileURLWithPath: servicePlistPath).deletingPathExtension().lastPathComponent
+        } else {
+          serviceLabel = repo
+        }
+
+        runners.append(
+          RunnerServiceEntry(
+            slug: slug,
+            repo: repo,
+            runnerPath: runnerPath,
+            serviceLabel: serviceLabel,
+            servicePlistPath: servicePlistPath,
+            isRunning: activeLabels.contains(serviceLabel),
+            codePath: project?.codePath,
+            runtimePath: project?.runtimePath
+          )
+        )
+      }
+    }
+
+    let sortedContainers = containers.sorted { $0.slug.localizedCaseInsensitiveCompare($1.slug) == .orderedAscending }
+    let sortedRunners = runners.sorted { $0.slug.localizedCaseInsensitiveCompare($1.slug) == .orderedAscending }
+    let status = "\(sortedContainers.count) active devcontainers and \(sortedRunners.count) runner services detected for the current workspace."
+    return (sortedContainers, sortedRunners, status)
+  }
+
+  private nonisolated static func resolveExecutablePath(named command: String) -> String? {
+    for base in defaultSearchPaths {
+      let candidate = (base as NSString).appendingPathComponent(command)
+      if FileManager.default.isExecutableFile(atPath: candidate) {
+        return candidate
+      }
+    }
+    return nil
   }
 }
 
@@ -2301,9 +2968,9 @@ private struct AppSidebarMenu: View {
   let onSelect: (AppDestination) -> Void
 
   var body: some View {
-    PanelCard(title: "App Menu", subtitle: "Move between the control center and bundled in-app reference pages.", compact: true) {
+    PanelCard(title: "App Menu", subtitle: "Move between the main product pages and the bundled in-app reference pages.", compact: true) {
       VStack(alignment: .leading, spacing: 12) {
-        MenuSectionHeader(text: "Workspace")
+        MenuSectionHeader(text: "Main Pages")
         ForEach(workspaceDestinations) { destination in
           DestinationMenuButton(destination: destination, isSelected: selection == destination) {
             onSelect(destination)
@@ -2312,7 +2979,7 @@ private struct AppSidebarMenu: View {
 
         Divider().overlay(DashboardTheme.border)
 
-        MenuSectionHeader(text: "Knowledge Base")
+        MenuSectionHeader(text: "Reference")
         ForEach(knowledgeDestinations) { destination in
           DestinationMenuButton(destination: destination, isSelected: selection == destination) {
             onSelect(destination)
@@ -2548,6 +3215,149 @@ struct LocalProjectRow: View {
         .overlay(
           RoundedRectangle(cornerRadius: 16, style: .continuous)
             .stroke(isTargeted ? DashboardTheme.success.opacity(0.55) : DashboardTheme.border, lineWidth: 1)
+        )
+    )
+  }
+}
+
+struct LiveContainerRow: View {
+  let container: LiveContainerEntry
+  let openRuntime: () -> Void
+  let openCode: () -> Void
+  let reveal: () -> Void
+  let stop: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(container.repo)
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+            .lineLimit(1)
+
+          Text(container.slug)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 8)
+
+        VStack(alignment: .trailing, spacing: 6) {
+          PillBadge(text: "container", tint: DashboardTheme.deepBlue)
+          PillBadge(text: container.status, tint: DashboardTheme.success)
+        }
+      }
+
+      Text("\(container.name) · \(container.image)")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.subtle)
+        .lineLimit(2)
+
+      HStack(spacing: 10) {
+        Button("Runtime") {
+          openRuntime()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Code") {
+          openCode()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Finder") {
+          reveal()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Stop") {
+          stop()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(DashboardTheme.panelStrong)
+        .overlay(
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(DashboardTheme.border, lineWidth: 1)
+        )
+    )
+  }
+}
+
+struct RunnerServiceRow: View {
+  let runner: RunnerServiceEntry
+  let openRuntime: () -> Void
+  let openCode: () -> Void
+  let reveal: () -> Void
+  let stop: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(runner.repo)
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+            .lineLimit(1)
+
+          Text(runner.slug)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 8)
+
+        VStack(alignment: .trailing, spacing: 6) {
+          PillBadge(text: "runner", tint: DashboardTheme.warning)
+          PillBadge(text: runner.statusLabel, tint: runner.isRunning ? DashboardTheme.success : DashboardTheme.subtle)
+        }
+      }
+
+      Text(runner.serviceLabel)
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.subtle)
+        .lineLimit(2)
+
+      HStack(spacing: 10) {
+        Button("Runtime") {
+          openRuntime()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Code") {
+          openCode()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Finder") {
+          reveal()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Stop") {
+          stop()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
+        .disabled(!runner.isRunning)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(DashboardTheme.panelStrong)
+        .overlay(
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(runner.isRunning ? DashboardTheme.success.opacity(0.35) : DashboardTheme.border, lineWidth: 1)
         )
     )
   }
@@ -2808,7 +3618,7 @@ struct LogConsoleView: NSViewRepresentable {
 
 struct ContentView: View {
   @StateObject private var model = CleanupViewModel()
-  @State private var selectedDestination: AppDestination = .controlCenter
+  @State private var selectedDestination: AppDestination = .home
   @State private var isMenuVisible = true
   @State private var showLaunchWarning = true
   @State private var acceptedRisk = false
@@ -2893,8 +3703,14 @@ struct ContentView: View {
     ScrollView {
       VStack(spacing: 18) {
         switch selectedDestination {
-        case .controlCenter:
-          controlCenterPage(for: width, usesSidebar: usesSidebar)
+        case .home:
+          homePage(for: width, usesSidebar: usesSidebar)
+        case .projects:
+          projectsPage(for: width, usesSidebar: usesSidebar)
+        case .cleanup:
+          cleanupPage(for: width, usesSidebar: usesSidebar)
+        case .workspace:
+          workspacePage(for: width, usesSidebar: usesSidebar)
         case .about:
           aboutPage(usesSidebar: usesSidebar)
         case .helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo:
@@ -2906,7 +3722,7 @@ struct ContentView: View {
     }
   }
 
-  private func controlCenterPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+  private func homePage(for width: CGFloat, usesSidebar: Bool) -> some View {
     DashboardShell {
       HeaderPanel(
         brandMark: model.bundledBrandMark,
@@ -2921,7 +3737,125 @@ struct ContentView: View {
         isMenuVisible.toggle()
       }
 
-      dashboardLayout(for: width)
+      homeLayout(for: width)
+    }
+  }
+
+  private func projectsPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(
+        brandMark: model.bundledBrandMark,
+        compact: width < 1280
+      )
+
+      WorkspaceToolbarStrip(
+        destination: .projects,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      VStack(alignment: .leading, spacing: 18) {
+        if width >= 1400 {
+          HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 18) {
+              overviewPanel
+              rootsPanel
+            }
+            .frame(maxWidth: 420, alignment: .topLeading)
+
+            localProjectsPanel
+              .frame(maxWidth: .infinity, alignment: .topLeading)
+          }
+        } else {
+          overviewPanel
+          rootsPanel
+          localProjectsPanel
+        }
+
+        liveServicesPanel
+      }
+    }
+  }
+
+  private func cleanupPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(
+        brandMark: model.bundledBrandMark,
+        compact: width < 1280
+      )
+
+      WorkspaceToolbarStrip(
+        destination: .cleanup,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      if width >= 1560 {
+        HStack(alignment: .top, spacing: 18) {
+          VStack(alignment: .leading, spacing: 18) {
+            authPanel
+            repositoryPanel
+          }
+          .frame(maxWidth: .infinity, alignment: .topLeading)
+
+          VStack(alignment: .leading, spacing: 18) {
+            cleanupPanel
+            executionPanel
+          }
+          .frame(width: 460, alignment: .topLeading)
+
+          logPanel(minHeight: 720)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 18) {
+          authPanel
+          repositoryPanel
+          cleanupPanel
+          executionPanel
+          logPanel(minHeight: 360)
+        }
+      }
+    }
+  }
+
+  private func workspacePage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(
+        brandMark: model.bundledBrandMark,
+        compact: width < 1280
+      )
+
+      WorkspaceToolbarStrip(
+        destination: .workspace,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      if width >= 1400 {
+        HStack(alignment: .top, spacing: 18) {
+          workspaceSetupPanel
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+          VStack(alignment: .leading, spacing: 18) {
+            rootsPanel
+            advancedToolsPanel
+          }
+          .frame(maxWidth: 520, alignment: .topLeading)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 18) {
+          workspaceSetupPanel
+          rootsPanel
+          advancedToolsPanel
+        }
+      }
     }
   }
 
@@ -2966,7 +3900,7 @@ struct ContentView: View {
 
       PanelCard(title: "About \(appTitle)", subtitle: "Product identity, bundle metadata, local storage path, and utility actions without leaving the app shell.") {
         BannerCard(
-          title: "Native macOS Control Center",
+          title: "Native macOS Workspace App",
           detail: "\(model.bundleIdentitySummary)\nProvided by \(companyName) · \(companyWebsite)",
           kind: .ready
         )
@@ -2980,7 +3914,7 @@ struct ContentView: View {
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(DashboardTheme.text)
 
-              Text("This screen stays inside the native app. Use the left-side menu or the compact top menu to move between Help, Terms, Security, Brand, project pages, and the cleanup control center without external file popups.")
+              Text("This screen stays inside the native app. Use the left-side menu or the compact top menu to move between Home, Projects, Cleanup, Workspace, Help, and About without external file popups.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(DashboardTheme.muted)
                 .lineSpacing(3)
@@ -3023,90 +3957,31 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private func dashboardLayout(for width: CGFloat) -> some View {
-    if width >= 2100 {
+  private func homeLayout(for width: CGFloat) -> some View {
+    if width >= 1500 {
       HStack(alignment: .top, spacing: 18) {
         VStack(alignment: .leading, spacing: 18) {
+          homeSummaryPanel
           authPanel
-          workspacePanel
-          rootsPanel
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
 
         VStack(alignment: .leading, spacing: 18) {
           overviewPanel
-          repositoryPanel
-          localProjectsPanel
+          quickStartPanel
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
 
-        VStack(alignment: .leading, spacing: 18) {
-          cleanupPanel
-          executionPanel
-          libraryPanel
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-        logPanel(minHeight: 760)
+        logPanel(minHeight: 540)
           .frame(maxWidth: .infinity, alignment: .topLeading)
-      }
-    } else if width >= 1560 {
-      HStack(alignment: .top, spacing: 18) {
-        VStack(alignment: .leading, spacing: 18) {
-          authPanel
-          workspacePanel
-          rootsPanel
-          overviewPanel
-          repositoryPanel
-          localProjectsPanel
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-        VStack(alignment: .leading, spacing: 18) {
-          cleanupPanel
-          executionPanel
-          libraryPanel
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-        logPanel(minHeight: 720)
-          .frame(maxWidth: .infinity, alignment: .topLeading)
-      }
-    } else if width >= 1160 {
-      VStack(alignment: .leading, spacing: 18) {
-        HStack(alignment: .top, spacing: 18) {
-          VStack(alignment: .leading, spacing: 18) {
-            authPanel
-            workspacePanel
-            rootsPanel
-          }
-          .frame(maxWidth: .infinity, alignment: .topLeading)
-
-          VStack(alignment: .leading, spacing: 18) {
-            overviewPanel
-            cleanupPanel
-            executionPanel
-            libraryPanel
-          }
-          .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-
-        repositoryPanel
-        localProjectsPanel
-        logPanel(minHeight: 440)
       }
     } else {
       VStack(alignment: .leading, spacing: 18) {
+        homeSummaryPanel
         authPanel
-        workspacePanel
-        rootsPanel
         overviewPanel
-        repositoryPanel
-        localProjectsPanel
-        cleanupPanel
-        executionPanel
-        libraryPanel
-        logPanel(minHeight: 320)
+        quickStartPanel
+        logPanel(minHeight: 280)
       }
     }
   }
@@ -3186,24 +4061,184 @@ struct ContentView: View {
     }
   }
 
-  private var workspacePanel: some View {
-    PanelCard(title: "Workspace & Local Tools", subtitle: "Select the CSA-iEM profile, use the saved root, and open local browser flows without leaving the app.") {
+  private var homeSummaryPanel: some View {
+    PanelCard(title: "Workspace Overview", subtitle: "The app now speaks in simple workspace terms instead of exposing internal preset details.") {
+      BannerCard(
+        title: model.workspaceHeadline,
+        detail: model.workspaceSummary,
+        kind: .ready
+      )
+
+      if let detected = model.detectedWorkspaceSuggestion {
+        BannerCard(
+          title: detected.title,
+          detail: detected.detail,
+          kind: .ready
+        )
+      } else {
+        BannerCard(
+          title: "Standard local setup available",
+          detail: "The standard setup uses \(publicDefaultRoot). You can switch to split folders later if you want code and runtime separated.",
+          kind: .warning
+        )
+      }
+
+      Text("Custom-drive layouts are still supported, but the GUI now treats them as detected workspace examples instead of product-facing presets.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var quickStartPanel: some View {
+    PanelCard(title: "Quick Start", subtitle: "Move into the exact page you need instead of working from one crowded dashboard.") {
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+        ForEach([AppDestination.projects, .cleanup, .workspace, .about]) { destination in
+          DestinationShortcutTile(destination: destination, isSelected: selectedDestination == destination) {
+            selectedDestination = destination
+          }
+        }
+      }
+
+      Text("Projects stays fully on-screen for browsing local workspaces, active devcontainers, and runner services. Cleanup runs the CLI engine in the background, while Workspace is where you set or detect local storage paths.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var workspaceSetupPanel: some View {
+    let standardSuggestion = model.standardWorkspaceSuggestion
+    let detectedSuggestion = model.detectedWorkspaceSuggestion
+
+    return PanelCard(title: "Workspace Setup", subtitle: "Choose one simple storage style, use the standard path, or apply the setup this Mac already has.") {
       VStack(alignment: .leading, spacing: 6) {
-        FieldLabel(text: "Profile")
-        Picker("", selection: $model.selectedProfile) {
-          ForEach(LaunchProfile.allCases) { profile in
-            Text(profile.label).tag(profile)
+        FieldLabel(text: "Workspace Style")
+        Picker("", selection: Binding(
+          get: { model.selectedWorkspaceStyle },
+          set: { model.setWorkspaceStyle($0) }
+        )) {
+          ForEach(WorkspaceStyle.allCases) { style in
+            Text(style.label).tag(style)
           }
         }
         .labelsHidden()
         .pickerStyle(.segmented)
       }
 
-      Toggle("Use current saved root automatically", isOn: $model.useCurrentRoot)
+      Toggle("Follow the current saved workspace automatically", isOn: $model.useCurrentRoot)
         .toggleStyle(.switch)
         .tint(DashboardTheme.success)
         .foregroundStyle(DashboardTheme.text)
 
+      BannerCard(
+        title: standardSuggestion.title,
+        detail: standardSuggestion.detail + "\n" + (model.selectedWorkspaceStyle == .single
+          ? standardSuggestion.runtimeRoot
+          : "Code: \(standardSuggestion.codeRoot)\nRuntime: \(standardSuggestion.runtimeRoot)"),
+        kind: .ready
+      )
+
+      if let detectedSuggestion {
+        BannerCard(
+          title: detectedSuggestion.title,
+          detail: detectedSuggestion.detail + "\n" + (detectedSuggestion.style == .single
+            ? detectedSuggestion.runtimeRoot
+            : "Code: \(detectedSuggestion.codeRoot)\nRuntime: \(detectedSuggestion.runtimeRoot)"),
+          kind: .ready
+        )
+      }
+
+      if model.selectedWorkspaceStyle == .single {
+        VStack(alignment: .leading, spacing: 6) {
+          FieldLabel(text: "Workspace Folder")
+          TextField("Choose a single local root", text: $model.workspaceSingleRootDraft)
+            .textFieldStyle(.plain)
+            .foregroundStyle(DashboardTheme.text)
+            .dashboardFieldStyle()
+        }
+
+        HStack(spacing: 10) {
+          Button("Choose Folder") {
+            model.chooseSingleWorkspaceFolder()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+          Button("Use Standard") {
+            model.applyStandardWorkspace()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+
+          if detectedSuggestion != nil {
+            Button("Use Detected Setup") {
+              model.applyDetectedWorkspace()
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          }
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 6) {
+          FieldLabel(text: "Code Folder")
+          TextField("Choose the folder for plain repos", text: $model.workspaceCodeRootDraft)
+            .textFieldStyle(.plain)
+            .foregroundStyle(DashboardTheme.text)
+            .dashboardFieldStyle()
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          FieldLabel(text: "Runtime Folder")
+          TextField("Choose the folder for devcontainers, reports, and runners", text: $model.workspaceRuntimeRootDraft)
+            .textFieldStyle(.plain)
+            .foregroundStyle(DashboardTheme.text)
+            .dashboardFieldStyle()
+        }
+
+        HStack(spacing: 10) {
+          Button("Choose Code") {
+            model.chooseCodeWorkspaceFolder()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+          Button("Choose Runtime") {
+            model.chooseRuntimeWorkspaceFolder()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+          Button("Use Standard") {
+            model.applyStandardWorkspace()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+        }
+
+        if detectedSuggestion != nil {
+          Button("Use Detected Setup") {
+            model.applyDetectedWorkspace()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        }
+      }
+
+      HStack(spacing: 10) {
+        Button("Save Workspace") {
+          model.saveWorkspaceDrafts()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+
+        Button("Open Projects Page") {
+          selectedDestination = .projects
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+      }
+
+      Text("The standard setup is concrete and generic. Your external-drive layout is still detected automatically on this Mac, but it is now presented as an optional detected setup instead of a product preset.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var advancedToolsPanel: some View {
+    PanelCard(title: "Advanced Tools", subtitle: "Terminal fallbacks remain available here, but they are no longer the primary navigation model.") {
       HStack(spacing: 10) {
         Button("Interactive CLI") {
           model.openCLIInTerminal()
@@ -3217,11 +4252,6 @@ struct ContentView: View {
       }
 
       HStack(spacing: 10) {
-        Button("Project Browser") {
-          model.openProjectBrowserInTerminal()
-        }
-        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.link, bordered: true))
-
         Button("Cost-Control Review") {
           model.openCostControlReviewInTerminal()
         }
@@ -3233,7 +4263,7 @@ struct ContentView: View {
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
       }
 
-      Text("These launchers open the full Terminal workflows for repo import, browser mode, one-by-one cost control, and installed devcontainer review while keeping the native control center available here.")
+      Text("These tools stay here for edge cases and power use. The normal flow should now be Home -> Projects -> Cleanup -> Workspace, all inside the native app.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -3243,7 +4273,7 @@ struct ContentView: View {
   private var rootsPanel: some View {
     let roots = model.profileRootSummary
 
-    return PanelCard(title: "Active Roots", subtitle: "These are the local paths the GUI is using right now for imported projects, runtime workspaces, reports, and runners.") {
+    return PanelCard(title: "Active Workspace Paths", subtitle: "These are the live local paths the GUI is using right now for imported projects, runtime work, reports, and runners.") {
       FixedValueRow(label: "Code Root", value: roots.codeRoot)
       FixedValueRow(label: "Runtime Root", value: roots.runtimeRoot)
 
@@ -3260,8 +4290,8 @@ struct ContentView: View {
       }
 
       Text(model.useCurrentRoot
-        ? "The app is following your saved profile roots. Change the profile or toggle off the saved-root setting above when you want to fall back to the built-in defaults."
-        : "The app is showing the built-in profile defaults. Turn the saved-root toggle back on when you want the GUI to follow your persisted workspace roots.")
+        ? "The app is following your saved workspace setup. Use the Workspace page when you want to change paths or apply a different detected setup."
+        : "The app is showing the built-in standard paths. Turn the saved-workspace toggle back on when you want the GUI to follow your stored setup again.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -3273,7 +4303,7 @@ struct ContentView: View {
       GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 12, alignment: .top)
     ]
 
-    return PanelCard(title: "Local Inventory", subtitle: "Fast production snapshot of imported project coverage for the selected profile.") {
+    return PanelCard(title: "Local Inventory", subtitle: "Fast production snapshot of imported project coverage for the current workspace setup.") {
       LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 12) {
         MetricTile(
           label: "Imported Projects",
@@ -3302,29 +4332,38 @@ struct ContentView: View {
           tint: DashboardTheme.warning,
           icon: "bolt.shield"
         )
+
+        MetricTile(
+          label: "Active Devcontainers",
+          value: "\(model.activeContainerCount)",
+          tint: DashboardTheme.deepBlue,
+          icon: "shippingbox.fill"
+        )
+
+        MetricTile(
+          label: "Running Runner Services",
+          value: "\(model.runningRunnerServiceCount)",
+          tint: DashboardTheme.success,
+          icon: "bolt.horizontal.circle"
+        )
       }
 
       BannerCard(
         title: "Generated starters: \(model.localProjectGeneratedStarterCount) · Runtime-only workspaces: \(model.localProjectRuntimeOnlyCount)",
-        detail: model.localProjectStatus,
+        detail: "\(model.localProjectStatus)\n\(model.liveServiceSummary)",
         kind: model.localProjects.isEmpty ? .warning : .ready
       )
     }
   }
 
   private var localProjectsPanel: some View {
-    PanelCard(title: "Local Project Library", subtitle: "Search imported local workspaces for the active profile and open them directly from the native app.") {
+    PanelCard(title: "Local Project Library", subtitle: "Search imported local workspaces and open them directly from the native app.") {
       HStack(spacing: 10) {
         Button(model.isLoadingLocalProjects ? "Refreshing..." : "Refresh Local Projects") {
           model.refreshLocalProjects()
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
         .disabled(model.isLoadingLocalProjects)
-
-        Button("Open Imported List In Terminal") {
-          model.openImportedProjectsInTerminal()
-        }
-        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
 
         Button(model.areAllVisibleLocalProjectsSelected ? "Untarget Visible" : "Target Visible") {
           model.setFilteredLocalProjectsSelected(!model.areAllVisibleLocalProjectsSelected)
@@ -3371,7 +4410,84 @@ struct ContentView: View {
       }
       .frame(minHeight: 180, idealHeight: 260, maxHeight: 320)
 
-      Text("This native library follows the selected profile and saved roots, so you can search imported projects and jump straight into the code or runtime workspace without leaving the app.")
+      Text("This native library follows the active workspace setup, so you can search imported projects and jump straight into the code or runtime folder without leaving the app.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var liveServicesPanel: some View {
+    PanelCard(title: "Live Local Services", subtitle: "Native view of active devcontainers and local runner services for the current workspace.") {
+      HStack(spacing: 10) {
+        Button(model.isLoadingLiveServices ? "Refreshing..." : "Refresh Live Services") {
+          model.refreshLiveServices()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        .disabled(model.isLoadingLiveServices)
+
+        Button("Open Advanced Tools") {
+          selectedDestination = .workspace
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      BannerCard(
+        title: model.liveServiceSummary,
+        detail: model.liveServicesStatus,
+        kind: (model.activeContainers.isEmpty && model.runnerServices.isEmpty) ? .warning : .ready
+      )
+
+      if model.activeContainers.isEmpty && model.runnerServices.isEmpty {
+        Text("No active devcontainers or configured runner services were detected for the current workspace yet.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      } else {
+        if !model.activeContainers.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            FieldLabel(text: "Active Devcontainers")
+
+            ScrollView {
+              LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(model.activeContainers) { container in
+                  LiveContainerRow(
+                    container: container,
+                    openRuntime: { model.openContainerProject(container, preferRuntime: true) },
+                    openCode: { model.openContainerProject(container, preferRuntime: false) },
+                    reveal: { model.revealContainer(container) },
+                    stop: { model.stopContainer(container) }
+                  )
+                }
+              }
+            }
+            .frame(minHeight: 120, idealHeight: 180, maxHeight: 220)
+          }
+        }
+
+        if !model.runnerServices.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            FieldLabel(text: "Local Runner Services")
+
+            ScrollView {
+              LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(model.runnerServices) { runner in
+                  RunnerServiceRow(
+                    runner: runner,
+                    openRuntime: { model.openRunnerProject(runner, preferRuntime: true) },
+                    openCode: { model.openRunnerProject(runner, preferRuntime: false) },
+                    reveal: { model.revealRunnerService(runner) },
+                    stop: { model.stopRunnerService(runner) }
+                  )
+                }
+              }
+            }
+            .frame(minHeight: 120, idealHeight: 180, maxHeight: 220)
+          }
+        }
+      }
+
+      Text("Use this page for the common local actions: inspect what is currently active, open the linked workspace, reveal it in Finder, or stop the container or runner without leaving the native app.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -3571,7 +4687,7 @@ struct ContentView: View {
   private var libraryPanel: some View {
     PanelCard(title: "In-App Pages", subtitle: "Navigate to Help, Terms, Security, Brand, project notes, and About without leaving the app window.") {
       BannerCard(
-        title: selectedDestination == .controlCenter ? "Control Center Active" : "\(selectedDestination.title) Active",
+        title: selectedDestination == .home ? "Home Active" : "\(selectedDestination.title) Active",
         detail: "Use the app menu to move between bundled pages. Documentation and product info now live inside the native interface instead of opening external markdown windows.",
         kind: .ready
       )

@@ -2,14 +2,14 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.0.14`  
+Version: `0.1.0`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
 
 `CSA-iEM` is a macOS toolset with:
 - a production CLI
-- a SwiftUI macOS GUI control center
+- a SwiftUI macOS GUI with simple task pages
 - terminal installers for supported Macs
 - compatibility wrappers for the earlier `CSA-iLEM` command names
 
@@ -26,19 +26,13 @@ It is built for:
 
 Preferred commands:
 - [`csa-iem`](./csa-iem)
-- [`csa-iem-public`](./csa-iem-public)
-- [`csa-iem-wtl`](./csa-iem-wtl)
-- [`csa-iem-diamond`](./csa-iem-diamond)
-- [`csa-iem-open`](./csa-iem-open)
 - [`csa-iem-gui`](./csa-iem-gui)
 - [`csa-iem-build-gui`](./csa-iem-build-gui)
+- [`csa-iem-open`](./csa-iem-open)
 - [`openproj`](./openproj)
 
 Core scripts:
 - [`CSA-iLEM.sh`](./CSA-iLEM.sh)
-- [`CSA-iLEM-Public.sh`](./CSA-iLEM-Public.sh)
-- [`CSA-iLEM-WTL.sh`](./CSA-iLEM-WTL.sh)
-- [`CSA-iLEM-Diamond.sh`](./CSA-iLEM-Diamond.sh)
 - [`CSA-iLEM-Open.sh`](./CSA-iLEM-Open.sh)
 - [`install-remote.sh`](./install-remote.sh)
 - [`install.sh`](./install.sh)
@@ -46,7 +40,13 @@ Core scripts:
 - [`run-gui.sh`](./run-gui.sh)
 - [`build-gui-app.sh`](./build-gui-app.sh)
 
-Legacy compatibility wrappers still ship:
+Advanced compatibility wrappers still ship:
+- [`csa-iem-public`](./csa-iem-public)
+- [`csa-iem-wtl`](./csa-iem-wtl)
+- [`csa-iem-diamond`](./csa-iem-diamond)
+- [`CSA-iLEM-Public.sh`](./CSA-iLEM-Public.sh)
+- [`CSA-iLEM-WTL.sh`](./CSA-iLEM-WTL.sh)
+- [`CSA-iLEM-Diamond.sh`](./CSA-iLEM-Diamond.sh)
 - [`csa-ilem`](./csa-ilem)
 - [`csa-ilem-public`](./csa-ilem-public)
 - [`csa-ilem-wtl`](./csa-ilem-wtl)
@@ -57,7 +57,13 @@ Legacy compatibility wrappers still ship:
 
 ## Install On Any Supported Mac
 
-Fastest path from any supported Mac terminal:
+Stable public install from any supported Mac terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.1.0/install-remote.sh | bash -s -- --ref 0.1.0
+```
+
+Install the latest `main` build:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
@@ -84,7 +90,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production bundle into `~/.local/share/csa-iem/0.0.14`
+- copies the production bundle into `~/.local/share/csa-iem/0.1.0`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -145,11 +151,11 @@ dist/CSA-iEM.app
 ```
 
 The GUI is a SwiftUI macOS app that:
-- provides a native cleanup and repository-selection workspace
-- provides a native local project library with search, root awareness, and direct VS Code / Finder open actions
+- uses simple task pages for `Home`, `Projects`, `Cleanup`, `Workspace`, and `About`
+- keeps project browsing on-screen with native search, targeting, and direct VS Code / Finder open actions
 - lets the native local project library feed cleanup targeting directly
-- launches the full interactive CLI in Terminal
-- opens the project browser, cost-control review, and installed-devcontainer flows
+- treats custom-drive setups as auto-detected workspace examples instead of exposing internal preset names
+- keeps terminal launchers in an advanced area instead of making them the main navigation model
 - runs `--about`, `--help`, and `--version` directly inside the app
 - displays bundled docs inside the app
 - resolves the local CLI bundle automatically from either the repo or the packaged `.app`
@@ -166,37 +172,23 @@ GUI build and source-run requirements:
 - Swift available in `PATH`
 - Xcode Command Line Tools or Xcode installed
 
-## Editions
+## Workspace Setup
 
-### Public
+The published app is generic by default.
 
-- default root: `~/CSA-iEM`
-- intended for portable single-root usage on supported Macs
+Standard public options:
+- single workspace folder: `~/CSA-iEM`
+- split example:
+  - code folder: `~/CSA-iEM/Code`
+  - runtime folder: `~/CSA-iEM/Runtime`
 
-### WTL
+Current-machine auto-detection:
+- if the app finds an existing custom external-drive setup on your Mac, it offers that as `Detected current Mac setup`
+- this keeps custom layouts working without requiring end users to understand legacy preset names
 
-- default root: `/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH`
-- intended for the Wayne Tech Lab external-drive layout
-
-### Diamond
-
-- code root: `/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH`
-- runtime root: `/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH`
-- keeps plain repo work separate from runtime/container work
-
-Diamond layout:
-
-```text
-Code root
-  Repos/<owner>/<repo>
-
-Runtime root
-  Repos/<owner>/<repo>
-  Reports/
-  Backups/
-  Runners/<owner>/<repo>
-  Scripts/
-```
+Advanced CLI compatibility:
+- the CLI still supports the older `public`, `wtl`, and `diamond` profile names for compatibility
+- the GUI now presents workspace choices as `Single Folder` or `Split Folders` instead
 
 ## Main CLI Modes
 
@@ -225,11 +217,17 @@ csa-iem --repo OWNER/REPO --all --yes
 ```
 
 ```bash
-csa-iem --profile diamond --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --dry-run --yes
+csa-iem --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --dry-run --yes
 ```
 
 ```bash
 csa-iem --host github.com --account USER --repo https://github.com/OWNER/REPO --delete-runs --run-filter "release" --yes
+```
+
+Advanced compatibility example for an existing split-workspace install:
+
+```bash
+csa-iem --profile diamond --repo OWNER/REPO --dry-run --yes
 ```
 
 ## Browser And Open Flows
@@ -260,19 +258,20 @@ csa-iem-open
 openproj
 ```
 
-Both jump straight into the full local project browser using the saved Diamond roots.
-`openproj` now opens the imported-project list directly using the saved Diamond roots.
+Both jump straight into the full local project browser using the active saved workspace roots.
+`openproj` now opens the imported-project list directly using the generic opener path by default.
 Use `csa-iem --browse` when you want the full browser menu instead.
 From the imported-project list or full browser you can:
 - open a plain repo or runtime workspace in VS Code
-- inspect active local containers and local runner state
 - run `Cost-control review (one project at a time)`
 
 The native GUI now also exposes:
-- active code/runtime root inspection for the selected profile
+- active workspace-path inspection for the current setup
 - local inventory metrics for imported projects, split workspaces, devcontainers, and runners
 - a searchable local project library that opens runtime or code workspaces directly in VS Code
+- a live local services panel for active devcontainers and runner services with native refresh, open, reveal, and stop actions
 - native imported-project targeting for cleanup and cost-control flows
+- on-screen task navigation instead of relying on the CLI browser as the main UI
 
 The recommended no-spend safeguard plan can:
 - disable GitHub Actions at the repo settings level

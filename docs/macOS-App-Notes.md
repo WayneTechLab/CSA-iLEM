@@ -24,6 +24,16 @@ Run the native app from source with:
 
 The source-run path uses Swift Package Manager and points the app at the local repo via `CSA_IEM_ROOT`.
 
+The GUI is now organized around task pages instead of one overloaded dashboard:
+
+- `Home`
+- `Projects`
+- `Cleanup`
+- `Workspace`
+- `About`
+
+Projects and cleanup stay on-screen, while the CLI remains the backend and advanced fallback.
+
 ## Bundled Resources
 
 The `.app` bundle includes:
@@ -39,7 +49,7 @@ The `.app` bundle includes:
 From any supported Mac terminal, install with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.1.0/install-remote.sh | bash -s -- --ref 0.1.0
 ```
 
 Update with:
@@ -54,6 +64,17 @@ curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-
 - launch the native SwiftUI app from the installed tree
 - build a standalone `.app` later with `csa-iem-build-gui`
 - rerun the shipped `install-remote.sh` later from the installed copy if needed
+
+## Workspace Setup
+
+The published GUI now defaults to a generic public model:
+
+- standard single-folder setup: `~/CSA-iEM`
+- standard split setup:
+  - `~/CSA-iEM/Code`
+  - `~/CSA-iEM/Runtime`
+
+If the app detects a current custom-drive setup on the machine, it presents that as a detected workspace example instead of surfacing legacy preset names in the main UX.
 
 ## Icon Packaging
 

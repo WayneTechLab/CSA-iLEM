@@ -20,6 +20,7 @@
 - workflow `runs-on` patching to self-hosted labels
 - GitHub cleanup for workflows, runs, artifacts, caches, and Codespaces
 - one-project-at-a-time cost-control review
+- a multi-page native GUI for Home, Projects, Cleanup, Workspace, and About
 
 ## Build Inputs
 
@@ -81,7 +82,7 @@ It also reads legacy session paths for compatibility with:
 Recommended production install path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.1.0/install-remote.sh | bash -s -- --ref 0.1.0
 ```
 
 Recommended production update path:
@@ -89,3 +90,12 @@ Recommended production update path:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
 ```
+
+## Workspace Model
+
+The public app now presents storage as a generic workspace choice:
+
+- `Single Folder`
+- `Split Folders`
+
+It also auto-detects this Mac's current custom-drive setup and offers it as a detected example, while keeping the older CLI preset names only for advanced terminal compatibility.

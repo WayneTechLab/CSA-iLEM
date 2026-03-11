@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0
+
+- redesigned the native app into task pages for `Home`, `Projects`, `Cleanup`, `Workspace`, and `About`
+- removed `WTL / Diamond / Public` from the main GUI flow and replaced them with a generic workspace model using `Single Folder` or `Split Folders`
+- added workspace setup controls that use standard public paths or the detected current-machine setup without forcing end users into the CLI model
+- added a native live-services view for active devcontainers and runner services directly inside the `Projects` page
+- simplified the public command surface and install messaging so the generic GUI-first commands are the obvious entry points
+- moved terminal launchers into an advanced area so the GUI is the primary navigation surface
+- switched the public opener flow to the generic workspace path by default
+
 ## 0.0.14
 
 - fixed the remote installer for stock macOS Bash 3.2 so the one-line `curl ... | bash` path works when no optional install arguments are passed
