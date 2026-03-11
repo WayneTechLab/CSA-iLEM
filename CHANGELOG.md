@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.14
+
+- fixed the remote installer for stock macOS Bash 3.2 so the one-line `curl ... | bash` path works when no optional install arguments are passed
+- published the terminal install path as a patch release after verifying it against GitHub `main` and the version tag flow
+
 ## 0.0.13
 
 - added a production remote installer so any supported Mac can install from Terminal with `curl ... | bash`

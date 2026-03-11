@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.0.13`  
+Version: `0.0.14`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -84,7 +84,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production bundle into `~/.local/share/csa-iem/0.0.13`
+- copies the production bundle into `~/.local/share/csa-iem/0.0.14`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`

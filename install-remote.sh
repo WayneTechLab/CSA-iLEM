@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
-REMOTE_INSTALLER_VERSION="0.0.13"
+REMOTE_INSTALLER_VERSION="0.0.14"
 DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
 DEFAULT_REF="${CSA_IEM_REF:-main}"
 INSTALL_ROOT=""
@@ -148,7 +148,11 @@ fi
 
 echo "Running local installer..."
 chmod +x "$SOURCE_DIR/install.sh"
-"$SOURCE_DIR/install.sh" "${INSTALL_ARGS[@]}"
+if [[ "${#INSTALL_ARGS[@]}" -gt 0 ]]; then
+  "$SOURCE_DIR/install.sh" "${INSTALL_ARGS[@]}"
+else
+  "$SOURCE_DIR/install.sh"
+fi
 
 echo
 echo "$APP_NAME remote install finished."
