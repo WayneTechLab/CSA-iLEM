@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
-private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.4"
+private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.6"
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
@@ -473,6 +473,41 @@ enum LocalOperationKind: String, Hashable {
   case localExport
 }
 
+enum ImportExecutionMode: String, CaseIterable, Identifiable {
+  case codespaceToLocal
+  case repoToLocal
+  case repoToLocalPlus
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .codespaceToLocal: return "Codespace -> Local"
+    case .repoToLocal: return "Repo -> Local"
+    case .repoToLocalPlus: return "Repo -> Local + Devcontainer + Actions"
+    }
+  }
+
+  var summary: String {
+    switch self {
+    case .codespaceToLocal:
+      return "Best when you want a local runtime workspace, quick devcontainer validation, runner prep, and optional cleanup preview."
+    case .repoToLocal:
+      return "Clones the repo locally, prepares the workspace, and keeps the flow lighter without runner or workflow patching."
+    case .repoToLocalPlus:
+      return "Full local-prep path with devcontainer quick check, local runner install, workflow patching, and validation notes."
+    }
+  }
+
+  var cliValue: String {
+    switch self {
+    case .codespaceToLocal: return "codespace"
+    case .repoToLocal: return "repo"
+    case .repoToLocalPlus: return "repo-plus"
+    }
+  }
+}
+
 enum LocalFileTransferMode: String, CaseIterable, Identifiable {
   case copyBackup
   case move
@@ -560,6 +595,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   case home
   case jobs
   case githubAccount
+  case imports
   case projects
   case localFiles
   case cleanup
@@ -580,6 +616,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "Home"
     case .jobs: return "Jobs"
     case .githubAccount: return "GitHub Account"
+    case .imports: return "Import"
     case .projects: return "Projects"
     case .localFiles: return "Local Files"
     case .cleanup: return "Cleanup"
@@ -603,6 +640,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Track background operations, progress, status, retries, and logs without opening Terminal."
     case .githubAccount:
       return "Manage the connected GitHub host, account, organizations, and repository inventory from the app."
+    case .imports:
+      return "Select repositories, choose the local import mode, and run background imports without dropping into Terminal."
     case .projects:
       return "Browse imported local projects on-screen, search them, and open them without dropping into Terminal."
     case .localFiles:
@@ -635,6 +674,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "house"
     case .jobs: return "list.bullet.rectangle.portrait"
     case .githubAccount: return "person.crop.circle"
+    case .imports: return "square.and.arrow.down.on.square"
     case .projects: return "shippingbox"
     case .localFiles: return "folder.badge.gearshape"
     case .cleanup: return "trash"
@@ -655,6 +695,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return DashboardTheme.accent
     case .jobs: return DashboardTheme.warning
     case .githubAccount: return DashboardTheme.link
+    case .imports: return DashboardTheme.success
     case .projects: return DashboardTheme.deepBlue
     case .localFiles: return DashboardTheme.warning
     case .cleanup: return DashboardTheme.warning
@@ -678,7 +719,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .githubAccount, .projects, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .githubAccount, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -694,7 +735,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .projects, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -769,6 +810,14 @@ final class CleanupViewModel: ObservableObject {
   @Published var taskNameDraft = ""
   @Published var taskCommandDraft = ""
   @Published var taskLocationDraft: ProjectTaskLocation = .runtime
+  @Published var importMode: ImportExecutionMode = .codespaceToLocal {
+    didSet {
+      if importMode == .repoToLocal {
+        importCleanupPreview = false
+      }
+    }
+  }
+  @Published var importCleanupPreview = false
   @Published var fullCleanup = true
   @Published var disableWorkflows = true
   @Published var deleteRuns = true
@@ -826,6 +875,7 @@ final class CleanupViewModel: ObservableObject {
     }
   }
   @Published var repoCatalogStatus = "Load repositories for the selected GitHub account or owner."
+  @Published var importStatus = "Select one or more repositories, choose the import mode, and run the import in the background."
   @Published var localProjectStatus = "Scan local imported projects for the current workspace roots."
   @Published var liveServicesStatus = "Scan active local devcontainers and runner services for the current workspace."
   @Published var githubAccountStatus = "Refresh the connected account to load organizations and account-level details."
@@ -992,6 +1042,17 @@ final class CleanupViewModel: ObservableObject {
       !cleanupTargets.isEmpty &&
       (fullCleanup || disableWorkflows || deleteRuns || deleteArtifacts || deleteCaches || deleteCodespaces) &&
       safetyArmEnabled &&
+      statusKind != .error
+  }
+
+  var canRunImport: Bool {
+    !isRunning &&
+      cliPath != nil &&
+      ghPath != nil &&
+      isAuthenticated &&
+      !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+      !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+      !cleanupTargets.isEmpty &&
       statusKind != .error
   }
 
@@ -3377,6 +3438,222 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func runImport() {
+    guard let cliPath else {
+      statusKind = .error
+      statusTitle = "CLI Engine Missing"
+      statusDetail = "The bundled CSA-iEM CLI engine was not found."
+      importStatus = statusDetail
+      return
+    }
+
+    guard ghPath != nil else {
+      statusKind = .error
+      statusTitle = "GitHub CLI Missing"
+      statusDetail = "Install GitHub CLI first."
+      importStatus = statusDetail
+      return
+    }
+
+    let selectedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
+    let selectedTargets = cleanupTargets
+
+    guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      statusKind = .error
+      statusTitle = "GitHub Host Required"
+      statusDetail = "Select or enter a GitHub host before running imports."
+      importStatus = statusDetail
+      return
+    }
+
+    guard !selectedAccount.isEmpty else {
+      statusKind = .warning
+      statusTitle = "GitHub Account Required"
+      statusDetail = "Login first, then choose which authenticated account should run imports."
+      importStatus = statusDetail
+      return
+    }
+
+    guard !selectedTargets.isEmpty else {
+      statusKind = .warning
+      statusTitle = "Repository Required"
+      statusDetail = "Check one or more repositories or enter a manual repo target before importing."
+      importStatus = statusDetail
+      return
+    }
+
+    pendingRepoTargets = selectedTargets
+    completedRepoTargets = []
+    failedRepoTargets = []
+    activeRepoTarget = ""
+    totalRepoTargets = selectedTargets.count
+    cancellationRequested = false
+    statusKind = .running
+    statusTitle = "Running Import"
+    statusDetail = "\(selectedAccount) -> \(selectedTargets.count) target(s) in \(workspaceExecutionLabel)"
+    importStatus = "Running \(importMode.label.lowercased()) for \(selectedTargets.count) target(s)."
+    logText = "[gui] Starting \(importMode.label) across \(selectedTargets.count) target(s) with \(selectedAccount) using the \(workspaceExecutionLabel)\n"
+
+    let jobID = createJob(
+      kind: "Import",
+      title: importMode.label,
+      target: selectedTargets.count == 1 ? selectedTargets[0] : "\(selectedTargets.count) repositories",
+      detail: "Preparing import queue…",
+      initialState: .running
+    )
+    activeJobID = jobID
+    isRunning = true
+    launchImport(for: pendingRepoTargets.removeFirst(), using: cliPath, account: selectedAccount, jobID: jobID)
+  }
+
+  private func launchImport(for repoTarget: String, using cliPath: String, account selectedAccount: String, jobID: String) {
+    let resolvedHost = repoHostOverride(from: repoTarget) ?? host.trimmingCharacters(in: .whitespacesAndNewlines)
+    activeRepoTarget = repoTarget
+    let currentIndex = completedRepoTargets.count + failedRepoTargets.count + 1
+
+    statusKind = .running
+    statusTitle = "Running Import"
+    statusDetail = totalRepoTargets > 1
+      ? "\(selectedAccount) -> \(currentIndex)/\(totalRepoTargets): \(repoTarget)"
+      : "\(selectedAccount) -> \(repoTarget)"
+    importStatus = totalRepoTargets > 1
+      ? "Running \(importMode.label.lowercased()) for \(currentIndex) of \(totalRepoTargets): \(repoTarget)"
+      : "Running \(importMode.label.lowercased()) for \(repoTarget)"
+    updateJob(
+      id: jobID,
+      state: .running,
+      detail: "Importing \(repoTarget)…",
+      progressText: "Importing \(currentIndex) of \(totalRepoTargets): \(repoTarget)"
+    )
+    appendLog("[gui] [\(currentIndex)/\(totalRepoTargets)] Starting \(importMode.label) for \(repoTarget) on \(resolvedHost) with \(selectedAccount)\n")
+
+    var arguments = profileArguments() + [
+      "--host", resolvedHost,
+      "--account", selectedAccount,
+      "--repo", repoTarget,
+      "--import-mode", importMode.cliValue,
+      "--import-full-auto",
+      "--yes",
+      "--no-color"
+    ]
+
+    if importCleanupPreview {
+      arguments.append("--import-cleanup-preview")
+    }
+
+    let environment = baseEnvironment()
+    let pipe = Pipe()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: cliPath)
+    process.arguments = arguments
+    process.environment = environment
+    process.standardOutput = pipe
+    process.standardError = pipe
+    runningProcess = process
+
+    pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+      let data = handle.availableData
+      guard data.isEmpty == false,
+            let chunk = String(data: data, encoding: .utf8),
+            chunk.isEmpty == false else {
+        return
+      }
+
+      DispatchQueue.main.async {
+        self?.appendLog(chunk)
+        self?.updateJob(id: jobID, appendLog: chunk)
+      }
+    }
+
+    process.terminationHandler = { [weak self] terminated in
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
+      pipe.fileHandleForReading.readabilityHandler = nil
+      let tailText = String(data: tail, encoding: .utf8) ?? ""
+
+      DispatchQueue.main.async {
+        guard let self else { return }
+        if !tailText.isEmpty {
+          self.appendLog(tailText)
+          self.updateJob(id: jobID, appendLog: tailText)
+        }
+        self.runningProcess = nil
+
+        if self.cancellationRequested {
+          self.finishImportQueue(cancelled: true, jobID: jobID)
+          return
+        }
+
+        if terminated.terminationStatus == 0 {
+          self.completedRepoTargets.append(repoTarget)
+        } else {
+          self.failedRepoTargets.append(repoTarget)
+          self.appendLog("[gui] Import failed for \(repoTarget) with exit code \(terminated.terminationStatus)\n")
+        }
+
+        if let nextTarget = self.pendingRepoTargets.first {
+          self.pendingRepoTargets.removeFirst()
+          self.launchImport(for: nextTarget, using: cliPath, account: selectedAccount, jobID: jobID)
+        } else {
+          self.finishImportQueue(cancelled: false, jobID: jobID)
+        }
+      }
+    }
+
+    processQueue.async {
+      do {
+        try process.run()
+      } catch {
+        DispatchQueue.main.async {
+          self.failedRepoTargets.append(repoTarget)
+          self.appendLog("[gui] Failed to launch import: \(error.localizedDescription)\n")
+          self.updateJob(id: jobID, appendLog: "Failed to launch import: \(error.localizedDescription)")
+          if let nextTarget = self.pendingRepoTargets.first {
+            self.pendingRepoTargets.removeFirst()
+            self.launchImport(for: nextTarget, using: cliPath, account: selectedAccount, jobID: jobID)
+          } else {
+            self.finishImportQueue(cancelled: false, jobID: jobID)
+          }
+        }
+      }
+    }
+  }
+
+  private func finishImportQueue(cancelled: Bool, jobID: String) {
+    isRunning = false
+    runningProcess = nil
+    activeJobID = nil
+    let completedCount = completedRepoTargets.count
+    let failedCount = failedRepoTargets.count
+    let summary = "Completed \(completedCount) of \(totalRepoTargets). Failed: \(failedCount)."
+
+    if cancelled {
+      statusKind = .warning
+      statusTitle = "Import Cancelled"
+      statusDetail = summary
+      importStatus = "Import cancelled. \(summary)"
+      appendLog("[gui] Import cancelled by user.\n")
+      finishJob(id: jobID, state: .cancelled, detail: "Import cancelled by user.")
+    } else if failedCount == 0 {
+      statusKind = .ready
+      statusTitle = "Import Finished"
+      statusDetail = summary
+      importStatus = "Import finished successfully. \(summary)"
+      finishJob(id: jobID, state: .succeeded, detail: "Import finished. \(summary)")
+    } else {
+      statusKind = .error
+      statusTitle = "Import Finished With Errors"
+      statusDetail = summary
+      importStatus = "Import finished with errors. \(summary)"
+      finishJob(id: jobID, state: .failed, detail: "Import finished with errors. \(summary)")
+    }
+
+    pendingRepoTargets.removeAll()
+    activeRepoTarget = ""
+    totalRepoTargets = 0
+    cancellationRequested = false
+    refreshLocalProjects()
+  }
+
   func runCleanup() {
     guard let cliPath else {
       statusKind = .error
@@ -3687,6 +3964,8 @@ final class CleanupViewModel: ObservableObject {
       loadProjectSyncStatus()
     case ("Local", "Port monitor"):
       loadPortMonitor()
+    case ("Import", _):
+      runImport()
     default:
       jobCenterStatus = "Retry is available for catalog, health, workflow, Codespaces, secrets, storage, sync, and port jobs."
     }
@@ -6706,6 +6985,8 @@ struct ContentView: View {
           jobsPage(for: width, usesSidebar: usesSidebar)
         case .githubAccount:
           githubAccountPage(for: width, usesSidebar: usesSidebar)
+        case .imports:
+          importPage(for: width, usesSidebar: usesSidebar)
         case .projects:
           projectsPage(for: width, usesSidebar: usesSidebar)
         case .localFiles:
@@ -6835,6 +7116,50 @@ struct ContentView: View {
           projectSyncPanel
           storageInsightsPanel
           portMonitorPanel
+        }
+      }
+    }
+  }
+
+  private func importPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(
+        brandMark: model.bundledBrandMark,
+        compact: width < 1280
+      )
+
+      WorkspaceToolbarStrip(
+        destination: .imports,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      if width >= 1560 {
+        HStack(alignment: .top, spacing: 18) {
+          VStack(alignment: .leading, spacing: 18) {
+            authPanel
+            repositoryPanel
+          }
+          .frame(maxWidth: .infinity, alignment: .topLeading)
+
+          VStack(alignment: .leading, spacing: 18) {
+            importPanel
+            importExecutionPanel
+          }
+          .frame(width: 480, alignment: .topLeading)
+
+          logPanel(minHeight: 720)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 18) {
+          authPanel
+          repositoryPanel
+          importPanel
+          importExecutionPanel
+          logPanel(minHeight: 360)
         }
       }
     }
@@ -9196,6 +9521,40 @@ struct ContentView: View {
     }
   }
 
+  private var importPanel: some View {
+    PanelCard(title: "Import Mode", subtitle: "Choose how the selected repositories should be brought into the local workspace.") {
+      Picker("Import Mode", selection: $model.importMode) {
+        ForEach(ImportExecutionMode.allCases) { mode in
+          Text(mode.label).tag(mode)
+        }
+      }
+      .pickerStyle(.segmented)
+
+      BannerCard(
+        title: model.importMode.label,
+        detail: model.importMode.summary,
+        kind: .ready
+      )
+
+      Toggle("Run cleanup preview after import", isOn: $model.importCleanupPreview)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+        .foregroundStyle(DashboardTheme.text)
+        .disabled(model.importMode == .repoToLocal)
+
+      BannerCard(
+        title: model.selectedRepoSummary,
+        detail: model.importStatus,
+        kind: model.cleanupTargets.isEmpty ? .warning : .ready
+      )
+
+      Text("The GUI import path runs the bundled CLI in GUI-safe auto mode. That means it uses the quick devcontainer startup check, auto-confirms the import prompts, and stays in the native Jobs and Output views instead of opening Terminal.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
   private var cleanupPanel: some View {
     PanelCard(title: "Cleanup Scope", subtitle: "Single control panel for actions, filters, and destructive state.") {
       Toggle("Full cleanup", isOn: $model.fullCleanup)
@@ -9256,6 +9615,40 @@ struct ContentView: View {
           .foregroundStyle(DashboardTheme.text)
           .dashboardFieldStyle()
       }
+    }
+  }
+
+  private var importExecutionPanel: some View {
+    PanelCard(title: "Import Execution", subtitle: "Run imports in the background and keep the raw output visible in the native app.") {
+      HStack(spacing: 10) {
+        Button("Run Import") {
+          model.runImport()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(!model.canRunImport)
+
+        Button("Open Projects") {
+          selectedDestination = .projects
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Clear Log") {
+          model.logText = "[gui] \(appTitle) ready.\n"
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+      }
+
+      if model.isRunning {
+        Button("Cancel Active Run") {
+          model.cancelRun()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      }
+
+      Text("Imports use your selected workspace, selected GitHub account, and the repositories checked in the repository panel. If no repositories are checked, the manual repository field is used instead.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
     }
   }
 

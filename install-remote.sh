@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
-REMOTE_INSTALLER_VERSION="0.2.4"
+REMOTE_INSTALLER_VERSION="0.2.6"
 DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
 DEFAULT_REF="${CSA_IEM_REF:-main}"
 INSTALL_ROOT=""
@@ -11,6 +11,7 @@ BIN_DIR=""
 USE_FORCE=0
 UPDATE_SHELL_PROFILE=1
 KEEP_TEMP=0
+BOOTSTRAP_DEPS=1
 REF_VALUE="$DEFAULT_REF"
 REPO_SLUG="$DEFAULT_REPO_SLUG"
 
@@ -33,6 +34,7 @@ Options:
   --bin-dir <dir>          Override the command symlink directory.
   --force                  Force reinstall of the target version.
   --no-shell-profile       Do not modify ~/.zprofile.
+  --no-deps                Skip dependency bootstrap in the local installer.
   --keep-temp              Keep the downloaded temp directory after install.
   --version                Show the installer version.
   --help                   Show this help.
@@ -70,6 +72,9 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --no-shell-profile)
       UPDATE_SHELL_PROFILE=0
+      ;;
+    --no-deps)
+      BOOTSTRAP_DEPS=0
       ;;
     --keep-temp)
       KEEP_TEMP=1
@@ -171,6 +176,9 @@ if [[ "$USE_FORCE" -eq 1 ]]; then
 fi
 if [[ "$UPDATE_SHELL_PROFILE" -eq 0 ]]; then
   INSTALL_ARGS+=(--no-shell-profile)
+fi
+if [[ "$BOOTSTRAP_DEPS" -eq 0 ]]; then
+  INSTALL_ARGS+=(--no-deps)
 fi
 
 echo "Running local installer..."

@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_FULL_NAME="Container Setup & Action Import Engine Manager"
 APP_LEGACY_NAME="CSA-iLEM"
-APP_VERSION="0.2.4"
+APP_VERSION="0.2.6"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_VENDOR_URL="https://www.WayneTechLab.com"
 APP_RISK_NOTICE="Use at your own risk."
@@ -56,6 +56,7 @@ AUTO_USE_CURRENT_ROOT=0
 ASSUME_YES=0
 NO_COLOR=0
 DIRECT_CLEANUP_MODE=0
+DIRECT_IMPORT_MODE=0
 LAST_HOST=""
 LAST_ACCOUNT=""
 LAST_REPO_SPEC=""
@@ -78,6 +79,7 @@ CODE_REPOS_DIR=""
 RUNTIME_REPOS_DIR=""
 
 MODE=""
+IMPORT_MODE_NAME=""
 FULL_AUTO=0
 FULL_AUTO_CLEANUP=0
 SELECTED_REPOS=()
@@ -849,6 +851,25 @@ verify_repo_access() {
   fi
 }
 
+normalize_import_mode() {
+  local value="${1:-}"
+
+  case "$value" in
+    codespace|codespaces|codespace_to_local)
+      printf 'codespace_to_local\n'
+      ;;
+    repo|repo_to_local)
+      printf 'repo_to_local\n'
+      ;;
+    repo-plus|repo_plus|repo_to_local_plus)
+      printf 'repo_to_local_plus\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 show_help() {
   cat <<EOF
 $APP_NAME v$APP_VERSION
@@ -878,6 +899,8 @@ Usage:
   $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
+  $(basename "$0") --profile diamond --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
+  $(basename "$0") --profile diamond --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
   $(basename "$0") --repo OWNER/REPO --all --yes
   $(basename "$0") --profile diamond --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
   $(basename "$0") --repo https://github.com/OWNER/REPO --delete-runs --run https://github.com/OWNER/REPO/actions/runs/123456789 --yes
@@ -891,6 +914,7 @@ What it does:
   - Saves a default workspace root per edition for next time
   - Explains the workspace/root layout, saved paths, and storage behavior from the root menu
   - Lets you choose one repo, all repos one by one, a FULL AUTO batch import, a FULL AUTO + cleanup preview batch import, or a manual repo
+  - Supports direct noninteractive import commands for GUI/background use
   - Can create a starter .devcontainer if one is missing
   - Can test starting the local devcontainer
   - Can install a repo-level self-hosted Mac Actions runner
@@ -924,6 +948,15 @@ Direct cleanup flags:
   --yes
   --dry-run
   --no-color
+
+Direct import flags:
+  --import-mode MODE
+    MODE values:
+      codespace
+      repo
+      repo-plus
+  --import-full-auto
+  --import-cleanup-preview
 
 Built-in default roots:
   Public: $PUBLIC_DEFAULT_ROOT
@@ -5368,11 +5401,9 @@ parse_cli_args() {
           exit 1
         fi
         HOST="$1"
-        DIRECT_CLEANUP_MODE=1
         ;;
       --host=*)
         HOST="${1#*=}"
-        DIRECT_CLEANUP_MODE=1
         ;;
       --account)
         shift
@@ -5381,11 +5412,9 @@ parse_cli_args() {
           exit 1
         fi
         ACCOUNT="$1"
-        DIRECT_CLEANUP_MODE=1
         ;;
       --account=*)
         ACCOUNT="${1#*=}"
-        DIRECT_CLEANUP_MODE=1
         ;;
       --repo)
         shift
@@ -5394,11 +5423,38 @@ parse_cli_args() {
           exit 1
         fi
         REPO_SPEC="$1"
-        DIRECT_CLEANUP_MODE=1
         ;;
       --repo=*)
         REPO_SPEC="${1#*=}"
-        DIRECT_CLEANUP_MODE=1
+        ;;
+      --import-mode)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--import-mode requires a value of codespace, repo, or repo-plus."
+          exit 1
+        fi
+        if ! IMPORT_MODE_NAME="$(normalize_import_mode "$1")"; then
+          err "Unknown import mode: $1"
+          exit 1
+        fi
+        DIRECT_IMPORT_MODE=1
+        ;;
+      --import-mode=*)
+        if ! IMPORT_MODE_NAME="$(normalize_import_mode "${1#*=}")"; then
+          err "Unknown import mode: ${1#*=}"
+          exit 1
+        fi
+        DIRECT_IMPORT_MODE=1
+        ;;
+      --import-full-auto)
+        FULL_AUTO=1
+        FULL_AUTO_CLEANUP=0
+        DIRECT_IMPORT_MODE=1
+        ;;
+      --import-cleanup-preview)
+        FULL_AUTO=1
+        FULL_AUTO_CLEANUP=1
+        DIRECT_IMPORT_MODE=1
         ;;
       --disable-workflows)
         DO_DISABLE=1
@@ -5501,7 +5557,10 @@ parse_cli_args() {
     fi
   fi
 
-  if [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
+  if [[ "$DIRECT_IMPORT_MODE" -eq 1 ]]; then
+    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="public"
+    AUTO_USE_CURRENT_ROOT=1
+  elif [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
     [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="public"
     AUTO_USE_CURRENT_ROOT=1
   fi
@@ -5526,7 +5585,7 @@ main() {
   select_profile
   info "Using the $PROFILE_LABEL edition."
 
-  if [[ "$ENTRY_MODE" == "interactive" || "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
+  if [[ "$ENTRY_MODE" == "interactive" || "$DIRECT_CLEANUP_MODE" -eq 1 || "$DIRECT_IMPORT_MODE" -eq 1 ]]; then
     install_brew_if_missing
     ensure_brew_shellenv_in_profile
 
@@ -5556,6 +5615,21 @@ main() {
     browse_cost_control_review
   elif [[ "$ENTRY_MODE" == "devcontainers" ]]; then
     browse_installed_devcontainers
+  elif [[ "$DIRECT_IMPORT_MODE" -eq 1 ]]; then
+    if [[ -z "$IMPORT_MODE_NAME" ]]; then
+      err "A direct import run requires --import-mode codespace, repo, or repo-plus."
+      exit 1
+    fi
+    if [[ -z "$REPO_SPEC" ]]; then
+      err "A direct import run requires --repo OWNER/REPO."
+      exit 1
+    fi
+    if ! REPO_SPEC="$(normalize_repo_input "$REPO_SPEC")"; then
+      exit 1
+    fi
+    MODE="$IMPORT_MODE_NAME"
+    SELECTED_REPOS=("$REPO_SPEC")
+    process_selected_repositories
   elif [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
     MODE="cleanup_only"
     if [[ -z "$REPO_SPEC" ]]; then

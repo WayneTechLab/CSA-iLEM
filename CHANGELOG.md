@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.6
+
+- taught `install.sh` to scan for missing Mac dependencies and bootstrap them when possible
+- added automatic Homebrew, git, GitHub CLI, Node.js, npm-based Dev Containers CLI, VS Code, and Docker Desktop detection/install handling
+- added `code` and `docker` CLI linking from installed app bundles when the apps exist but the shell command is missing
+- added `--no-deps` to skip dependency bootstrap when you want a pure file install only
+
+## 0.2.5
+
+- added a native `Import` page to the macOS GUI so repository import is now a first-class on-screen workflow instead of being cleanup-only
+- added direct CLI import flags for GUI/background execution: `--import-mode`, `--import-full-auto`, and `--import-cleanup-preview`
+- wired GUI imports to the bundled CLI backend as background jobs using the selected GitHub account, selected repositories, and current workspace roots
+- fixed the installed `csa-iem-open` and `csa-ilem-open` wrappers so they follow the detected/saved workspace instead of forcing the public profile
+
 ## 0.2.4
 
 - changed `csa-iem-gui` to open the native `.app` bundle by default instead of running the SwiftUI target in the foreground through `swift run`

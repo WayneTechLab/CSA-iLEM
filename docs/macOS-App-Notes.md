@@ -51,7 +51,7 @@ The `.app` bundle includes:
 From any supported Mac terminal, install with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.4/install-remote.sh | bash -s -- --ref 0.2.4
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.6/install-remote.sh | bash -s -- --ref 0.2.6
 ```
 
 Update with:
