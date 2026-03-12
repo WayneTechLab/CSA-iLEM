@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.2.3`  
+Version: `0.2.4`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -65,7 +65,7 @@ Advanced compatibility wrappers still ship:
 Stable public install from any supported Mac terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.3/install-remote.sh | bash -s -- --ref 0.2.3
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.4/install-remote.sh | bash -s -- --ref 0.2.4
 ```
 
 Install the latest `main` build:
@@ -95,7 +95,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production bundle into `~/.local/share/csa-iem/0.2.3`
+- copies the production bundle into `~/.local/share/csa-iem/0.2.4`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -137,6 +137,8 @@ Run the installed GUI launcher:
 csa-iem-gui
 ```
 
+By default, `csa-iem-gui` now opens the native `.app` bundle. If the bundle does not exist yet, it builds it first and then opens it.
+
 Build a standalone `.app` bundle:
 
 ```bash
@@ -153,6 +155,12 @@ That creates:
 
 ```text
 dist/CSA-iEM.app
+```
+
+If you want the direct foreground Swift target run for debugging:
+
+```bash
+csa-iem-gui --source-run
 ```
 
 The GUI is a SwiftUI macOS app that:

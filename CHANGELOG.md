@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+- changed `csa-iem-gui` to open the native `.app` bundle by default instead of running the SwiftUI target in the foreground through `swift run`
+- made `csa-iem-gui` auto-build the app bundle if it does not exist yet, so installed Macs launch the GUI like a normal app
+- kept `--source-run` as an explicit debug path for direct Swift target execution
+- updated versioned install and product docs for the `0.2.4` GUI launch fix
+
 ## 0.2.3
 
 - fixed `openproj` so it auto-detects the current saved or detected workspace profile instead of forcing the public single-folder profile
