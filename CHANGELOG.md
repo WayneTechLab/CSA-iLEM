@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.3
+
+- fixed `openproj` so it auto-detects the current saved or detected workspace profile instead of forcing the public single-folder profile
+- added GUI workspace recovery when the current workspace scan comes back empty but a detected workspace on the same Mac already contains imported projects
+- updated versioned install and product docs for the `0.2.3` recovery fix
+
+## 0.2.2
+
+- reduced Terminal-first behavior in the GUI by shifting the advanced tools panel toward native page navigation and hiding terminal fallback launchers unless explicitly enabled in Settings
+- made local export and backup flows transactional across multi-item operations so failures roll back staged destinations instead of leaving partial move/export state behind
+- added checksum verification to the remote installer so extracted public/tag installs are validated before the local installer runs
+- started shipping `STATUS.md` and `SHA256SUMS` with installed copies and packaged app resources
+- updated production docs and version metadata for the `0.2.2` hardening pass
+
 ## 0.2.1
 
 - made workspace relocation safer by staging multi-root moves before switching destinations and reporting cleanup warnings instead of leaving a silent half-moved state

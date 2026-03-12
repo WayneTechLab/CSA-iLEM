@@ -10,7 +10,7 @@ done
 SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 APP_NAME="CSA-iEM"
 GUI_TARGET="CSAiEMMacApp"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.2.1')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.2.3')"
 DIST_DIR="$SCRIPT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 SCRATCH_ID="$(printf '%s' "$SCRIPT_DIR" | shasum | awk '{print $1}')"
@@ -38,6 +38,7 @@ CLI_FILES=(
   "openproj"
   "csa-ilem-gui"
   "csa-ilem-build-gui"
+  "SHA256SUMS"
   "install-remote.sh"
   "install.sh"
   "uninstall.sh"
@@ -51,8 +52,10 @@ RESOURCE_FILES=(
   "PRIVACY-NOTICE.md"
   "DISCLAIMER.md"
   "CHANGELOG.md"
+  "STATUS.md"
   "SECURITY.md"
   "PROJECT-INFO.md"
+  "SHA256SUMS"
 )
 
 HELP_FILES=(

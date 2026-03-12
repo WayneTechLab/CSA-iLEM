@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.2.1`  
+Version: `0.2.3`  
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -21,6 +21,11 @@ It is built for:
 - previewing or running GitHub cleanup flows
 - browsing imported local workspaces, containers, and runners
 - stepping through one-project-at-a-time cost-control reviews
+
+## Current Status
+
+For the current production-status snapshot, see:
+- [`STATUS.md`](./STATUS.md)
 
 ## Primary Commands
 
@@ -60,7 +65,7 @@ Advanced compatibility wrappers still ship:
 Stable public install from any supported Mac terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.1/install-remote.sh | bash -s -- --ref 0.2.1
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.3/install-remote.sh | bash -s -- --ref 0.2.3
 ```
 
 Install the latest `main` build:
@@ -90,7 +95,7 @@ chmod +x ./install.sh
 ```
 
 The installer:
-- copies the production bundle into `~/.local/share/csa-iem/0.2.1`
+- copies the production bundle into `~/.local/share/csa-iem/0.2.3`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
-private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1"
+private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.3"
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
@@ -459,6 +459,15 @@ struct LocalOperationPreview: Hashable {
   let preparedStamp: String?
 }
 
+private struct LocalTransferOperation: Hashable {
+  let source: String
+  let destination: String
+}
+
+private struct LocalTransferOutcome {
+  let warnings: [String]
+}
+
 enum LocalOperationKind: String, Hashable {
   case workspaceMove
   case localExport
@@ -864,6 +873,7 @@ final class CleanupViewModel: ObservableObject {
   private var activeRepoTarget = ""
   private var totalRepoTargets = 0
   private var cancellationRequested = false
+  private var isAutoRecoveringWorkspace = false
   private let processQueue = DispatchQueue(label: "com.waynetechlab.csaiem.process", qos: .userInitiated)
 
   init() {
@@ -1747,12 +1757,64 @@ final class CleanupViewModel: ObservableObject {
       )
 
       DispatchQueue.main.async {
+        if result.projects.isEmpty,
+           !self.isAutoRecoveringWorkspace,
+           let fallback = self.workspaceRecoverySuggestion(currentCodeRoot: roots.codeRoot, currentRuntimeRoot: roots.runtimeRoot) {
+          self.isLoadingLocalProjects = false
+          self.isAutoRecoveringWorkspace = true
+          self.localProjectStatus = "No local projects were found in the current workspace. Switching to \(fallback.title.lowercased()) and rescanning..."
+          self.applyRecoveredWorkspaceSuggestion(fallback)
+          self.isAutoRecoveringWorkspace = false
+          return
+        }
         self.isLoadingLocalProjects = false
         self.localProjects = result.projects
         self.localProjectStatus = result.status
         self.refreshLiveServices()
       }
     }
+  }
+
+  private func workspaceRecoverySuggestion(currentCodeRoot: String, currentRuntimeRoot: String) -> WorkspaceSuggestion? {
+    let currentCode = normalizeWorkspacePath(currentCodeRoot)
+    let currentRuntime = normalizeWorkspacePath(currentRuntimeRoot)
+    var candidates: [WorkspaceSuggestion] = []
+
+    if let detected = detectedWorkspaceConfiguration() {
+      candidates.append(detected)
+    }
+    if let saved = savedWorkspaceConfiguration() {
+      candidates.append(saved)
+    }
+
+    var seenKeys: Set<String> = []
+    for candidate in candidates {
+      let key = "\(candidate.style.rawValue)|\(normalizeWorkspacePath(candidate.codeRoot))|\(normalizeWorkspacePath(candidate.runtimeRoot))"
+      guard seenKeys.insert(key).inserted else { continue }
+
+      let candidateCode = normalizeWorkspacePath(candidate.codeRoot)
+      let candidateRuntime = normalizeWorkspacePath(candidate.runtimeRoot)
+      if candidateCode == currentCode && candidateRuntime == currentRuntime {
+        continue
+      }
+
+      let candidateResult = Self.scanLocalProjects(
+        workspaceLabel: candidate.style == .split ? "split" : "single-folder",
+        codeRoot: candidateCode,
+        runtimeRoot: candidateRuntime
+      )
+      if !candidateResult.projects.isEmpty {
+        return candidate
+      }
+    }
+
+    return nil
+  }
+
+  private func applyRecoveredWorkspaceSuggestion(_ suggestion: WorkspaceSuggestion) {
+    selectedProfile = suggestion.style == .split ? .diamond : .public
+    useCurrentRoot = true
+    syncWorkspaceDraftsFromResolvedRoots()
   }
 
   func refreshLiveServices() {
@@ -4421,44 +4483,27 @@ final class CleanupViewModel: ObservableObject {
     includeRunners: Bool
   ) -> LocalOperationPreview {
     let destinationRoot = localExportRoot(destinationBase: destinationBase, stamp: preparedStamp)
-    var sourcePaths: [String] = []
+    let operations = (try? plannedLocalExportOperations(
+      scope: scope,
+      destinationRoot: destinationRoot,
+      roots: roots,
+      selectedProjects: selectedProjects,
+      includeCode: includeCode,
+      includeRuntime: includeRuntime,
+      includeRunners: includeRunners
+    )) ?? []
+    let totalSize = operations.reduce(Int64(0)) { $0 + directorySizeKilobytes(at: $1.source) }
+    let collisions = operations
+      .map(\.destination)
+      .filter { FileManager.default.fileExists(atPath: $0) }
 
-    switch scope {
-    case .workspaceBundle:
-      sourcePaths.append(roots.codeRoot)
-      if NSString(string: roots.runtimeRoot).standardizingPath != NSString(string: roots.codeRoot).standardizingPath {
-        sourcePaths.append(roots.runtimeRoot)
-      }
-    case .codeWorkspace:
-      sourcePaths.append(roots.codeRoot)
-    case .runtimeWorkspace:
-      sourcePaths.append(roots.runtimeRoot)
-    case .selectedProjects:
-      let runnerRoot = (roots.runtimeRoot as NSString).appendingPathComponent("Runners")
-      for project in selectedProjects {
-        if includeCode, let codePath = project.codePath {
-          sourcePaths.append(codePath)
-        }
-        if includeRuntime, let runtimePath = project.runtimePath {
-          sourcePaths.append(runtimePath)
-        }
-        if includeRunners {
-          let runnerPath = (runnerRoot as NSString).appendingPathComponent("\(project.owner)/\(project.repo)")
-          if FileManager.default.fileExists(atPath: runnerPath) {
-            sourcePaths.append(runnerPath)
-          }
-        }
-      }
-    }
-
-    let totalSize = sourcePaths.reduce(Int64(0)) { $0 + directorySizeKilobytes(at: $1) }
     return LocalOperationPreview(
       kind: .localExport,
       title: "\(mode.label) Preview",
       destinationPath: destinationRoot,
-      itemCount: sourcePaths.count,
+      itemCount: operations.count,
       totalSizeLabel: formatKilobytes(totalSize),
-      collisions: FileManager.default.fileExists(atPath: destinationRoot) ? [destinationRoot] : [],
+      collisions: collisions.isEmpty && FileManager.default.fileExists(atPath: destinationRoot) ? [destinationRoot] : collisions,
       preparedStamp: preparedStamp
     )
   }
@@ -5029,67 +5074,220 @@ final class CleanupViewModel: ObservableObject {
   ) throws -> String {
     let stamp = preparedStamp ?? timestampStamp()
     let exportRoot = localExportRoot(destinationBase: destinationBase, stamp: stamp)
+    let operations = try plannedLocalExportOperations(
+      scope: scope,
+      destinationRoot: exportRoot,
+      roots: roots,
+      selectedProjects: selectedProjects,
+      includeCode: includeCode,
+      includeRuntime: includeRuntime,
+      includeRunners: includeRunners
+    )
+    let outcome = try performTransactionalTransfers(
+      operations: operations,
+      mode: mode,
+      overwrite: overwrite,
+      environment: environment
+    )
+
+    let warningSuffix = outcome.warnings.isEmpty
+      ? ""
+      : " Warnings: " + outcome.warnings.joined(separator: " ")
 
     switch scope {
     case .workspaceBundle:
-      try transferItem(
-        from: roots.codeRoot,
-        to: (exportRoot as NSString).appendingPathComponent("Code"),
-        mode: mode,
-        overwrite: overwrite,
-        environment: environment
-      )
-      if NSString(string: roots.runtimeRoot).standardizingPath != NSString(string: roots.codeRoot).standardizingPath {
-        try transferItem(
-          from: roots.runtimeRoot,
-          to: (exportRoot as NSString).appendingPathComponent("Runtime"),
-          mode: mode,
-          overwrite: overwrite,
-          environment: environment
-        )
-      }
-      return "\(mode.label) finished for the full workspace bundle at \(exportRoot)."
+      return "\(mode.label) finished for the full workspace bundle at \(exportRoot)." + warningSuffix
     case .codeWorkspace:
       let target = (exportRoot as NSString).appendingPathComponent("Code")
-      try transferItem(from: roots.codeRoot, to: target, mode: mode, overwrite: overwrite, environment: environment)
-      return "\(mode.label) finished for the code workspace at \(target)."
+      return "\(mode.label) finished for the code workspace at \(target)." + warningSuffix
     case .runtimeWorkspace:
       let target = (exportRoot as NSString).appendingPathComponent("Runtime")
-      try transferItem(from: roots.runtimeRoot, to: target, mode: mode, overwrite: overwrite, environment: environment)
-      return "\(mode.label) finished for the runtime workspace at \(target)."
+      return "\(mode.label) finished for the runtime workspace at \(target)." + warningSuffix
+    case .selectedProjects:
+      return "\(mode.label) finished for \(selectedProjects.count) selected projects (\(operations.count) items) at \(exportRoot)." + warningSuffix
+    }
+  }
+
+  private nonisolated static func plannedLocalExportOperations(
+    scope: LocalFileExportScope,
+    destinationRoot: String,
+    roots: (codeRoot: String, runtimeRoot: String),
+    selectedProjects: [LocalProjectEntry],
+    includeCode: Bool,
+    includeRuntime: Bool,
+    includeRunners: Bool
+  ) throws -> [LocalTransferOperation] {
+    switch scope {
+    case .workspaceBundle:
+      var operations = [
+        LocalTransferOperation(
+          source: roots.codeRoot,
+          destination: (destinationRoot as NSString).appendingPathComponent("Code")
+        )
+      ]
+      if NSString(string: roots.runtimeRoot).standardizingPath != NSString(string: roots.codeRoot).standardizingPath {
+        operations.append(
+          LocalTransferOperation(
+            source: roots.runtimeRoot,
+            destination: (destinationRoot as NSString).appendingPathComponent("Runtime")
+          )
+        )
+      }
+      return operations
+    case .codeWorkspace:
+      return [
+        LocalTransferOperation(
+          source: roots.codeRoot,
+          destination: (destinationRoot as NSString).appendingPathComponent("Code")
+        )
+      ]
+    case .runtimeWorkspace:
+      return [
+        LocalTransferOperation(
+          source: roots.runtimeRoot,
+          destination: (destinationRoot as NSString).appendingPathComponent("Runtime")
+        )
+      ]
     case .selectedProjects:
       guard !selectedProjects.isEmpty else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "No local projects were selected for export."])
       }
 
       let runtimeRunnerRoot = (roots.runtimeRoot as NSString).appendingPathComponent("Runners")
-      var itemCount = 0
+      var operations: [LocalTransferOperation] = []
 
       for project in selectedProjects {
         if includeCode, let codePath = project.codePath {
-          let target = (exportRoot as NSString).appendingPathComponent("Code/Repos/\(project.owner)/\(project.repo)")
-          try transferItem(from: codePath, to: target, mode: mode, overwrite: overwrite, environment: environment)
-          itemCount += 1
+          operations.append(
+            LocalTransferOperation(
+              source: codePath,
+              destination: (destinationRoot as NSString).appendingPathComponent("Code/Repos/\(project.owner)/\(project.repo)")
+            )
+          )
         }
 
         if includeRuntime, let runtimePath = project.runtimePath {
-          let target = (exportRoot as NSString).appendingPathComponent("Runtime/Repos/\(project.owner)/\(project.repo)")
-          try transferItem(from: runtimePath, to: target, mode: mode, overwrite: overwrite, environment: environment)
-          itemCount += 1
+          operations.append(
+            LocalTransferOperation(
+              source: runtimePath,
+              destination: (destinationRoot as NSString).appendingPathComponent("Runtime/Repos/\(project.owner)/\(project.repo)")
+            )
+          )
         }
 
         if includeRunners {
           let runnerPath = (runtimeRunnerRoot as NSString).appendingPathComponent("\(project.owner)/\(project.repo)")
           if FileManager.default.fileExists(atPath: runnerPath) {
-            let target = (exportRoot as NSString).appendingPathComponent("Runtime/Runners/\(project.owner)/\(project.repo)")
-            try transferItem(from: runnerPath, to: target, mode: mode, overwrite: overwrite, environment: environment)
-            itemCount += 1
+            operations.append(
+              LocalTransferOperation(
+                source: runnerPath,
+                destination: (destinationRoot as NSString).appendingPathComponent("Runtime/Runners/\(project.owner)/\(project.repo)")
+              )
+            )
           }
         }
       }
 
-      return "\(mode.label) finished for \(selectedProjects.count) selected projects (\(itemCount) items) at \(exportRoot)."
+      return operations
     }
+  }
+
+  private nonisolated static func performTransactionalTransfers(
+    operations: [LocalTransferOperation],
+    mode: LocalFileTransferMode,
+    overwrite: Bool,
+    environment: [String: String]
+  ) throws -> LocalTransferOutcome {
+    let fm = FileManager.default
+    let transactionID = UUID().uuidString
+    var normalizedOperations: [LocalTransferOperation] = []
+    var seenDestinations: Set<String> = []
+
+    for operation in operations {
+      let normalizedSource = NSString(string: operation.source).standardizingPath
+      let normalizedDestination = NSString(string: operation.destination).standardizingPath
+
+      guard fm.fileExists(atPath: normalizedSource) else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Source path was not found: \(normalizedSource)"])
+      }
+
+      if normalizedDestination == normalizedSource || normalizedDestination.hasPrefix(normalizedSource + "/") {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination cannot be the same as or inside the source path: \(normalizedDestination)"])
+      }
+
+      if !seenDestinations.insert(normalizedDestination).inserted {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Duplicate destination detected during export preparation: \(normalizedDestination)"])
+      }
+
+      if fm.fileExists(atPath: normalizedDestination), !overwrite {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination already exists: \(normalizedDestination)"])
+      }
+
+      normalizedOperations.append(LocalTransferOperation(source: normalizedSource, destination: normalizedDestination))
+    }
+
+    var stagePathsByDestination: [String: String] = [:]
+    var backupPathsByDestination: [String: String] = [:]
+
+    do {
+      for operation in normalizedOperations {
+        let stagePath = operation.destination + ".csa-iem-stage-\(transactionID)"
+        try? fm.removeItem(atPath: stagePath)
+        try transferItem(
+          from: operation.source,
+          to: stagePath,
+          mode: .copyBackup,
+          overwrite: true,
+          environment: environment
+        )
+        stagePathsByDestination[operation.destination] = stagePath
+      }
+
+      for operation in normalizedOperations where fm.fileExists(atPath: operation.destination) {
+        let backupPath = operation.destination + ".csa-iem-backup-\(transactionID)"
+        try? fm.removeItem(atPath: backupPath)
+        try fm.moveItem(atPath: operation.destination, toPath: backupPath)
+        backupPathsByDestination[operation.destination] = backupPath
+      }
+
+      for operation in normalizedOperations {
+        guard let stagePath = stagePathsByDestination[operation.destination] else { continue }
+        try fm.moveItem(atPath: stagePath, toPath: operation.destination)
+        stagePathsByDestination.removeValue(forKey: operation.destination)
+      }
+    } catch {
+      for operation in normalizedOperations {
+        if fm.fileExists(atPath: operation.destination) {
+          try? fm.removeItem(atPath: operation.destination)
+        }
+      }
+      for (destination, backupPath) in backupPathsByDestination {
+        if fm.fileExists(atPath: backupPath) {
+          try? fm.moveItem(atPath: backupPath, toPath: destination)
+        }
+      }
+      for stagePath in stagePathsByDestination.values {
+        try? fm.removeItem(atPath: stagePath)
+      }
+      throw error
+    }
+
+    var cleanupWarnings: [String] = []
+    if mode == .move {
+      for operation in normalizedOperations where fm.fileExists(atPath: operation.source) {
+        do {
+          try fm.removeItem(atPath: operation.source)
+        } catch {
+          cleanupWarnings.append("Source cleanup failed for \(operation.source). The new destination is ready, but the old path still needs manual cleanup.")
+        }
+      }
+    }
+
+    for backupPath in backupPathsByDestination.values {
+      try? fm.removeItem(atPath: backupPath)
+    }
+
+    return LocalTransferOutcome(warnings: cleanupWarnings)
   }
 
   private nonisolated static func transferItem(
@@ -8604,35 +8802,71 @@ struct ContentView: View {
   }
 
   private var advancedToolsPanel: some View {
-    PanelCard(title: "Advanced Tools", subtitle: "Terminal fallbacks remain available here, but they are no longer the primary navigation model.") {
+    PanelCard(title: "Advanced Tools", subtitle: "Use native pages first. Terminal fallbacks stay optional for edge cases and power workflows.") {
       HStack(spacing: 10) {
-        Button("Interactive CLI") {
-          model.openCLIInTerminal()
+        Button("Projects Page") {
+          model.refreshLocalProjects()
+          model.refreshLiveServices()
+          selectedDestination = .projects
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
 
-        Button("Imported Projects") {
-          model.openImportedProjectsInTerminal()
+        Button("Cleanup Page") {
+          selectedDestination = .cleanup
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
       }
 
       HStack(spacing: 10) {
-        Button("Cost-Control Review") {
-          model.openCostControlReviewInTerminal()
+        Button("Jobs Page") {
+          selectedDestination = .jobs
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
 
-        Button("Installed Devcontainers") {
-          model.openInstalledDevcontainersInTerminal()
+        Button("GitHub Account") {
+          selectedDestination = .githubAccount
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
       }
 
-      Text("These tools stay here for edge cases and power use. The normal flow should now be Home -> Projects -> Cleanup -> Workspace, all inside the native app.")
+      Text("Normal use should stay inside the native app: Projects for local work, Cleanup for GitHub cost-control, Jobs for execution state, and GitHub Account for repo administration.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
+
+      if model.appSettings.keepTerminalFallbacksVisible {
+        Divider()
+          .overlay(DashboardTheme.border)
+
+        HStack(spacing: 10) {
+          Button("Interactive CLI") {
+            model.openCLIInTerminal()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+          Button("Terminal Browser") {
+            model.openProjectBrowserInTerminal()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        }
+
+        HStack(spacing: 10) {
+          Button("Terminal Cost-Control") {
+            model.openCostControlReviewInTerminal()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+          Button("Terminal Devcontainers") {
+            model.openInstalledDevcontainersInTerminal()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+        }
+      } else {
+        Text("Terminal fallback buttons are hidden by default. You can re-enable them in Settings if you still want the legacy edge-case launchers.")
+          .font(.system(size: 12, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+          .lineSpacing(2)
+      }
     }
   }
 

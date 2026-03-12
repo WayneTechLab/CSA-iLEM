@@ -22,6 +22,10 @@
 - one-project-at-a-time cost-control review
 - a multi-page native GUI for Home, GitHub Account, Projects, Local Files, Cleanup, Workspace, and About
 
+Current production-status tracking lives in:
+
+- [`STATUS.md`](./STATUS.md)
+
 ## Build Inputs
 
 The repo ships both the terminal engine and the native macOS app:
@@ -82,7 +86,7 @@ It also reads legacy session paths for compatibility with:
 Recommended production install path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.1/install-remote.sh | bash -s -- --ref 0.2.1
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.3/install-remote.sh | bash -s -- --ref 0.2.3
 ```
 
 Recommended production update path:

@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
-REMOTE_INSTALLER_VERSION="0.2.1"
+REMOTE_INSTALLER_VERSION="0.2.3"
 DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
 DEFAULT_REF="${CSA_IEM_REF:-main}"
 INSTALL_ROOT=""
@@ -102,6 +102,11 @@ if ! command -v tar >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v shasum >/dev/null 2>&1; then
+  echo "shasum is required to verify the installer bundle." >&2
+  exit 1
+fi
+
 if ! command -v mktemp >/dev/null 2>&1; then
   echo "mktemp is required to stage the installer bundle." >&2
   exit 1
@@ -143,6 +148,17 @@ if [[ "$REF_VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$ARCHIVE_VERSION" != "$
   exit 1
 fi
 
+if [[ ! -f "$SOURCE_DIR/SHA256SUMS" ]]; then
+  echo "The downloaded archive does not contain SHA256SUMS." >&2
+  exit 1
+fi
+
+echo "Verifying installer bundle checksums..."
+(
+  cd "$SOURCE_DIR"
+  shasum -a 256 -c --strict SHA256SUMS >/dev/null
+)
+
 INSTALL_ARGS=()
 if [[ -n "$INSTALL_ROOT" ]]; then
   INSTALL_ARGS+=(--install-root "$INSTALL_ROOT")
@@ -168,7 +184,9 @@ fi
 echo
 echo "$APP_NAME remote install finished."
 echo "Verify with:"
-echo "  source ~/.zprofile"
+if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
+  echo "  source ~/.zprofile"
+fi
 echo "  csa-iem --version"
 if [[ "$KEEP_TEMP" -eq 1 ]]; then
   echo "Temp files kept at: $TEMP_DIR"
