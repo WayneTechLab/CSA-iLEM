@@ -1,4 +1,4 @@
-# CSA-iEM macOS Project Info
+# CSA-iEM Project Info
 
 ## Product
 
@@ -12,15 +12,16 @@
 
 ## Product Scope
 
-`CSA-iEM` is the production macOS package for:
+`CSA-iEM` is the production package for:
 
 - GitHub repo import and local workspace preparation
 - local devcontainer setup and validation
-- self-hosted GitHub Actions runner install and service control
+- self-hosted GitHub Actions runner install and service control on macOS and Windows
 - workflow `runs-on` patching to self-hosted labels
 - GitHub cleanup for workflows, runs, artifacts, caches, and Codespaces
 - one-project-at-a-time cost-control review
-- a multi-page native GUI for Home, GitHub Account, Projects, Local Files, Cleanup, Workspace, and About
+- a multi-page native macOS GUI for Home, GitHub Account, Projects, Local Files, Cleanup, Workspace, and About
+- a Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, and runner/devcontainer prep
 
 Current production-status tracking lives in:
 
@@ -28,16 +29,12 @@ Current production-status tracking lives in:
 
 ## Build Inputs
 
-The repo ships both the terminal engine and the native macOS app:
+The repo ships:
 
-- `CSA-iLEM.sh`
-- edition wrappers and openers
-- `Package.swift`
-- `Sources/CSAiEMMacApp/`
-- `build-gui-app.sh`
-- `run-gui.sh`
-- `install.sh`
-- `install-remote.sh`
+- the macOS Bash backend and wrappers
+- the native SwiftUI macOS app
+- the Windows 11 PowerShell backend and installers
+- repo-local and remote installers for both operating systems
 
 ## Bundle Resources
 
@@ -86,13 +83,19 @@ It also reads legacy session paths for compatibility with:
 Recommended production install path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.6/install-remote.sh | bash -s -- --ref 0.2.6
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.sh | bash -s -- --ref 0.3.0
 ```
 
 Recommended production update path:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
+```
+
+Recommended Windows 11 admin-shell install path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.0"
 ```
 
 ## Workspace Model

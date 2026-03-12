@@ -27,11 +27,14 @@ The source-run path uses Swift Package Manager and points the app at the local r
 The GUI is now organized around task pages instead of one overloaded dashboard:
 
 - `Home`
+- `Jobs`
+- `Import`
 - `GitHub Account`
 - `Projects`
 - `Local Files`
 - `Cleanup`
 - `Workspace`
+- `Settings`
 - `About`
 
 Projects, account management, local file operations, and cleanup stay on-screen, while the CLI remains the backend and advanced fallback.
@@ -51,7 +54,7 @@ The `.app` bundle includes:
 From any supported Mac terminal, install with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.6/install-remote.sh | bash -s -- --ref 0.2.6
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.sh | bash -s -- --ref 0.3.0
 ```
 
 Update with:

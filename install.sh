@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.2.6')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.0')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 INSTALL_DIR=""
@@ -28,6 +28,10 @@ FILES=(
   "SHA256SUMS"
   "Package.swift"
   "install-remote.sh"
+  "CSA-iEM.ps1"
+  "install.ps1"
+  "install-remote.ps1"
+  "uninstall.ps1"
   "CSA-iLEM.sh"
   "CSA-iLEM-Public.sh"
   "CSA-iLEM-WTL.sh"
@@ -96,6 +100,11 @@ Usage:
 Defaults:
   install root: $INSTALL_ROOT
   bin dir: $BIN_DIR
+
+Cross-platform note:
+  Windows 11 admin-shell installers also ship in this repo:
+    install.ps1
+    install-remote.ps1
 EOF
 }
 

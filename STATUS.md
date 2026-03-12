@@ -1,9 +1,12 @@
 # CSA-iEM Status
 
-Version baseline: `0.2.6`  
-Updated: `2026-03-11`
+Version baseline: `0.3.0`
+Updated: `2026-03-12`
 
 This file is the current production-status snapshot for `CSA-iEM`.
+
+Long-range product roadmap:
+- [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
 
 ## Done
 
@@ -11,21 +14,23 @@ These major product areas are built into the app now:
 
 - production CLI engine for import, local prep, cleanup, and review flows
 - SwiftUI macOS GUI with `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
+- Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, devcontainer prep, and repo-level self-hosted runner setup
 - local project browsing with native search, favorites, targeting, and direct open actions
 - local runner and devcontainer inspection/control from the GUI
 - GitHub admin surfaces for repo health, workflows, runs, Codespaces, secrets/variables inventory, and rules/rulesets viewing
 - local move/export/snapshot flows with preview-first behavior
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
-- install, uninstall, and remote install/update scripts for supported Macs
+- install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
 - compatibility wrappers for earlier `CSA-iLEM` naming
 
 ## Is Done
 
-These items are currently verified as working in the repo at `0.2.6`:
+These items are currently verified as working in the repo at `0.3.0`:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`
+- Windows installer and remote installer script generation from `install.ps1` and `install-remote.ps1`
 - uninstall safety for versioned installs without blindly removing newer command links
 - custom `--bin-dir` install path updates in shell profile output
 - GUI build from source and from an installed copy
@@ -43,6 +48,7 @@ These items are currently verified as working in the repo at `0.2.6`:
 These are the known production gaps or weak spots still open:
 
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
+- the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
 - the public remote install path still trusts downloaded GitHub content rather than signed or checksummed release artifacts
 - destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures
 - GitHub admin features have not yet been fully smoke-tested across multiple accounts, organizations, and intentionally limited token scopes
@@ -53,6 +59,7 @@ These are the known production gaps or weak spots still open:
 These areas are close, but not fully finished to the standard the app is aiming for:
 
 - GUI-first product direction is established, but a few legacy CLI concepts and compatibility entry points still exist around the edges
+- Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `Local Files` now has safer previews, moves, exports, and snapshots, but needs more polished recovery UX and more guided validation
 - `Projects` has strong browsing and local operations, but still needs deeper native import and one-by-one management flows
@@ -64,6 +71,7 @@ These areas are close, but not fully finished to the standard the app is aiming 
 These are the next production-hardening tasks with the best return:
 
 - replace more Terminal fallback flows with fully native GUI actions
+- add deeper Windows smoke coverage for runner install/service behavior and Docker/devcontainer lifecycle on real Windows 11 hardware
 - add signed release artifacts or checksum verification to the public installer/update path
 - add a rollback/recovery layer for move/export operations when later steps fail
 - add an end-to-end production smoke suite for:

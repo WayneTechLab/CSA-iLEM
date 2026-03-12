@@ -2,21 +2,22 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.2.6`  
+Version: `0.3.0`
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
 
-`CSA-iEM` is a macOS toolset with:
-- a production CLI
+`CSA-iEM` is now a cross-platform toolset with:
+- a production CLI backend
 - a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, and `GitHub Account` pages
-- terminal installers for supported Macs
+- terminal installers for macOS
+- a Windows 11 admin-shell PowerShell backend with matching install/update scripts
 - compatibility wrappers for the earlier `CSA-iLEM` command names
 
 It is built for:
 - cloning and organizing GitHub repos locally
 - preparing local devcontainers
-- installing self-hosted GitHub Actions runners
+- installing self-hosted GitHub Actions runners on macOS and Windows
 - patching workflow `runs-on` targets to self-hosted labels
 - previewing or running GitHub cleanup flows
 - browsing imported local workspaces, containers, and runners
@@ -26,6 +27,7 @@ It is built for:
 
 For the current production-status snapshot, see:
 - [`STATUS.md`](./STATUS.md)
+- [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
 
 ## Primary Commands
 
@@ -37,8 +39,12 @@ Preferred commands:
 - [`openproj`](./openproj)
 
 Core scripts:
+- [`CSA-iEM.ps1`](./CSA-iEM.ps1)
 - [`CSA-iLEM.sh`](./CSA-iLEM.sh)
 - [`CSA-iLEM-Open.sh`](./CSA-iLEM-Open.sh)
+- [`install.ps1`](./install.ps1)
+- [`install-remote.ps1`](./install-remote.ps1)
+- [`uninstall.ps1`](./uninstall.ps1)
 - [`install-remote.sh`](./install-remote.sh)
 - [`install.sh`](./install.sh)
 - [`uninstall.sh`](./uninstall.sh)
@@ -65,7 +71,7 @@ Advanced compatibility wrappers still ship:
 Stable public install from any supported Mac terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.2.6/install-remote.sh | bash -s -- --ref 0.2.6
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.sh | bash -s -- --ref 0.3.0
 ```
 
 Install the latest `main` build:
@@ -96,7 +102,7 @@ chmod +x ./install.sh
 
 The installer:
 - scans for missing Mac dependencies and installs what it can before laying down the app files
-- copies the production bundle into `~/.local/share/csa-iem/0.2.6`
+- copies the production bundle into `~/.local/share/csa-iem/0.3.0`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -129,6 +135,48 @@ Uninstall:
 ```bash
 cd '/path/to/CSA-iEM'
 ./uninstall.sh
+```
+
+## Install On Windows 11
+
+Run the Windows installer from an Administrator PowerShell window.
+
+Stable public install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.0"
+```
+
+Install the latest `main` build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+```
+
+Update an existing Windows install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
+```
+
+Install from a local checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The Windows installer:
+- installs into `%LOCALAPPDATA%\CSA-iEM\<version>`
+- creates `csa-iem.cmd`, `csa-iem-open.cmd`, and `openproj.cmd`
+- adds the chosen bin directory to the user PATH
+- bootstraps `git`, `gh`, `node`, `code`, `docker`, and `devcontainer` when possible
+- is designed for Windows Terminal and PowerShell admin-shell usage
+
+After install, open a new PowerShell window and verify:
+
+```powershell
+csa-iem --version
+openproj
 ```
 
 ## macOS GUI
@@ -197,6 +245,24 @@ GUI build and source-run requirements:
 - macOS
 - Swift available in `PATH`
 - Xcode Command Line Tools or Xcode installed
+
+## Windows 11 Admin Shell
+
+The Windows release is PowerShell-first today.
+
+It supports:
+- preflight scans
+- workspace setup with generic `Single Folder` or split code/runtime roots
+- repo import and runtime mirror creation
+- starter devcontainer generation
+- quick local devcontainer startup checks
+- repo-level self-hosted Windows runner install as a service
+- workflow patching to self-hosted Windows labels
+- GitHub cleanup actions for workflows, runs, artifacts, caches, and Codespaces
+- local project browsing with VS Code and File Explorer
+
+Windows documentation:
+- [`docs/Windows-11-Notes.md`](./docs/Windows-11-Notes.md)
 
 ## Workspace Setup
 

@@ -10,7 +10,7 @@ done
 SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 APP_NAME="CSA-iEM"
 GUI_TARGET="CSAiEMMacApp"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.2.6')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.0')"
 DIST_DIR="$SCRIPT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 SCRATCH_ID="$(printf '%s' "$SCRIPT_DIR" | shasum | awk '{print $1}')"
@@ -40,6 +40,10 @@ CLI_FILES=(
   "csa-ilem-build-gui"
   "SHA256SUMS"
   "install-remote.sh"
+  "CSA-iEM.ps1"
+  "install.ps1"
+  "install-remote.ps1"
+  "uninstall.ps1"
   "install.sh"
   "uninstall.sh"
 )
@@ -62,6 +66,7 @@ HELP_FILES=(
   "docs/Help-Center.md"
   "docs/Brand-System.md"
   "docs/macOS-App-Notes.md"
+  "docs/Windows-11-Notes.md"
 )
 
 print_help() {
@@ -195,6 +200,10 @@ chmod +x \
   "$APP_DIR/Contents/Resources/CLI/csa-ilem-build-gui" \
   "$APP_DIR/Contents/Resources/CLI/openproj" \
   "$APP_DIR/Contents/Resources/CLI/install-remote.sh" \
+  "$APP_DIR/Contents/Resources/CLI/CSA-iEM.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/install.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/install-remote.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/uninstall.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install.sh" \
   "$APP_DIR/Contents/Resources/CLI/uninstall.sh"
 
