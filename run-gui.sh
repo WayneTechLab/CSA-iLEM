@@ -9,7 +9,7 @@ while [[ -h "$SOURCE_PATH" ]]; do
 done
 SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 APP_NAME="CSA-iEM"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.0')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.3')"
 APP_DIR="$SCRIPT_DIR/dist/$APP_NAME.app"
 BUILD_GUI_SCRIPT="$SCRIPT_DIR/build-gui-app.sh"
 BUILD_LOG="${TMPDIR:-/tmp}/csa-iem-gui-build.log"

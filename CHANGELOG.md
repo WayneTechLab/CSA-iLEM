@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- fixed remaining hardcoded version fallbacks in the main CLI backend, GUI helpers, and macOS app so installed builds report the correct stable version
+- updated the stable public install commands and versioned install paths to `0.3.3`
+
 ## 0.3.2
 
 - fixed the stable release packaging so the checksum manifest matches the published GitHub source archive
