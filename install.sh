@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.3')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.4')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
@@ -140,6 +140,30 @@ ensure_profile_line() {
   if ! grep -Fq "$line" "$file_path"; then
     printf '%s\n' "$line" >> "$file_path"
   fi
+}
+
+configure_shell_profiles() {
+  local path_line="$1"
+  local shell_name=""
+
+  ensure_profile_line "$HOME/.profile" "$path_line"
+
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh)
+      ensure_profile_line "$HOME/.zprofile" "$path_line"
+      ensure_profile_line "$HOME/.zshrc" "$path_line"
+      ;;
+    bash)
+      ensure_profile_line "$HOME/.bash_profile" "$path_line"
+      ensure_profile_line "$HOME/.bashrc" "$path_line"
+      ;;
+    *)
+      ensure_profile_line "$HOME/.zprofile" "$path_line"
+      ensure_profile_line "$HOME/.zshrc" "$path_line"
+      ensure_profile_line "$HOME/.bash_profile" "$path_line"
+      ;;
+  esac
 }
 
 build_path_export_line() {
@@ -523,7 +547,7 @@ for command_name in "${COMMANDS[@]}"; do
 done
 
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
-  ensure_profile_line "$HOME/.zprofile" "$(build_path_export_line "$BIN_DIR")"
+  configure_shell_profiles "$(build_path_export_line "$BIN_DIR")"
 fi
 
 echo
@@ -549,8 +573,10 @@ printf '  %s\n' \
   "csa-ilem-open" "csa-ilem-gui" "csa-ilem-build-gui"
 echo
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
-  echo "Run this in a new shell or now in the current one:"
+  echo "Run one of these now in the current shell if the command is not found yet:"
+  echo "  export PATH=\"$BIN_DIR:\$PATH\""
   echo '  source ~/.zprofile'
+  echo '  source ~/.zshrc'
 fi
 echo
 echo "Then verify:"

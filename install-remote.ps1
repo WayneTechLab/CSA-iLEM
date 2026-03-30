@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
-$InstallerVersion = "0.3.3"
+$InstallerVersion = "0.3.4"
 $RepoSlug = "WayneTechLab/CSA-iLEM"
 $RefValue = "main"
 $InstallRoot = ""
@@ -58,7 +58,7 @@ Provider: $AppVendor
 Usage:
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --force
-  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.3.3
+  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.3.4
 "@ | Write-Host
     exit 0
 }

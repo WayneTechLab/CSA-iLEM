@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.3.3`
+Version: `0.3.4`
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -71,7 +71,7 @@ Advanced compatibility wrappers still ship:
 Stable public install from any supported Mac terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.3/install-remote.sh | bash -s -- --ref 0.3.3
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
 ```
 
 Install the latest `main` build:
@@ -103,7 +103,7 @@ chmod +x ./install.sh
 The installer:
 - scans for missing Mac dependencies and installs what it can before laying down the app files
 - falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
-- copies the production bundle into `~/.local/share/csa-iem/0.3.3`
+- copies the production bundle into `~/.local/share/csa-iem/0.3.4`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
@@ -145,7 +145,7 @@ Run the Windows installer from an Administrator PowerShell window.
 Stable public install:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.3/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.3"
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
 ```
 
 Install the latest `main` build:

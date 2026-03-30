@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+- improved shell PATH persistence on macOS installs by updating common startup files for `zsh`, `bash`, and generic profile loading
+- added clearer end-of-install guidance for cases where a newly opened shell still has not picked up `~/.local/bin` yet
+- updated the stable public install commands and versioned install paths to `0.3.4`
+
 ## 0.3.3
 
 - fixed remaining hardcoded version fallbacks in the main CLI backend, GUI helpers, and macOS app so installed builds report the correct stable version
