@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- fixed the stable release packaging so the checksum manifest matches the published GitHub source archive
+- updated the stable public install commands and versioned install paths to `0.3.2`
+
 ## 0.3.1
 
 - improved the macOS installer messaging when `@devcontainers/cli` cannot be installed into the system npm prefix

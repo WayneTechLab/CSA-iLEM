@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VersionFile = Join-Path $ScriptDir "VERSION"
-$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.3.1" }
+$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.3.2" }
 $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
 $AppUrl = "https://www.WayneTechLab.com"
