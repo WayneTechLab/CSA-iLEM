@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+- fixed the macOS installer so Dev Containers CLI falls back to a user-local npm prefix when the system npm global prefix is not writable
+- updated the installer output and docs with a stable release install command that matches the published tag
 - added a Windows 11 admin-shell PowerShell backend in `CSA-iEM.ps1` for interactive and direct import, cleanup, browsing, devcontainer, workflow patching, and self-hosted runner flows
 - added Windows-native install, uninstall, and remote install scripts: `install.ps1`, `uninstall.ps1`, and `install-remote.ps1`
 - updated the public product docs so `CSA-iEM` is described as a cross-platform toolset: macOS GUI plus Windows 11 admin-shell operations

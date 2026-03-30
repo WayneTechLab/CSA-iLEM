@@ -8,6 +8,7 @@ APP_URL="https://www.WayneTechLab.com"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.0')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
+DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
 INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=0
@@ -283,6 +284,79 @@ link_tool_from_app_if_missing() {
   fi
 }
 
+link_tool_if_present() {
+  local tool_name="$1"
+  local source_path="$2"
+  local target_path="$BIN_DIR/$tool_name"
+
+  if [[ -x "$source_path" ]]; then
+    mkdir -p "$BIN_DIR"
+    ln -sfn "$source_path" "$target_path"
+    info "Linked $tool_name into $BIN_DIR."
+    return 0
+  fi
+
+  return 1
+}
+
+npm_global_prefix() {
+  npm config get prefix 2>/dev/null | tail -n 1 | tr -d '\r'
+}
+
+install_devcontainer_cli_globally() {
+  local npm_prefix=""
+  local devcontainer_bin=""
+
+  npm_prefix="$(npm_global_prefix || true)"
+  if [[ -n "$npm_prefix" && "$npm_prefix" != "undefined" && "$npm_prefix" != "null" ]]; then
+    info "Installing Dev Containers CLI with npm global prefix: $npm_prefix"
+  else
+    info "Installing Dev Containers CLI with npm global prefix."
+  fi
+
+  if ! npm install -g @devcontainers/cli; then
+    return 1
+  fi
+
+  if command -v devcontainer >/dev/null 2>&1; then
+    info "Dev Containers CLI is now available."
+    return 0
+  fi
+
+  if [[ -n "$npm_prefix" && "$npm_prefix" != "undefined" && "$npm_prefix" != "null" ]]; then
+    devcontainer_bin="$npm_prefix/bin/devcontainer"
+    if link_tool_if_present devcontainer "$devcontainer_bin"; then
+      return 0
+    fi
+  fi
+
+  warn "Dev Containers CLI installed, but the devcontainer binary was not found on PATH."
+  return 1
+}
+
+install_devcontainer_cli_user_local() {
+  local devcontainer_bin="$DEVCONTAINER_NPM_PREFIX/bin/devcontainer"
+
+  mkdir -p "$DEVCONTAINER_NPM_PREFIX"
+  info "Retrying Dev Containers CLI install with a user-local npm prefix: $DEVCONTAINER_NPM_PREFIX"
+
+  if ! NPM_CONFIG_PREFIX="$DEVCONTAINER_NPM_PREFIX" npm install -g @devcontainers/cli; then
+    return 1
+  fi
+
+  if command -v devcontainer >/dev/null 2>&1; then
+    info "Dev Containers CLI is now available."
+    return 0
+  fi
+
+  if link_tool_if_present devcontainer "$devcontainer_bin"; then
+    return 0
+  fi
+
+  warn "Dev Containers CLI installed into $DEVCONTAINER_NPM_PREFIX, but the devcontainer binary could not be linked."
+  return 1
+}
+
 ensure_devcontainer_cli() {
   if command -v devcontainer >/dev/null 2>&1; then
     info "Dev Containers CLI is already available."
@@ -294,8 +368,19 @@ ensure_devcontainer_cli() {
     return 1
   fi
 
-  info "Installing Dev Containers CLI with npm..."
-  npm install -g @devcontainers/cli
+  if install_devcontainer_cli_globally; then
+    return 0
+  fi
+
+  warn "Global npm install for Dev Containers CLI failed. This usually happens on Macs where the npm global prefix is not writable for the current user."
+
+  if install_devcontainer_cli_user_local; then
+    return 0
+  fi
+
+  warn "Dev Containers CLI could not be installed automatically. You can retry later with:"
+  warn "  NPM_CONFIG_PREFIX=\"$DEVCONTAINER_NPM_PREFIX\" npm install -g @devcontainers/cli"
+  return 1
 }
 
 bootstrap_dependencies() {
@@ -467,7 +552,10 @@ echo
 echo "Then verify:"
 echo "  csa-iem --version"
 echo
-echo "Install or update from any supported Mac terminal:"
+echo "Stable release install from any supported Mac terminal:"
+echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/$APP_VERSION/install-remote.sh | bash -s -- --ref $APP_VERSION"
+echo
+echo "Latest main install or update from any supported Mac terminal:"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force"
 echo

@@ -102,6 +102,7 @@ chmod +x ./install.sh
 
 The installer:
 - scans for missing Mac dependencies and installs what it can before laying down the app files
+- falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
 - copies the production bundle into `~/.local/share/csa-iem/0.3.0`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`

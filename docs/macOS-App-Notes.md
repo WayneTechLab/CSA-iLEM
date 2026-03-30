@@ -69,6 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-
 - launch the native SwiftUI app from the installed tree
 - build a standalone `.app` later with `csa-iem-build-gui`
 - rerun the shipped `install-remote.sh` later from the installed copy if needed
+- install `@devcontainers/cli` into a user-local npm prefix automatically if the machine blocks system-wide npm global installs
 
 ## Workspace Setup
 
