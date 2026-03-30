@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- improved the macOS installer messaging when `@devcontainers/cli` cannot be installed into the system npm prefix
+- added a clearer fallback message that tells the user CSA-iEM is retrying with a user-local install path and does not usually need admin rights
+- updated the stable public install commands and versioned install paths to `0.3.1`
+
 ## 0.3.0
 
 - fixed the macOS installer so Dev Containers CLI falls back to a user-local npm prefix when the system npm global prefix is not writable

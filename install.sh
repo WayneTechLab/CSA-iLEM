@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.0')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.1')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
@@ -346,10 +346,13 @@ install_devcontainer_cli_user_local() {
 
   if command -v devcontainer >/dev/null 2>&1; then
     info "Dev Containers CLI is now available."
+    info "CSA-iEM switched to a user-local install so administrator access was not required."
     return 0
   fi
 
   if link_tool_if_present devcontainer "$devcontainer_bin"; then
+    info "Dev Containers CLI was installed locally at $DEVCONTAINER_NPM_PREFIX and linked into $BIN_DIR."
+    info "CSA-iEM switched to a user-local install so administrator access was not required."
     return 0
   fi
 
@@ -373,6 +376,7 @@ ensure_devcontainer_cli() {
   fi
 
   warn "Global npm install for Dev Containers CLI failed. This usually happens on Macs where the npm global prefix is not writable for the current user."
+  warn "CSA-iEM will retry with a user-local install path, so admin rights are usually not needed."
 
   if install_devcontainer_cli_user_local; then
     return 0
