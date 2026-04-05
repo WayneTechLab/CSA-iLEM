@@ -1,7 +1,7 @@
 # CSA-iEM Status
 
-Version baseline: `0.3.0`
-Updated: `2026-03-12`
+Version baseline: `0.3.4`
+Updated: `2026-04-04`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
@@ -15,6 +15,7 @@ These major product areas are built into the app now:
 - production CLI engine for import, local prep, cleanup, and review flows
 - SwiftUI macOS GUI with `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
 - Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, devcontainer prep, and repo-level self-hosted runner setup
+- explicit public workspace roots for `Code`, `Import`, and `Runtime` across the shared app model
 - local project browsing with native search, favorites, targeting, and direct open actions
 - local runner and devcontainer inspection/control from the GUI
 - GitHub admin surfaces for repo health, workflows, runs, Codespaces, secrets/variables inventory, and rules/rulesets viewing
@@ -26,7 +27,7 @@ These major product areas are built into the app now:
 
 ## Is Done
 
-These items are currently verified as working in the repo at `0.3.0`:
+These items are currently tracked as working in the repo at the `0.3.4` baseline:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`
@@ -39,6 +40,7 @@ These items are currently verified as working in the repo at `0.3.0`:
   - `csa-iem-gui`
   - `csa-iem-build-gui`
   - `openproj`
+- migration of older workspace settings into explicit `CodeRoot`, `ImportRoot`, and `RuntimeRoot` state
 - safer split-root move staging compared to earlier partial-move behavior
 - export preview destination consistency
 - clearer partial-failure reporting in the GitHub admin panels for secrets, variables, branch protection, and rulesets
@@ -60,6 +62,7 @@ These areas are close, but not fully finished to the standard the app is aiming 
 
 - GUI-first product direction is established, but a few legacy CLI concepts and compatibility entry points still exist around the edges
 - Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
+- the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `Local Files` now has safer previews, moves, exports, and snapshots, but needs more polished recovery UX and more guided validation
 - `Projects` has strong browsing and local operations, but still needs deeper native import and one-by-one management flows
@@ -85,7 +88,7 @@ These are the next production-hardening tasks with the best return:
   - GitHub cleanup dry-run
 - add clearer permission/scope diagnostics everywhere GitHub API data can be partially unavailable
 - reduce advanced/legacy wrapper visibility in the public-facing UX
-- expand first-run onboarding so a new user can understand workspace setup without knowing the older internal models
+- expand first-run onboarding so a new user can understand `Code`, `Import`, and `Runtime` without knowing the older internal models
 
 ## Future Things
 

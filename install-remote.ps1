@@ -3,7 +3,8 @@ $ErrorActionPreference = "Stop"
 
 $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
-$InstallerVersion = "0.3.4"
+$LocalVersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "VERSION"
+$InstallerVersion = if (Test-Path $LocalVersionFile) { (Get-Content -Path $LocalVersionFile -TotalCount 1).Trim() } else { "0.0.0" }
 $RepoSlug = "WayneTechLab/CSA-iLEM"
 $RefValue = "main"
 $InstallRoot = ""
@@ -56,6 +57,7 @@ Version: $InstallerVersion
 Provider: $AppVendor
 
 Usage:
+  # Windows 11 PowerShell / Windows Terminal
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --force
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.3.4

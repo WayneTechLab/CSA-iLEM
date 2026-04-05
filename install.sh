@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
-APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.3.4')"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
@@ -32,6 +32,7 @@ FILES=(
   "CSA-iEM.ps1"
   "install.ps1"
   "install-remote.ps1"
+  "update-win.ps1"
   "uninstall.ps1"
   "CSA-iLEM.sh"
   "CSA-iLEM-Public.sh"
@@ -83,6 +84,13 @@ COMMANDS=(
   "openproj"
 )
 
+COMMAND_ALIAS_LINES=(
+  'alias CSA-IEM="csa-iem"'
+  'alias CSA-iEM="csa-iem"'
+  'alias CSA-ILEM="csa-ilem"'
+  'alias CSA-iLEM="csa-ilem"'
+)
+
 print_help() {
   cat <<EOF
 $APP_NAME installer
@@ -91,6 +99,7 @@ Provider: $APP_VENDOR
 Website: $APP_URL
 
 Usage:
+  # macOS Terminal (zsh / bash)
   ./install.sh
   ./install.sh --install-root <dir>
   ./install.sh --bin-dir <dir>
@@ -142,26 +151,38 @@ ensure_profile_line() {
   fi
 }
 
+ensure_profile_lines() {
+  local file_path="$1"
+  shift || true
+  local line=""
+
+  for line in "$@"; do
+    ensure_profile_line "$file_path" "$line"
+  done
+}
+
 configure_shell_profiles() {
   local path_line="$1"
+  shift || true
+  local extra_lines=("$@")
   local shell_name=""
 
-  ensure_profile_line "$HOME/.profile" "$path_line"
+  ensure_profile_lines "$HOME/.profile" "$path_line" "${extra_lines[@]}"
 
   shell_name="$(basename "${SHELL:-}")"
   case "$shell_name" in
     zsh)
-      ensure_profile_line "$HOME/.zprofile" "$path_line"
-      ensure_profile_line "$HOME/.zshrc" "$path_line"
+      ensure_profile_lines "$HOME/.zprofile" "$path_line" "${extra_lines[@]}"
+      ensure_profile_lines "$HOME/.zshrc" "$path_line" "${extra_lines[@]}"
       ;;
     bash)
-      ensure_profile_line "$HOME/.bash_profile" "$path_line"
-      ensure_profile_line "$HOME/.bashrc" "$path_line"
+      ensure_profile_lines "$HOME/.bash_profile" "$path_line" "${extra_lines[@]}"
+      ensure_profile_lines "$HOME/.bashrc" "$path_line" "${extra_lines[@]}"
       ;;
     *)
-      ensure_profile_line "$HOME/.zprofile" "$path_line"
-      ensure_profile_line "$HOME/.zshrc" "$path_line"
-      ensure_profile_line "$HOME/.bash_profile" "$path_line"
+      ensure_profile_lines "$HOME/.zprofile" "$path_line" "${extra_lines[@]}"
+      ensure_profile_lines "$HOME/.zshrc" "$path_line" "${extra_lines[@]}"
+      ensure_profile_lines "$HOME/.bash_profile" "$path_line" "${extra_lines[@]}"
       ;;
   esac
 }
@@ -547,7 +568,7 @@ for command_name in "${COMMANDS[@]}"; do
 done
 
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
-  configure_shell_profiles "$(build_path_export_line "$BIN_DIR")"
+  configure_shell_profiles "$(build_path_export_line "$BIN_DIR")" "${COMMAND_ALIAS_LINES[@]}"
 fi
 
 echo
@@ -577,10 +598,14 @@ if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
   echo "  export PATH=\"$BIN_DIR:\$PATH\""
   echo '  source ~/.zprofile'
   echo '  source ~/.zshrc'
+  echo
+  echo "Capitalized macOS Terminal aliases are also installed:"
+  printf '  %s\n' "CSA-IEM" "CSA-iEM" "CSA-ILEM" "CSA-iLEM"
 fi
 echo
 echo "Then verify:"
 echo "  csa-iem --version"
+echo "  CSA-IEM --version"
 echo
 echo "Stable release install from any supported Mac terminal:"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/$APP_VERSION/install-remote.sh | bash -s -- --ref $APP_VERSION"

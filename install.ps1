@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VersionFile = Join-Path $ScriptDir "VERSION"
-$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.3.4" }
+$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.0.0" }
 $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
 $AppUrl = "https://www.WayneTechLab.com"
@@ -49,6 +49,7 @@ Provider: $AppVendor
 Website: $AppUrl
 
 Usage:
+  # Windows 11 PowerShell / Windows Terminal
   powershell -ExecutionPolicy Bypass -File .\install.ps1
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --no-deps
@@ -160,6 +161,7 @@ function Copy-InstallTree {
         "CSA-iEM.ps1",
         "install.ps1",
         "install-remote.ps1",
+        "update-win.ps1",
         "uninstall.ps1"
     )
 
@@ -233,8 +235,11 @@ if (Test-Path $InstallDir) {
 Copy-InstallTree -SourceRoot $ScriptDir -DestinationRoot $InstallDir
 
 $CliScriptPath = Join-Path $InstallDir "CSA-iEM.ps1"
+$UpdateScriptPath = Join-Path $InstallDir "update-win.ps1"
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem.cmd") -ScriptAbsolutePath $CliScriptPath
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem-open.cmd") -ScriptAbsolutePath $CliScriptPath -DefaultArgs @("--browse-projects", "--use-current-root")
+Write-CmdShim -Path (Join-Path $BinDir "csa-iem-update.cmd") -ScriptAbsolutePath $UpdateScriptPath
+Write-CmdShim -Path (Join-Path $BinDir "csa-ilem-update.cmd") -ScriptAbsolutePath $UpdateScriptPath
 Write-CmdShim -Path (Join-Path $BinDir "openproj.cmd") -ScriptAbsolutePath $CliScriptPath -DefaultArgs @("--browse-projects", "--use-current-root")
 
 $CurrentPath = Join-Path $InstallRoot "current.txt"
@@ -255,9 +260,11 @@ Write-Host "Primary commands:"
 Write-Host "  csa-iem"
 Write-Host "  csa-iem-open"
 Write-Host "  openproj"
+Write-Host "  csa-iem-update"
 Write-Host ""
 Write-Host "Open a new PowerShell window, or refresh PATH in the current one with:"
 Write-Host '  $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")'
 Write-Host ""
 Write-Host "Then verify:"
 Write-Host "  csa-iem --version"
+Write-Host "  csa-iem-update --help"

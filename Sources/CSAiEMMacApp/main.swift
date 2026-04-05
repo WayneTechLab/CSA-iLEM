@@ -3,19 +3,58 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+private func readFirstLine(from path: String) -> String? {
+  guard !path.isEmpty,
+        let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+    return nil
+  }
+
+  let version = contents
+    .split(whereSeparator: \.isNewline)
+    .first?
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+  return version?.isEmpty == false ? version : nil
+}
+
+private func resolvedAppVersion() -> String {
+  if let bundleVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+     !bundleVersion.isEmpty {
+    return bundleVersion
+  }
+
+  let fileManager = FileManager.default
+  let candidates = [
+    Bundle.main.resourceURL?.appendingPathComponent("VERSION").path,
+    Bundle.main.resourceURL?.appendingPathComponent("CLI/VERSION").path,
+    ProcessInfo.processInfo.environment["CSA_IEM_ROOT"].map { ($0 as NSString).appendingPathComponent("VERSION") },
+    (fileManager.currentDirectoryPath as NSString).appendingPathComponent("VERSION")
+  ]
+
+  for candidate in candidates.compactMap({ $0 }) {
+    if let version = readFirstLine(from: candidate) {
+      return version
+    }
+  }
+
+  return "0.0.0"
+}
+
 private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
-private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.4"
+private let appVersion = resolvedAppVersion()
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
 private let publicDefaultRoot = NSString(string: "~/CSA-iEM").expandingTildeInPath
-private let genericSplitCodeDefaultRoot = (publicDefaultRoot as NSString).appendingPathComponent("Code")
-private let genericSplitRuntimeDefaultRoot = (publicDefaultRoot as NSString).appendingPathComponent("Runtime")
+private let publicDefaultCodeRoot = (publicDefaultRoot as NSString).appendingPathComponent("Code")
+private let publicDefaultImportRoot = (publicDefaultRoot as NSString).appendingPathComponent("Import")
+private let publicDefaultRuntimeRoot = (publicDefaultRoot as NSString).appendingPathComponent("Runtime")
 private let wtlDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 private let diamondCodeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
 private let diamondRuntimeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
+private let diamondImportDefaultRoot = (diamondRuntimeDefaultRoot as NSString).appendingPathComponent("Import")
 private let configBaseDir = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
   ?? NSString(string: "~/.config").expandingTildeInPath
 private let profileConfigDir = (configBaseDir as NSString).appendingPathComponent("csa-iem")
@@ -88,26 +127,28 @@ enum WorkspaceStyle: String, CaseIterable, Identifiable {
 
   var label: String {
     switch self {
-    case .single: return "Single Folder"
-    case .split: return "Split Folders"
+    case .single: return "Legacy Single Root"
+    case .split: return "Code / Import / Runtime"
     }
   }
 
   var subtitle: String {
     switch self {
     case .single:
-      return "One root folder for repos, runtime work, reports, and runners."
+      return "Legacy layout where code and runtime still share one root."
     case .split:
-      return "Separate code and runtime folders for a cleaner local setup."
+      return "Public three-root layout for code, import staging, and runtime."
     }
   }
 }
 
 struct WorkspaceSuggestion {
+  let profile: LaunchProfile
   let style: WorkspaceStyle
   let title: String
   let detail: String
   let codeRoot: String
+  let importRoot: String
   let runtimeRoot: String
 }
 
@@ -558,7 +599,7 @@ enum WorkspaceRelocationScope: String, CaseIterable, Identifiable {
 
 enum WorkspaceRelocationResult {
   case single(String)
-  case split(codeRoot: String, runtimeRoot: String)
+  case split(codeRoot: String, importRoot: String, runtimeRoot: String)
 }
 
 struct WorkspaceRelocationOutcome {
@@ -758,8 +799,9 @@ final class CleanupViewModel: ObservableObject {
     }
   }
   @Published var workspaceSingleRootDraft = publicDefaultRoot
-  @Published var workspaceCodeRootDraft = genericSplitCodeDefaultRoot
-  @Published var workspaceRuntimeRootDraft = genericSplitRuntimeDefaultRoot
+  @Published var workspaceCodeRootDraft = publicDefaultCodeRoot
+  @Published var workspaceImportRootDraft = publicDefaultImportRoot
+  @Published var workspaceRuntimeRootDraft = publicDefaultRuntimeRoot
   @Published var workspaceMoveDestinationDraft = ""
   @Published var localExportDestinationDraft = ""
   @Published var projectMoveDestinationDraft = ""
@@ -1299,65 +1341,41 @@ final class CleanupViewModel: ObservableObject {
     !filteredLocalProjects.isEmpty && filteredLocalProjects.allSatisfy { selectedRepos.contains($0.slug) }
   }
 
-  var profileRootSummary: (codeRoot: String, runtimeRoot: String) {
+  var profileRootSummary: (codeRoot: String, importRoot: String, runtimeRoot: String) {
     resolvedProfileRoots()
   }
 
   var selectedWorkspaceStyle: WorkspaceStyle {
-    selectedProfile == .diamond ? .split : .single
+    selectedProfile == .wtl ? .single : .split
   }
 
   var workspaceStyleLabel: String {
-    selectedWorkspaceStyle.label
+    selectedProfile == .wtl ? "legacy single-root workspace" : "three-root workspace"
   }
 
   var workspaceHeadline: String {
-    switch selectedWorkspaceStyle {
-    case .single:
-      return "Single workspace folder"
-    case .split:
-      return "Split code and runtime folders"
-    }
+    "Code, Import, and Runtime roots"
   }
 
   var workspaceSummary: String {
     let roots = resolvedProfileRoots()
-    switch selectedWorkspaceStyle {
-    case .single:
-      return roots.runtimeRoot
-    case .split:
-      return "Code: \(roots.codeRoot)\nRuntime: \(roots.runtimeRoot)"
-    }
+    return "Code: \(roots.codeRoot)\nImport: \(roots.importRoot)\nRuntime: \(roots.runtimeRoot)"
   }
 
   var workspaceExecutionLabel: String {
-    switch selectedWorkspaceStyle {
-    case .single:
-      return "single-folder workspace"
-    case .split:
-      return "split-folder workspace"
-    }
+    "three-root workspace"
   }
 
   var standardWorkspaceSuggestion: WorkspaceSuggestion {
-    switch selectedWorkspaceStyle {
-    case .single:
-      return WorkspaceSuggestion(
-        style: .single,
-        title: "Standard local workspace",
-        detail: "Best default for public use. Everything lives in one root under your home folder.",
-        codeRoot: publicDefaultRoot,
-        runtimeRoot: publicDefaultRoot
-      )
-    case .split:
-      return WorkspaceSuggestion(
-        style: .split,
-        title: "Standard split workspace",
-        detail: "Generic public example with one code folder and one runtime folder under your home directory.",
-        codeRoot: genericSplitCodeDefaultRoot,
-        runtimeRoot: genericSplitRuntimeDefaultRoot
-      )
-    }
+    WorkspaceSuggestion(
+      profile: .public,
+      style: .split,
+      title: "Standard local workspace",
+      detail: "Best default for public use. Keep code, import staging, and runtime state in three clear folders under your home directory.",
+      codeRoot: publicDefaultCodeRoot,
+      importRoot: publicDefaultImportRoot,
+      runtimeRoot: publicDefaultRuntimeRoot
+    )
   }
 
   var detectedWorkspaceSuggestion: WorkspaceSuggestion? {
@@ -1526,9 +1544,9 @@ final class CleanupViewModel: ObservableObject {
   func setWorkspaceStyle(_ style: WorkspaceStyle) {
     switch style {
     case .single:
-      selectedProfile = .public
+      selectedProfile = .wtl
     case .split:
-      selectedProfile = .diamond
+      selectedProfile = .public
     }
   }
 
@@ -1546,26 +1564,17 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func saveWorkspaceDrafts() {
-    switch selectedWorkspaceStyle {
-    case .single:
-      let root = normalizeWorkspacePath(workspaceSingleRootDraft.isEmpty ? publicDefaultRoot : workspaceSingleRootDraft)
-      writeProfileConfig(
-        profile: .public,
-        values: ["SAVED_DEFAULT_ROOT": root]
-      )
-      selectedProfile = .public
-    case .split:
-      let codeRoot = normalizeWorkspacePath(workspaceCodeRootDraft.isEmpty ? genericSplitCodeDefaultRoot : workspaceCodeRootDraft)
-      let runtimeRoot = normalizeWorkspacePath(workspaceRuntimeRootDraft.isEmpty ? genericSplitRuntimeDefaultRoot : workspaceRuntimeRootDraft)
-      writeProfileConfig(
-        profile: .diamond,
-        values: [
-          "SAVED_CODE_ROOT": codeRoot,
-          "SAVED_RUNTIME_ROOT": runtimeRoot
-        ]
-      )
-      selectedProfile = .diamond
-    }
+    let codeRoot = normalizeWorkspacePath(workspaceCodeRootDraft.isEmpty ? publicDefaultCodeRoot : workspaceCodeRootDraft)
+    let importRoot = normalizeWorkspacePath(workspaceImportRootDraft.isEmpty ? publicDefaultImportRoot : workspaceImportRootDraft)
+    let runtimeRoot = normalizeWorkspacePath(workspaceRuntimeRootDraft.isEmpty ? publicDefaultRuntimeRoot : workspaceRuntimeRootDraft)
+    writeProfileConfig(
+      profile: selectedProfile,
+      values: [
+        "SAVED_CODE_ROOT": codeRoot,
+        "SAVED_IMPORT_ROOT": importRoot,
+        "SAVED_RUNTIME_ROOT": runtimeRoot
+      ]
+    )
     useCurrentRoot = true
     syncWorkspaceDraftsFromResolvedRoots()
     refreshLocalProjects()
@@ -1582,6 +1591,13 @@ final class CleanupViewModel: ObservableObject {
     let startingPath = workspaceCodeRootDraft.isEmpty ? profileRootSummary.codeRoot : workspaceCodeRootDraft
     if let selectedPath = chooseDirectory(startingAt: startingPath) {
       workspaceCodeRootDraft = selectedPath
+    }
+  }
+
+  func chooseImportWorkspaceFolder() {
+    let startingPath = workspaceImportRootDraft.isEmpty ? profileRootSummary.importRoot : workspaceImportRootDraft
+    if let selectedPath = chooseDirectory(startingAt: startingPath) {
+      workspaceImportRootDraft = selectedPath
     }
   }
 
@@ -1630,6 +1646,7 @@ final class CleanupViewModel: ObservableObject {
           scope: scope,
           style: currentStyle,
           codeRoot: roots.codeRoot,
+          importRoot: roots.importRoot,
           runtimeRoot: roots.runtimeRoot,
           destinationBase: baseDestination,
           overwrite: overwrite,
@@ -1641,15 +1658,15 @@ final class CleanupViewModel: ObservableObject {
           case .single(let newRoot):
             self.writeProfileConfig(profile: .public, values: ["SAVED_DEFAULT_ROOT": newRoot])
             self.selectedProfile = .public
-          case .split(let newCodeRoot, let newRuntimeRoot):
+          case .split(let newCodeRoot, let newImportRoot, let newRuntimeRoot):
             self.writeProfileConfig(
-              profile: .diamond,
+              profile: self.selectedProfile,
               values: [
                 "SAVED_CODE_ROOT": newCodeRoot,
+                "SAVED_IMPORT_ROOT": newImportRoot,
                 "SAVED_RUNTIME_ROOT": newRuntimeRoot
               ]
             )
-            self.selectedProfile = .diamond
           }
           self.useCurrentRoot = true
           self.syncWorkspaceDraftsFromResolvedRoots()
@@ -1850,7 +1867,7 @@ final class CleanupViewModel: ObservableObject {
 
     var seenKeys: Set<String> = []
     for candidate in candidates {
-      let key = "\(candidate.style.rawValue)|\(normalizeWorkspacePath(candidate.codeRoot))|\(normalizeWorkspacePath(candidate.runtimeRoot))"
+      let key = "\(candidate.profile.rawValue)|\(normalizeWorkspacePath(candidate.codeRoot))|\(normalizeWorkspacePath(candidate.importRoot))|\(normalizeWorkspacePath(candidate.runtimeRoot))"
       guard seenKeys.insert(key).inserted else { continue }
 
       let candidateCode = normalizeWorkspacePath(candidate.codeRoot)
@@ -1860,7 +1877,7 @@ final class CleanupViewModel: ObservableObject {
       }
 
       let candidateResult = Self.scanLocalProjects(
-        workspaceLabel: candidate.style == .split ? "split" : "single-folder",
+        workspaceLabel: candidate.profile == .wtl ? "legacy single-root" : "three-root",
         codeRoot: candidateCode,
         runtimeRoot: candidateRuntime
       )
@@ -1873,7 +1890,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func applyRecoveredWorkspaceSuggestion(_ suggestion: WorkspaceSuggestion) {
-    selectedProfile = suggestion.style == .split ? .diamond : .public
+    selectedProfile = suggestion.profile
     useCurrentRoot = true
     syncWorkspaceDraftsFromResolvedRoots()
   }
@@ -1925,6 +1942,11 @@ final class CleanupViewModel: ObservableObject {
   func revealCodeRoot() {
     let roots = resolvedProfileRoots()
     revealPath(roots.codeRoot)
+  }
+
+  func revealImportRoot() {
+    let roots = resolvedProfileRoots()
+    revealPath(roots.importRoot)
   }
 
   func revealRuntimeRoot() {
@@ -2672,6 +2694,7 @@ final class CleanupViewModel: ObservableObject {
       scope: scope,
       style: selectedWorkspaceStyle,
       codeRoot: roots.codeRoot,
+      importRoot: roots.importRoot,
       runtimeRoot: roots.runtimeRoot,
       destinationBase: destination
     )
@@ -4187,21 +4210,15 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func applyWorkspaceSuggestion(_ suggestion: WorkspaceSuggestion) {
-    switch suggestion.style {
-    case .single:
-      writeProfileConfig(profile: .public, values: ["SAVED_DEFAULT_ROOT": suggestion.runtimeRoot])
-      selectedProfile = .public
-    case .split:
-      writeProfileConfig(
-        profile: .diamond,
-        values: [
-          "SAVED_CODE_ROOT": suggestion.codeRoot,
-          "SAVED_RUNTIME_ROOT": suggestion.runtimeRoot
-        ]
-      )
-      selectedProfile = .diamond
-    }
-
+    writeProfileConfig(
+      profile: suggestion.profile,
+      values: [
+        "SAVED_CODE_ROOT": suggestion.codeRoot,
+        "SAVED_IMPORT_ROOT": suggestion.importRoot,
+        "SAVED_RUNTIME_ROOT": suggestion.runtimeRoot
+      ]
+    )
+    selectedProfile = suggestion.profile
     useCurrentRoot = true
     syncWorkspaceDraftsFromResolvedRoots()
     refreshLocalProjects()
@@ -4211,43 +4228,81 @@ final class CleanupViewModel: ObservableObject {
     let roots = resolvedProfileRoots()
     workspaceSingleRootDraft = roots.runtimeRoot
     workspaceCodeRootDraft = roots.codeRoot
+    workspaceImportRootDraft = roots.importRoot
     workspaceRuntimeRootDraft = roots.runtimeRoot
   }
 
   private func savedWorkspaceConfiguration() -> WorkspaceSuggestion? {
-    let diamondValues = loadProfileConfigValues(profile: .diamond)
-    let savedCodeRoot = normalizeWorkspacePath(diamondValues["SAVED_CODE_ROOT"] ?? "")
-    let savedRuntimeRoot = normalizeWorkspacePath(diamondValues["SAVED_RUNTIME_ROOT"] ?? "")
-    if !savedCodeRoot.isEmpty, !savedRuntimeRoot.isEmpty {
+    let publicValues = loadProfileConfigValues(profile: .public)
+    let publicSavedCodeRoot = normalizeWorkspacePath(publicValues["SAVED_CODE_ROOT"] ?? "")
+    let publicSavedImportRoot = normalizeWorkspacePath(publicValues["SAVED_IMPORT_ROOT"] ?? "")
+    let publicSavedRuntimeRoot = normalizeWorkspacePath(publicValues["SAVED_RUNTIME_ROOT"] ?? "")
+    if !publicSavedCodeRoot.isEmpty, !publicSavedImportRoot.isEmpty, !publicSavedRuntimeRoot.isEmpty {
       return WorkspaceSuggestion(
+        profile: .public,
         style: .split,
         title: "Saved workspace setup",
-        detail: "Using the split workspace you already configured on this Mac.",
-        codeRoot: savedCodeRoot,
-        runtimeRoot: savedRuntimeRoot
+        detail: "Using the public Code / Import / Runtime workspace you already configured on this Mac.",
+        codeRoot: publicSavedCodeRoot,
+        importRoot: publicSavedImportRoot,
+        runtimeRoot: publicSavedRuntimeRoot
       )
     }
 
-    let publicValues = loadProfileConfigValues(profile: .public)
     let savedPublicRoot = normalizeWorkspacePath(publicValues["SAVED_DEFAULT_ROOT"] ?? "")
     if !savedPublicRoot.isEmpty {
       return WorkspaceSuggestion(
-        style: .single,
+        profile: .public,
+        style: .split,
         title: "Saved workspace setup",
-        detail: "Using the single workspace folder you already configured on this Mac.",
+        detail: "Using a legacy public workspace and mapping it into Code / Import / Runtime roots for compatibility.",
         codeRoot: savedPublicRoot,
+        importRoot: (savedPublicRoot as NSString).appendingPathComponent("Import"),
         runtimeRoot: savedPublicRoot
       )
     }
 
+    let diamondValues = loadProfileConfigValues(profile: .diamond)
+    let savedCodeRoot = normalizeWorkspacePath(diamondValues["SAVED_CODE_ROOT"] ?? "")
+    let savedImportRoot = normalizeWorkspacePath(diamondValues["SAVED_IMPORT_ROOT"] ?? "")
+    let savedRuntimeRoot = normalizeWorkspacePath(diamondValues["SAVED_RUNTIME_ROOT"] ?? "")
+    if !savedCodeRoot.isEmpty, !savedRuntimeRoot.isEmpty {
+      return WorkspaceSuggestion(
+        profile: .diamond,
+        style: .split,
+        title: "Saved workspace setup",
+        detail: "Using the migrated external-drive workspace you already configured on this Mac.",
+        codeRoot: savedCodeRoot,
+        importRoot: savedImportRoot.isEmpty ? (savedRuntimeRoot as NSString).appendingPathComponent("Import") : savedImportRoot,
+        runtimeRoot: savedRuntimeRoot
+      )
+    }
+
     let wtlValues = loadProfileConfigValues(profile: .wtl)
+    let savedLegacyCodeRoot = normalizeWorkspacePath(wtlValues["SAVED_CODE_ROOT"] ?? "")
+    let savedLegacyImportRoot = normalizeWorkspacePath(wtlValues["SAVED_IMPORT_ROOT"] ?? "")
+    let savedLegacyRuntimeRoot = normalizeWorkspacePath(wtlValues["SAVED_RUNTIME_ROOT"] ?? "")
+    if !savedLegacyCodeRoot.isEmpty, !savedLegacyRuntimeRoot.isEmpty {
+      return WorkspaceSuggestion(
+        profile: .wtl,
+        style: .single,
+        title: "Saved workspace setup",
+        detail: "Using a migrated legacy WTL workspace with explicit Code / Import / Runtime roots.",
+        codeRoot: savedLegacyCodeRoot,
+        importRoot: savedLegacyImportRoot.isEmpty ? (savedLegacyRuntimeRoot as NSString).appendingPathComponent("Import") : savedLegacyImportRoot,
+        runtimeRoot: savedLegacyRuntimeRoot
+      )
+    }
+
     let savedLegacyRoot = normalizeWorkspacePath(wtlValues["SAVED_DEFAULT_ROOT"] ?? "")
     if !savedLegacyRoot.isEmpty {
       return WorkspaceSuggestion(
+        profile: .wtl,
         style: .single,
         title: "Saved workspace setup",
         detail: "Using a legacy single-folder setup detected from an earlier build.",
         codeRoot: savedLegacyRoot,
+        importRoot: (savedLegacyRoot as NSString).appendingPathComponent("Import"),
         runtimeRoot: savedLegacyRoot
       )
     }
@@ -4265,20 +4320,24 @@ final class CleanupViewModel: ObservableObject {
     let hasLegacySplit = fm.fileExists(atPath: diamondCodeDefaultRoot) && fm.fileExists(atPath: diamondRuntimeDefaultRoot)
     if hasLegacySplit {
       return WorkspaceSuggestion(
+        profile: .diamond,
         style: .split,
         title: "Detected current Mac setup",
-        detail: "The app found your existing external-drive code and runtime folders and can use them automatically.",
+        detail: "The app found your existing external-drive code and runtime folders and can use them automatically as a migrated Code / Import / Runtime workspace.",
         codeRoot: diamondCodeDefaultRoot,
+        importRoot: diamondImportDefaultRoot,
         runtimeRoot: diamondRuntimeDefaultRoot
       )
     }
 
     if fm.fileExists(atPath: wtlDefaultRoot) {
       return WorkspaceSuggestion(
+        profile: .wtl,
         style: .single,
         title: "Detected current Mac setup",
-        detail: "The app found your existing external-drive workspace and can use it automatically as a single-folder setup.",
+        detail: "The app found your existing external-drive workspace and can use it automatically as a migrated legacy setup.",
         codeRoot: wtlDefaultRoot,
+        importRoot: (wtlDefaultRoot as NSString).appendingPathComponent("Import"),
         runtimeRoot: wtlDefaultRoot
       )
     }
@@ -4288,7 +4347,7 @@ final class CleanupViewModel: ObservableObject {
 
   private func adoptDetectedWorkspaceIfNeeded() {
     if let saved = savedWorkspaceConfiguration() {
-      selectedProfile = saved.style == .split ? .diamond : .public
+      selectedProfile = saved.profile
       return
     }
 
@@ -4298,35 +4357,51 @@ final class CleanupViewModel: ObservableObject {
     }
 
     if let detected = detectedWorkspaceConfiguration() {
-      selectedProfile = detected.style == .split ? .diamond : .public
+      selectedProfile = detected.profile
       return
     }
 
     selectedProfile = .public
   }
 
-  private func resolvedProfileRoots() -> (codeRoot: String, runtimeRoot: String) {
+  private func resolvedProfileRoots() -> (codeRoot: String, importRoot: String, runtimeRoot: String) {
     let values = loadProfileConfigValues(profile: selectedProfile)
 
     switch selectedProfile {
     case .public:
-      let detectedRoot = detectedWorkspaceConfiguration()?.style == .single ? detectedWorkspaceConfiguration()?.runtimeRoot : nil
-      let root = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? detectedRoot ?? publicDefaultRoot) : publicDefaultRoot
-      )
-      return (root, root)
-    case .wtl:
-      let root = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? wtlDefaultRoot) : wtlDefaultRoot)
-      return (root, root)
-    case .diamond:
-      let detectedSplit = detectedWorkspaceConfiguration()?.style == .split ? detectedWorkspaceConfiguration() : nil
+      let legacyRoot = normalizeWorkspacePath(values["SAVED_DEFAULT_ROOT"] ?? "")
+      let fallbackCodeRoot = legacyRoot.isEmpty ? publicDefaultCodeRoot : legacyRoot
+      let fallbackImportRoot = legacyRoot.isEmpty ? publicDefaultImportRoot : (legacyRoot as NSString).appendingPathComponent("Import")
+      let fallbackRuntimeRoot = legacyRoot.isEmpty ? publicDefaultRuntimeRoot : legacyRoot
       let codeRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? detectedSplit?.codeRoot ?? genericSplitCodeDefaultRoot) : genericSplitCodeDefaultRoot
+        useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? fallbackCodeRoot) : publicDefaultCodeRoot
+      )
+      let importRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_IMPORT_ROOT"] ?? fallbackImportRoot) : publicDefaultImportRoot
       )
       let runtimeRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? detectedSplit?.runtimeRoot ?? genericSplitRuntimeDefaultRoot) : genericSplitRuntimeDefaultRoot
+        useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? fallbackRuntimeRoot) : publicDefaultRuntimeRoot
       )
-      return (codeRoot, runtimeRoot)
+      return (codeRoot, importRoot, runtimeRoot)
+    case .wtl:
+      let legacyRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? wtlDefaultRoot) : wtlDefaultRoot)
+      let codeRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? legacyRoot) : wtlDefaultRoot)
+      let importRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_IMPORT_ROOT"] ?? (legacyRoot as NSString).appendingPathComponent("Import")) : (wtlDefaultRoot as NSString).appendingPathComponent("Import")
+      )
+      let runtimeRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? legacyRoot) : wtlDefaultRoot)
+      return (codeRoot, importRoot, runtimeRoot)
+    case .diamond:
+      let codeRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? diamondCodeDefaultRoot) : diamondCodeDefaultRoot
+      )
+      let importRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_IMPORT_ROOT"] ?? diamondImportDefaultRoot) : diamondImportDefaultRoot
+      )
+      let runtimeRoot = normalizeWorkspacePath(
+        useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? diamondRuntimeDefaultRoot) : diamondRuntimeDefaultRoot
+      )
+      return (codeRoot, importRoot, runtimeRoot)
     }
   }
 
@@ -4711,6 +4786,7 @@ final class CleanupViewModel: ObservableObject {
     scope: WorkspaceRelocationScope,
     style: WorkspaceStyle,
     codeRoot: String,
+    importRoot: String,
     runtimeRoot: String,
     destinationBase: String
   ) -> LocalOperationPreview {
@@ -4725,6 +4801,7 @@ final class CleanupViewModel: ObservableObject {
       case .workspace:
         targets = [
           (codeRoot, (normalizedDestination as NSString).appendingPathComponent("Code")),
+          (importRoot, (normalizedDestination as NSString).appendingPathComponent("Import")),
           (runtimeRoot, (normalizedDestination as NSString).appendingPathComponent("Runtime"))
         ]
       case .codeRoot:
@@ -4755,7 +4832,7 @@ final class CleanupViewModel: ObservableObject {
     mode: LocalFileTransferMode,
     destinationBase: String,
     preparedStamp: String,
-    roots: (codeRoot: String, runtimeRoot: String),
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
     selectedProjects: [LocalProjectEntry],
     includeCode: Bool,
     includeRuntime: Bool,
@@ -4812,20 +4889,22 @@ final class CleanupViewModel: ObservableObject {
 
   private nonisolated static func restoreSnapshotPayload(
     payloadPath: String,
-    roots: (codeRoot: String, runtimeRoot: String),
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
     environment: [String: String]
   ) throws {
     let fm = FileManager.default
     var restoreRoot = payloadPath
 
     let directCode = (restoreRoot as NSString).appendingPathComponent("Code")
+    let directImport = (restoreRoot as NSString).appendingPathComponent("Import")
     let directRuntime = (restoreRoot as NSString).appendingPathComponent("Runtime")
-    if !fm.fileExists(atPath: directCode), !fm.fileExists(atPath: directRuntime) {
+    if !fm.fileExists(atPath: directCode), !fm.fileExists(atPath: directImport), !fm.fileExists(atPath: directRuntime) {
       let children = (try? fm.contentsOfDirectory(atPath: restoreRoot))?.sorted() ?? []
       if let nested = children
         .map({ (restoreRoot as NSString).appendingPathComponent($0) })
         .first(where: {
           fm.fileExists(atPath: ($0 as NSString).appendingPathComponent("Code")) ||
+          fm.fileExists(atPath: ($0 as NSString).appendingPathComponent("Import")) ||
           fm.fileExists(atPath: ($0 as NSString).appendingPathComponent("Runtime"))
         }) {
         restoreRoot = nested
@@ -4843,6 +4922,20 @@ final class CleanupViewModel: ObservableObject {
         )
       } else {
         try transferItem(from: codeExport, to: roots.codeRoot, mode: .copyBackup, overwrite: true, environment: environment)
+      }
+    }
+
+    let importExport = (restoreRoot as NSString).appendingPathComponent("Import")
+    if fm.fileExists(atPath: importExport) {
+      let reposExport = (importExport as NSString).appendingPathComponent("Repos")
+      if fm.fileExists(atPath: reposExport) {
+        try mergeOwnerRepoTree(
+          from: reposExport,
+          to: (roots.importRoot as NSString).appendingPathComponent("Repos"),
+          environment: environment
+        )
+      } else {
+        try transferItem(from: importExport, to: roots.importRoot, mode: .copyBackup, overwrite: true, environment: environment)
       }
     }
 
@@ -4957,10 +5050,11 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private nonisolated static func scanStorageInsights(
-    roots: (codeRoot: String, runtimeRoot: String)
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String)
   ) -> [StorageInsightEntry] {
     let candidates: [(String, String)] = [
       ("Code Root", roots.codeRoot),
+      ("Import Root", roots.importRoot),
       ("Runtime Root", roots.runtimeRoot),
       ("Reports", (roots.runtimeRoot as NSString).appendingPathComponent("Reports")),
       ("Runners", (roots.runtimeRoot as NSString).appendingPathComponent("Runners")),
@@ -5221,6 +5315,7 @@ final class CleanupViewModel: ObservableObject {
     scope: WorkspaceRelocationScope,
     style: WorkspaceStyle,
     codeRoot: String,
+    importRoot: String,
     runtimeRoot: String,
     destinationBase: String,
     overwrite: Bool,
@@ -5239,6 +5334,7 @@ final class CleanupViewModel: ObservableObject {
       case .workspace:
         operations = [
           (codeRoot, (destinationRoot as NSString).appendingPathComponent("Code")),
+          (importRoot, (destinationRoot as NSString).appendingPathComponent("Import")),
           (runtimeRoot, (destinationRoot as NSString).appendingPathComponent("Runtime"))
         ]
       case .codeRoot:
@@ -5322,19 +5418,23 @@ final class CleanupViewModel: ObservableObject {
       return WorkspaceRelocationOutcome(result: .single(target), warnings: cleanupWarnings)
     case .split:
       let newCodeRoot: String
+      let newImportRoot: String
       let newRuntimeRoot: String
       switch scope {
       case .workspace:
         newCodeRoot = operations.first(where: { NSString(string: $0.destination).lastPathComponent == "Code" })?.destination ?? codeRoot
+        newImportRoot = operations.first(where: { NSString(string: $0.destination).lastPathComponent == "Import" })?.destination ?? importRoot
         newRuntimeRoot = operations.first(where: { NSString(string: $0.destination).lastPathComponent == "Runtime" })?.destination ?? runtimeRoot
       case .codeRoot:
         newCodeRoot = operations.first?.destination ?? codeRoot
+        newImportRoot = importRoot
         newRuntimeRoot = runtimeRoot
       case .runtimeRoot:
         newCodeRoot = codeRoot
+        newImportRoot = importRoot
         newRuntimeRoot = operations.first?.destination ?? runtimeRoot
       }
-      return WorkspaceRelocationOutcome(result: .split(codeRoot: newCodeRoot, runtimeRoot: newRuntimeRoot), warnings: cleanupWarnings)
+      return WorkspaceRelocationOutcome(result: .split(codeRoot: newCodeRoot, importRoot: newImportRoot, runtimeRoot: newRuntimeRoot), warnings: cleanupWarnings)
     }
   }
 
@@ -5343,7 +5443,7 @@ final class CleanupViewModel: ObservableObject {
     mode: LocalFileTransferMode,
     destinationBase: String,
     preparedStamp: String? = nil,
-    roots: (codeRoot: String, runtimeRoot: String),
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
     selectedProjects: [LocalProjectEntry],
     includeCode: Bool,
     includeRuntime: Bool,
@@ -5390,7 +5490,7 @@ final class CleanupViewModel: ObservableObject {
   private nonisolated static func plannedLocalExportOperations(
     scope: LocalFileExportScope,
     destinationRoot: String,
-    roots: (codeRoot: String, runtimeRoot: String),
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
     selectedProjects: [LocalProjectEntry],
     includeCode: Bool,
     includeRuntime: Bool,
@@ -5404,6 +5504,15 @@ final class CleanupViewModel: ObservableObject {
           destination: (destinationRoot as NSString).appendingPathComponent("Code")
         )
       ]
+      if NSString(string: roots.importRoot).standardizingPath != NSString(string: roots.codeRoot).standardizingPath,
+         NSString(string: roots.importRoot).standardizingPath != NSString(string: roots.runtimeRoot).standardizingPath {
+        operations.append(
+          LocalTransferOperation(
+            source: roots.importRoot,
+            destination: (destinationRoot as NSString).appendingPathComponent("Import")
+          )
+        )
+      }
       if NSString(string: roots.runtimeRoot).standardizingPath != NSString(string: roots.codeRoot).standardizingPath {
         operations.append(
           LocalTransferOperation(
@@ -7714,12 +7823,12 @@ struct ContentView: View {
       } else {
         BannerCard(
           title: "Standard local setup available",
-          detail: "The standard setup uses \(publicDefaultRoot). You can switch to split folders later if you want code and runtime separated.",
+          detail: "The standard setup uses \(publicDefaultCodeRoot), \(publicDefaultImportRoot), and \(publicDefaultRuntimeRoot).",
           kind: .warning
         )
       }
 
-      Text("Custom-drive layouts are still supported, but the GUI now treats them as detected workspace examples instead of product-facing presets.")
+      Text("Custom-drive layouts are still supported, but the GUI now treats them as detected migration examples instead of product-facing presets.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -8354,21 +8463,7 @@ struct ContentView: View {
     let standardSuggestion = model.standardWorkspaceSuggestion
     let detectedSuggestion = model.detectedWorkspaceSuggestion
 
-    return PanelCard(title: "Workspace Setup", subtitle: "Choose one simple storage style, use the standard path, or apply the setup this Mac already has.") {
-      VStack(alignment: .leading, spacing: 6) {
-        FieldLabel(text: "Workspace Style")
-        Picker("", selection: Binding(
-          get: { model.selectedWorkspaceStyle },
-          set: { model.setWorkspaceStyle($0) }
-        )) {
-          ForEach(WorkspaceStyle.allCases) { style in
-            Text(style.label).tag(style)
-          }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-      }
-
+    return PanelCard(title: "Workspace Setup", subtitle: "Choose explicit Code, Import, and Runtime roots, use the standard path set, or apply the setup this Mac already has.") {
       Toggle("Follow the current saved workspace automatically", isOn: $model.useCurrentRoot)
         .toggleStyle(.switch)
         .tint(DashboardTheme.success)
@@ -8376,88 +8471,70 @@ struct ContentView: View {
 
       BannerCard(
         title: standardSuggestion.title,
-        detail: standardSuggestion.detail + "\n" + (model.selectedWorkspaceStyle == .single
-          ? standardSuggestion.runtimeRoot
-          : "Code: \(standardSuggestion.codeRoot)\nRuntime: \(standardSuggestion.runtimeRoot)"),
+        detail: standardSuggestion.detail + "\nCode: \(standardSuggestion.codeRoot)\nImport: \(standardSuggestion.importRoot)\nRuntime: \(standardSuggestion.runtimeRoot)",
         kind: .ready
       )
 
       if let detectedSuggestion {
         BannerCard(
           title: detectedSuggestion.title,
-          detail: detectedSuggestion.detail + "\n" + (detectedSuggestion.style == .single
-            ? detectedSuggestion.runtimeRoot
-            : "Code: \(detectedSuggestion.codeRoot)\nRuntime: \(detectedSuggestion.runtimeRoot)"),
+          detail: detectedSuggestion.detail + "\nCode: \(detectedSuggestion.codeRoot)\nImport: \(detectedSuggestion.importRoot)\nRuntime: \(detectedSuggestion.runtimeRoot)",
           kind: .ready
         )
       }
 
-      if model.selectedWorkspaceStyle == .single {
-        VStack(alignment: .leading, spacing: 6) {
-          FieldLabel(text: "Workspace Folder")
-          TextField("Choose a single local root", text: $model.workspaceSingleRootDraft)
-            .textFieldStyle(.plain)
-            .foregroundStyle(DashboardTheme.text)
-            .dashboardFieldStyle()
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Code Folder")
+        TextField("Choose the folder for plain repos", text: $model.workspaceCodeRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Import Folder")
+        TextField("Choose the folder for Codespaces exports, zip drops, and staging", text: $model.workspaceImportRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Runtime Folder")
+        TextField("Choose the folder for devcontainers, reports, logs, backups, and runners", text: $model.workspaceRuntimeRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button("Choose Code") {
+          model.chooseCodeWorkspaceFolder()
         }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
 
-        HStack(spacing: 10) {
-          Button("Choose Folder") {
-            model.chooseSingleWorkspaceFolder()
-          }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
-
-          Button("Use Standard") {
-            model.applyStandardWorkspace()
-          }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
-
-          if detectedSuggestion != nil {
-            Button("Use Detected Setup") {
-              model.applyDetectedWorkspace()
-            }
-            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
-          }
+        Button("Choose Import") {
+          model.chooseImportWorkspaceFolder()
         }
-      } else {
-        VStack(alignment: .leading, spacing: 6) {
-          FieldLabel(text: "Code Folder")
-          TextField("Choose the folder for plain repos", text: $model.workspaceCodeRootDraft)
-            .textFieldStyle(.plain)
-            .foregroundStyle(DashboardTheme.text)
-            .dashboardFieldStyle()
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Choose Runtime") {
+          model.chooseRuntimeWorkspaceFolder()
         }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      }
 
-        VStack(alignment: .leading, spacing: 6) {
-          FieldLabel(text: "Runtime Folder")
-          TextField("Choose the folder for devcontainers, reports, and runners", text: $model.workspaceRuntimeRootDraft)
-            .textFieldStyle(.plain)
-            .foregroundStyle(DashboardTheme.text)
-            .dashboardFieldStyle()
+      HStack(spacing: 10) {
+        Button("Use Standard") {
+          model.applyStandardWorkspace()
         }
-
-        HStack(spacing: 10) {
-          Button("Choose Code") {
-            model.chooseCodeWorkspaceFolder()
-          }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
-
-          Button("Choose Runtime") {
-            model.chooseRuntimeWorkspaceFolder()
-          }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
-
-          Button("Use Standard") {
-            model.applyStandardWorkspace()
-          }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
-        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
 
         if detectedSuggestion != nil {
           Button("Use Detected Setup") {
             model.applyDetectedWorkspace()
           }
-          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
         }
       }
 
@@ -8473,7 +8550,7 @@ struct ContentView: View {
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
       }
 
-      Text("The standard setup is concrete and generic. Your external-drive layout is still detected automatically on this Mac, but it is now presented as an optional detected setup instead of a product preset.")
+      Text("The standard setup is concrete and generic. Legacy external-drive layouts are still detected automatically on this Mac, but they are presented as optional migration setups instead of product presets.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -8496,7 +8573,7 @@ struct ContentView: View {
         .foregroundStyle(DashboardTheme.text)
 
       BannerCard(
-        title: model.workspaceExecutionLabel == "single-folder workspace" ? "Move the full workspace root" : "Move one root or both roots",
+        title: "Move the full workspace or move the main roots one by one",
         detail: model.localFilesStatus,
         kind: model.isRunningLocalFileOperation ? .running : .ready
       )
@@ -9198,8 +9275,9 @@ struct ContentView: View {
   private var rootsPanel: some View {
     let roots = model.profileRootSummary
 
-    return PanelCard(title: "Active Workspace Paths", subtitle: "These are the live local paths the GUI is using right now for imported projects, runtime work, reports, and runners.") {
+    return PanelCard(title: "Active Workspace Paths", subtitle: "These are the live local paths the GUI is using right now for plain repos, import staging, runtime work, reports, and runners.") {
       FixedValueRow(label: "Code Root", value: roots.codeRoot)
+      FixedValueRow(label: "Import Root", value: roots.importRoot)
       FixedValueRow(label: "Runtime Root", value: roots.runtimeRoot)
 
       HStack(spacing: 10) {
@@ -9208,10 +9286,15 @@ struct ContentView: View {
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
 
+        Button("Reveal Import Root") {
+          model.revealImportRoot()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
         Button("Reveal Runtime Root") {
           model.revealRuntimeRoot()
         }
-        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
       }
 
       Text(model.useCurrentRoot
@@ -9548,7 +9631,7 @@ struct ContentView: View {
         kind: model.cleanupTargets.isEmpty ? .warning : .ready
       )
 
-      Text("The GUI import path runs the bundled CLI in GUI-safe auto mode. That means it uses the quick devcontainer startup check, auto-confirms the import prompts, and stays in the native Jobs and Output views instead of opening Terminal.")
+      Text("Imports use the current Code, Import, and Runtime roots together: plain repo clones go to Code, staging and exported source drops go to Import, and runtime workspaces plus reports and runners stay under Runtime. The GUI path runs the bundled CLI in GUI-safe auto mode, so the work stays in Jobs and Output instead of opening Terminal.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)

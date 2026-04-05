@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
-REMOTE_INSTALLER_VERSION="0.3.4"
+REMOTE_INSTALLER_VERSION="$(sed -n '1p' "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/VERSION" 2>/dev/null || printf '0.0.0')"
 DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
 DEFAULT_REF="${CSA_IEM_REF:-main}"
 INSTALL_ROOT=""
@@ -22,6 +22,7 @@ Version: $REMOTE_INSTALLER_VERSION
 Provider: $APP_VENDOR
 
 Usage:
+  # macOS Terminal (zsh / bash)
   curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash
   curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash -s -- --force
   curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash -s -- --ref your-tag-or-branch

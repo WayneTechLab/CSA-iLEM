@@ -51,16 +51,39 @@ The `.app` bundle includes:
 
 ## Installer Notes
 
-From any supported Mac terminal, install with:
+Use Terminal with `zsh` or `bash`.
+
+Stable remote install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
 ```
 
-Update with:
+Latest remote install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
+```
+
+Local repo install:
+
+```bash
+./install.sh
+```
+
+Local git update:
+
+```bash
+git switch main
+git pull --ff-only origin main
+./install.sh --force
+```
+
+After reloading the shell profile, macOS Terminal also accepts:
+
+```bash
+CSA-IEM --version
+CSA-iEM --version
 ```
 
 `install.sh` copies the app source, CLI scripts, assets, and docs into the versioned install root so a clean Mac can:
@@ -73,14 +96,13 @@ curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-
 
 ## Workspace Setup
 
-The published GUI now defaults to a generic public model:
+The published GUI now defaults to a generic public three-root model:
 
-- standard single-folder setup: `~/CSA-iEM`
-- standard split setup:
-  - `~/CSA-iEM/Code`
-  - `~/CSA-iEM/Runtime`
+- standard code root: `~/CSA-iEM/Code`
+- standard import root: `~/CSA-iEM/Import`
+- standard runtime root: `~/CSA-iEM/Runtime`
 
-If the app detects a current custom-drive setup on the machine, it presents that as a detected workspace example instead of surfacing legacy preset names in the main UX.
+If the app detects a current custom-drive setup on the machine, it presents that as a detected workspace migration example instead of surfacing legacy preset names in the main UX.
 
 ## Icon Packaging
 

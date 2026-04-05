@@ -3,6 +3,7 @@
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
 Version: `0.3.4`
+Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
 Notice: `Use at your own risk.`
@@ -28,6 +29,30 @@ It is built for:
 For the current production-status snapshot, see:
 - [`STATUS.md`](./STATUS.md)
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
+- [`docs/Windows-Contributor-Setup.md`](./docs/Windows-Contributor-Setup.md)
+
+## Git Project
+
+Primary GitHub project:
+- [`WayneTechLab/CSA-iLEM`](https://github.com/WayneTechLab/CSA-iLEM)
+
+Recommended local checkout update:
+
+Windows 11 PowerShell or Windows Terminal:
+
+```powershell
+cd H:\WTL-CODE-X\CSA-iEM
+git switch main
+git pull --ff-only origin main
+```
+
+macOS Terminal:
+
+```bash
+cd ~/CSA-iEM
+git switch main
+git pull --ff-only origin main
+```
 
 ## Primary Commands
 
@@ -44,6 +69,7 @@ Core scripts:
 - [`CSA-iLEM-Open.sh`](./CSA-iLEM-Open.sh)
 - [`install.ps1`](./install.ps1)
 - [`install-remote.ps1`](./install-remote.ps1)
+- [`update-win.ps1`](./update-win.ps1)
 - [`uninstall.ps1`](./uninstall.ps1)
 - [`install-remote.sh`](./install-remote.sh)
 - [`install.sh`](./install.sh)
@@ -66,7 +92,9 @@ Advanced compatibility wrappers still ship:
 - [`csa-ilem-gui`](./csa-ilem-gui)
 - [`csa-ilem-build-gui`](./csa-ilem-build-gui)
 
-## Install On Any Supported Mac
+## Install On macOS Terminal
+
+Use Terminal with `zsh` or `bash`.
 
 Stable public install from any supported Mac terminal:
 
@@ -103,10 +131,11 @@ chmod +x ./install.sh
 The installer:
 - scans for missing Mac dependencies and installs what it can before laying down the app files
 - falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
-- copies the production bundle into `~/.local/share/csa-iem/0.3.4`
+- copies the production bundle into `~/.local/share/csa-iem/<version>`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
 - adds `~/.local/bin` to `~/.zprofile`
+- adds macOS Terminal aliases so `CSA-IEM`, `CSA-iEM`, `CSA-ILEM`, and `CSA-iLEM` resolve to the installed lowercase commands after the shell profile is reloaded
 - installs the Swift package sources, assets, and docs needed for the GUI and app-bundle builder
 - ships the remote installer too, so an installed machine can update again later without recloning first
 - bootstraps Homebrew, git, GitHub CLI, Node.js, Dev Containers CLI, Visual Studio Code, and Docker Desktop when they are missing
@@ -123,6 +152,7 @@ After install:
 ```bash
 source ~/.zprofile
 csa-iem --version
+CSA-IEM --version
 ```
 
 From an installed copy, you can also inspect the shipped remote installer:
@@ -138,46 +168,88 @@ cd '/path/to/CSA-iEM'
 ./uninstall.sh
 ```
 
-## Install On Windows 11
+## Install On Windows 11 PowerShell
 
-Run the Windows installer from an Administrator PowerShell window.
+Use Windows Terminal or PowerShell. Run install commands from an Administrator shell when bootstrapping dependencies or services.
 
-Stable public install:
+Remote install from GitHub:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
 ```
 
-Install the latest `main` build:
+Remote install from `main`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
 ```
 
-Update an existing Windows install:
+Remote update:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
 ```
 
-Install from a local checkout:
+Local repo install:
 
 ```powershell
+cd H:\WTL-CODE-X\CSA-iEM
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+If you are not already in the repo root, use the absolute path instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File H:\WTL-CODE-X\CSA-iEM\install.ps1
 ```
 
 The Windows installer:
 - installs into `%LOCALAPPDATA%\CSA-iEM\<version>`
-- creates `csa-iem.cmd`, `csa-iem-open.cmd`, and `openproj.cmd`
+- creates `csa-iem.cmd`, `csa-iem-open.cmd`, `csa-iem-update.cmd`, and `openproj.cmd`
 - adds the chosen bin directory to the user PATH
 - bootstraps `git`, `gh`, `node`, `code`, `docker`, and `devcontainer` when possible
 - is designed for Windows Terminal and PowerShell admin-shell usage
+- works with `csa-iem`, `CSA-IEM`, or `CSA-iEM` because Windows command lookup is case-insensitive
 
 After install, open a new PowerShell window and verify:
 
 ```powershell
 csa-iem --version
+csa-iem-update --help
 openproj
+```
+
+Installed Windows update command from any PowerShell window:
+
+```powershell
+csa-iem-update
+```
+
+Update to a specific tag or version:
+
+```powershell
+csa-iem-update --ref 0.3.4
+```
+
+Important:
+- `csa-iem-update` pulls from the published GitHub repo state.
+- if your local checkout contains newer unpushed work, keep that build with the repo-local reinstall command instead of `csa-iem-update`
+
+Windows local checkout refresh:
+
+```powershell
+cd H:\WTL-CODE-X\CSA-iEM
+git switch main
+git pull --ff-only origin main
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
+```
+
+macOS local checkout refresh:
+
+```bash
+git switch main
+git pull --ff-only origin main
+./install.sh --force
 ```
 
 ## macOS GUI
@@ -226,7 +298,7 @@ The GUI is a SwiftUI macOS app that:
 - adds a native jobs center for background operations, status, retries, and logs
 - adds a dedicated `GitHub Account` page for host, account, organization, and repository management while staying connected to the same `gh` session
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
-- adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/runtime/runner combinations to another folder or external drive
+- adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/import/runtime/runner combinations to another folder or external drive
 - adds native backup presets, previews, snapshots, restore actions, storage insights, sync status, per-project task templates, and local port monitoring
 - lets the native local project library feed cleanup and local-file targeting directly
 - treats custom-drive setups as auto-detected workspace examples instead of exposing internal preset names
@@ -253,8 +325,8 @@ The Windows release is PowerShell-first today.
 
 It supports:
 - preflight scans
-- workspace setup with generic `Single Folder` or split code/runtime roots
-- repo import and runtime mirror creation
+- workspace setup with public `Code`, `Import`, and `Runtime` roots
+- repo import into `Code`, staging into `Import`, and runtime mirror creation in `Runtime`
 - starter devcontainer generation
 - quick local devcontainer startup checks
 - repo-level self-hosted Windows runner install as a service
@@ -264,24 +336,25 @@ It supports:
 
 Windows documentation:
 - [`docs/Windows-11-Notes.md`](./docs/Windows-11-Notes.md)
+- [`docs/Windows-Contributor-Setup.md`](./docs/Windows-Contributor-Setup.md)
 
 ## Workspace Setup
 
 The published app is generic by default.
 
-Standard public options:
-- single workspace folder: `~/CSA-iEM`
-- split example:
-  - code folder: `~/CSA-iEM/Code`
-  - runtime folder: `~/CSA-iEM/Runtime`
+Standard public workspace roots:
+- code root: `~/CSA-iEM/Code`
+- import root: `~/CSA-iEM/Import`
+- runtime root: `~/CSA-iEM/Runtime`
 
 Current-machine auto-detection:
-- if the app finds an existing custom external-drive setup on your Mac, it offers that as `Detected current Mac setup`
+- if the app finds an existing custom external-drive setup on your Mac, it offers that as a detected workspace migration suggestion
 - this keeps custom layouts working without requiring end users to understand legacy preset names
 
 Advanced CLI compatibility:
 - the CLI still supports the older `public`, `wtl`, and `diamond` profile names for compatibility
-- the GUI now presents workspace choices as `Single Folder` or `Split Folders` instead
+- `--single-root PATH` still works as a compatibility alias and expands to `Code`, `Import`, and `Runtime` under that base path
+- the GUI now presents explicit `Code`, `Import`, and `Runtime` paths with `Use Standard` and `Use Detected Setup`
 
 ## Main CLI Modes
 
@@ -308,7 +381,7 @@ The current GUI-first production surface includes:
 - `Projects` for searchable imported projects, favorites, task templates, live devcontainers, and runner services
 - `Local Files` for move/export previews, backup presets, and snapshots
 - `Cleanup` for preview-first destructive flows
-- `Workspace` for simple single-folder or split-folder setup
+- `Workspace` for `Code`, `Import`, and `Runtime` setup plus detected migration suggestions
 - `Settings` for onboarding defaults, tool paths, and saved contexts/views
 
 ## Direct Cleanup CLI
@@ -372,7 +445,7 @@ From the imported-project list or full browser you can:
 
 The native GUI now also exposes:
 - active workspace-path inspection for the current setup
-- local inventory metrics for imported projects, split workspaces, devcontainers, and runners
+- local inventory metrics for imported projects, multi-root workspaces, devcontainers, and runners
 - a searchable local project library that opens runtime or code workspaces directly in VS Code
 - a live local services panel for active devcontainers and runner services with native refresh, open, reveal, and stop actions
 - native imported-project targeting for cleanup and cost-control flows

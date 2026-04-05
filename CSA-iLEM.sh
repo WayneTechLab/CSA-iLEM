@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_FULL_NAME="Container Setup & Action Import Engine Manager"
 APP_LEGACY_NAME="CSA-iLEM"
-APP_VERSION="0.3.4"
+APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_VENDOR_URL="https://www.WayneTechLab.com"
 APP_RISK_NOTICE="Use at your own risk."
@@ -30,8 +30,12 @@ APP_TERMS_FILE="$SCRIPT_DIR/TERMS-OF-SERVICE.md"
 APP_PRIVACY_FILE="$SCRIPT_DIR/PRIVACY-NOTICE.md"
 APP_DISCLAIMER_FILE="$SCRIPT_DIR/DISCLAIMER.md"
 PUBLIC_DEFAULT_ROOT="$HOME/CSA-iEM"
+PUBLIC_DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_ROOT/Code"
+PUBLIC_DEFAULT_IMPORT_ROOT="$PUBLIC_DEFAULT_ROOT/Import"
+PUBLIC_DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_ROOT/Runtime"
 WTL_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 DIAMOND_CODE_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
+DIAMOND_IMPORT_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH/Import"
 DIAMOND_RUNTIME_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
 PUBLIC_CUSTOM_EXAMPLE_ROOT="$WTL_DEFAULT_ROOT"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-iem"
@@ -64,11 +68,14 @@ LAST_REPO_SPEC=""
 DEFAULT_ROOT=""
 SAVED_DEFAULT_ROOT=""
 DEFAULT_CODE_ROOT=""
+DEFAULT_IMPORT_ROOT=""
 DEFAULT_RUNTIME_ROOT=""
 SAVED_CODE_ROOT=""
+SAVED_IMPORT_ROOT=""
 SAVED_RUNTIME_ROOT=""
 ROOT=""
 CODE_ROOT=""
+IMPORT_ROOT=""
 RUNTIME_ROOT=""
 REPOS_DIR=""
 REPORTS_DIR=""
@@ -76,6 +83,7 @@ BACKUPS_DIR=""
 RUNNERS_DIR=""
 SCRIPTS_DIR=""
 CODE_REPOS_DIR=""
+IMPORT_REPOS_DIR=""
 RUNTIME_REPOS_DIR=""
 
 MODE=""
@@ -92,6 +100,7 @@ SLUG=""
 REPO_SPEC=""
 REPO_DIR=""
 CODE_REPO_DIR=""
+IMPORT_REPO_DIR=""
 DEV_REPO_DIR=""
 REPORT_FILE=""
 LOCAL_LABEL=""
@@ -107,6 +116,10 @@ FULL_CLEANUP=0
 DRY_RUN=0
 RUN_FILTER=""
 TARGET_RUN_ID=""
+CLI_SINGLE_ROOT=""
+CLI_CODE_ROOT=""
+CLI_IMPORT_ROOT=""
+CLI_RUNTIME_ROOT=""
 IMPORTED_PROJECT_SLUGS=()
 IMPORTED_PROJECT_CODE_DIRS=()
 IMPORTED_PROJECT_RUNTIME_DIRS=()
@@ -261,6 +274,7 @@ save_profile_config() {
   cat > "$config_file" <<EOF
 SAVED_DEFAULT_ROOT=$(printf '%q' "$SAVED_DEFAULT_ROOT")
 SAVED_CODE_ROOT=$(printf '%q' "$SAVED_CODE_ROOT")
+SAVED_IMPORT_ROOT=$(printf '%q' "$SAVED_IMPORT_ROOT")
 SAVED_RUNTIME_ROOT=$(printf '%q' "$SAVED_RUNTIME_ROOT")
 EOF
 }
@@ -332,22 +346,25 @@ set_profile_defaults() {
   case "$PROFILE_NAME" in
     public)
       PROFILE_LABEL="Public"
-      STORAGE_LAYOUT="single"
+      STORAGE_LAYOUT="split"
       DEFAULT_ROOT="$PUBLIC_DEFAULT_ROOT"
-      DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_ROOT"
-      DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_ROOT"
+      DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_CODE_ROOT"
+      DEFAULT_IMPORT_ROOT="$PUBLIC_DEFAULT_IMPORT_ROOT"
+      DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_RUNTIME_ROOT"
       ;;
     wtl)
       PROFILE_LABEL="WTL"
       STORAGE_LAYOUT="single"
       DEFAULT_ROOT="$WTL_DEFAULT_ROOT"
       DEFAULT_CODE_ROOT="$WTL_DEFAULT_ROOT"
+      DEFAULT_IMPORT_ROOT="$WTL_DEFAULT_ROOT/Import"
       DEFAULT_RUNTIME_ROOT="$WTL_DEFAULT_ROOT"
       ;;
     diamond)
       PROFILE_LABEL="Diamond"
-      STORAGE_LAYOUT="diamond"
+      STORAGE_LAYOUT="split"
       DEFAULT_CODE_ROOT="$DIAMOND_CODE_DEFAULT_ROOT"
+      DEFAULT_IMPORT_ROOT="$DIAMOND_IMPORT_DEFAULT_ROOT"
       DEFAULT_RUNTIME_ROOT="$DIAMOND_RUNTIME_DEFAULT_ROOT"
       DEFAULT_ROOT="$DIAMOND_RUNTIME_DEFAULT_ROOT"
       ;;
@@ -409,12 +426,24 @@ current_default_code_root() {
   fi
 }
 
+current_default_import_root() {
+  if [[ -n "$SAVED_IMPORT_ROOT" ]]; then
+    printf '%s' "$SAVED_IMPORT_ROOT"
+  else
+    printf '%s' "$DEFAULT_IMPORT_ROOT"
+  fi
+}
+
 current_default_runtime_root() {
   if [[ -n "$SAVED_RUNTIME_ROOT" ]]; then
     printf '%s' "$SAVED_RUNTIME_ROOT"
   else
     printf '%s' "$DEFAULT_RUNTIME_ROOT"
   fi
+}
+
+workspace_uses_separate_roots() {
+  [[ "$STORAGE_LAYOUT" != "single" ]]
 }
 
 cleanup_on_exit() {
@@ -899,19 +928,19 @@ Usage:
   $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
-  $(basename "$0") --profile diamond --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
-  $(basename "$0") --profile diamond --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
+  $(basename "$0") --profile public --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
+  $(basename "$0") --profile public --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
   $(basename "$0") --repo OWNER/REPO --all --yes
-  $(basename "$0") --profile diamond --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
+  $(basename "$0") --profile public --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
   $(basename "$0") --repo https://github.com/OWNER/REPO --delete-runs --run https://github.com/OWNER/REPO/actions/runs/123456789 --yes
   $(basename "$0") --host github.com --account USER --repo OWNER/REPO --delete-runs --run-filter "release" --dry-run --yes
 
 What it does:
   - Scans the current machine before any install prompts
   - Checks for required Mac tooling
-  - Supports Public, WTL, and Diamond editions
+  - Supports a public three-root workspace plus legacy WTL and Diamond profiles
   - Selects an authenticated GitHub host and account
-  - Saves a default workspace root per edition for next time
+  - Saves default Code / Import / Runtime roots per profile for next time
   - Explains the workspace/root layout, saved paths, and storage behavior from the root menu
   - Lets you choose one repo, all repos one by one, a FULL AUTO batch import, a FULL AUTO + cleanup preview batch import, or a manual repo
   - Supports direct noninteractive import commands for GUI/background use
@@ -957,11 +986,18 @@ Direct import flags:
       repo-plus
   --import-full-auto
   --import-cleanup-preview
+  --single-root PATH
+  --code-root PATH
+  --import-root PATH
+  --runtime-root PATH
 
 Built-in default roots:
-  Public: $PUBLIC_DEFAULT_ROOT
+  Public code: $PUBLIC_DEFAULT_CODE_ROOT
+  Public import: $PUBLIC_DEFAULT_IMPORT_ROOT
+  Public runtime: $PUBLIC_DEFAULT_RUNTIME_ROOT
   WTL: $WTL_DEFAULT_ROOT
   Diamond code: $DIAMOND_CODE_DEFAULT_ROOT
+  Diamond import: $DIAMOND_IMPORT_DEFAULT_ROOT
   Diamond runtime: $DIAMOND_RUNTIME_DEFAULT_ROOT
 
 Wrapper scripts:
@@ -992,13 +1028,16 @@ Wrapper scripts:
 Folders created:
   Single-root editions:
     Repos/
+    Import/Repos/
     Reports/
     Backups/
     Runners/
     Scripts/
-  Diamond code root:
+  Separate code root:
     Repos/
-  Diamond runtime root:
+  Separate import root:
+    Repos/
+  Separate runtime root:
     Repos/
     Reports/
     Backups/
@@ -1444,23 +1483,27 @@ ensure_docker_ready_for_devcontainers() {
 apply_single_root_layout() {
   ROOT="$1"
   CODE_ROOT="$ROOT"
+  IMPORT_ROOT="$ROOT/Import"
   RUNTIME_ROOT="$ROOT"
   REPOS_DIR="$ROOT/Repos"
   CODE_REPOS_DIR="$REPOS_DIR"
+  IMPORT_REPOS_DIR="$IMPORT_ROOT/Repos"
   RUNTIME_REPOS_DIR="$REPOS_DIR"
   REPORTS_DIR="$ROOT/Reports"
   BACKUPS_DIR="$ROOT/Backups"
   RUNNERS_DIR="$ROOT/Runners"
   SCRIPTS_DIR="$ROOT/Scripts"
 
-  mkdir -p "$REPOS_DIR" "$REPORTS_DIR" "$BACKUPS_DIR" "$RUNNERS_DIR" "$SCRIPTS_DIR"
+  mkdir -p "$REPOS_DIR" "$IMPORT_REPOS_DIR" "$REPORTS_DIR" "$BACKUPS_DIR" "$RUNNERS_DIR" "$SCRIPTS_DIR"
 }
 
 apply_diamond_root_layout() {
   CODE_ROOT="$1"
-  RUNTIME_ROOT="$2"
+  IMPORT_ROOT="$2"
+  RUNTIME_ROOT="$3"
   ROOT="$RUNTIME_ROOT"
   CODE_REPOS_DIR="$CODE_ROOT/Repos"
+  IMPORT_REPOS_DIR="$IMPORT_ROOT/Repos"
   RUNTIME_REPOS_DIR="$RUNTIME_ROOT/Repos"
   REPOS_DIR="$RUNTIME_REPOS_DIR"
   REPORTS_DIR="$RUNTIME_ROOT/Reports"
@@ -1468,12 +1511,12 @@ apply_diamond_root_layout() {
   RUNNERS_DIR="$RUNTIME_ROOT/Runners"
   SCRIPTS_DIR="$RUNTIME_ROOT/Scripts"
 
-  mkdir -p "$CODE_REPOS_DIR" "$RUNTIME_REPOS_DIR" "$REPORTS_DIR" "$BACKUPS_DIR" "$RUNNERS_DIR" "$SCRIPTS_DIR"
+  mkdir -p "$CODE_REPOS_DIR" "$IMPORT_REPOS_DIR" "$RUNTIME_REPOS_DIR" "$REPORTS_DIR" "$BACKUPS_DIR" "$RUNNERS_DIR" "$SCRIPTS_DIR"
 }
 
 apply_root_layout() {
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    apply_diamond_root_layout "$1" "$2"
+  if workspace_uses_separate_roots; then
+    apply_diamond_root_layout "$1" "$2" "$3"
   else
     apply_single_root_layout "$1"
   fi
@@ -1482,7 +1525,8 @@ apply_root_layout() {
 show_workspace_root_guide() {
   local effective_root="$1"
   local effective_code_root="$2"
-  local effective_runtime_root="$3"
+  local effective_import_root="$3"
+  local effective_runtime_root="$4"
 
   echo
   print_line
@@ -1495,18 +1539,20 @@ show_workspace_root_guide() {
   echo "- Saves reports and workflow backups for repeatable local operations."
   echo
   echo "Why $APP_NAME uses these folders:"
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     echo "- The code root stays clean for normal editing, Codex, and CLI work."
-    echo "- The runtime root is isolated for local Codespaces-style work, containers, reports, backups, and runners."
-    echo "- This keeps runtime/container state out of the plain code workspace."
+    echo "- The import root holds Codespaces exports, zip drops, and migration staging."
+    echo "- The runtime root is isolated for local devcontainers, reports, backups, and runners."
+    echo "- This keeps staging and runtime state out of the plain code workspace."
   else
     echo "- One root keeps repos, reports, backups, runners, and helper scripts together."
-    echo "- This makes the whole local setup portable and predictable."
+    echo "- A dedicated Import folder under that root still separates staging from the main workspace."
   fi
   echo
   echo "Where $APP_NAME saves files:"
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     printf '  Plain repo clones: %s/Repos/<owner>/<repo>\n' "$effective_code_root"
+    printf '  Import staging: %s/Repos/<owner>/<repo>\n' "$effective_import_root"
     printf '  Runtime workspaces: %s/Repos/<owner>/<repo>\n' "$effective_runtime_root"
     printf '  Reports: %s/Reports\n' "$effective_runtime_root"
     printf '  Workflow backups: %s/Backups\n' "$effective_runtime_root"
@@ -1514,6 +1560,7 @@ show_workspace_root_guide() {
     printf '  Helper scripts: %s/Scripts\n' "$effective_runtime_root"
   else
     printf '  Repo clones: %s/Repos/<owner>/<repo>\n' "$effective_root"
+    printf '  Import staging: %s/Import/Repos/<owner>/<repo>\n' "$effective_root"
     printf '  Reports: %s/Reports\n' "$effective_root"
     printf '  Workflow backups: %s/Backups\n' "$effective_root"
     printf '  Local runners: %s/Runners/<owner>/<repo>\n' "$effective_root"
@@ -1525,9 +1572,10 @@ show_workspace_root_guide() {
   echo "  macOS runner services: ~/Library/LaunchAgents/"
   echo "  macOS runner logs: ~/Library/Logs/"
   echo
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    echo "Diamond meaning:"
+  if workspace_uses_separate_roots; then
+    echo "Workspace meaning:"
     printf '  %s = plain repo/code side\n' "$effective_code_root"
+    printf '  %s = import staging side\n' "$effective_import_root"
     printf '  %s = runtime / local Codespace / container side\n' "$effective_runtime_root"
     echo
   fi
@@ -1557,21 +1605,26 @@ prompt_custom_root_value() {
 use_current_root_defaults() {
   local effective_default=""
   local effective_code_root=""
+  local effective_import_root=""
   local effective_runtime_root=""
 
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    effective_code_root="$(current_default_code_root)"
-    effective_runtime_root="$(current_default_runtime_root)"
-    apply_root_layout "$effective_code_root" "$effective_runtime_root"
+  if [[ -n "$CLI_SINGLE_ROOT" ]]; then
+    apply_root_layout "$CLI_SINGLE_ROOT/Code" "$CLI_SINGLE_ROOT/Import" "$CLI_SINGLE_ROOT/Runtime"
+  elif workspace_uses_separate_roots; then
+    effective_code_root="${CLI_CODE_ROOT:-$(current_default_code_root)}"
+    effective_import_root="${CLI_IMPORT_ROOT:-$(current_default_import_root)}"
+    effective_runtime_root="${CLI_RUNTIME_ROOT:-$(current_default_runtime_root)}"
+    apply_root_layout "$effective_code_root" "$effective_import_root" "$effective_runtime_root"
   else
-    effective_default="$(current_default_root)"
+    effective_default="${CLI_SINGLE_ROOT:-$(current_default_root)}"
     apply_root_layout "$effective_default"
   fi
 
   echo
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    info "Using Diamond roots:"
+  if workspace_uses_separate_roots; then
+    info "Using workspace roots:"
     printf 'Code root: %s\n' "$CODE_ROOT"
+    printf 'Import root: %s\n' "$IMPORT_ROOT"
     printf 'Runtime root: %s\n' "$RUNTIME_ROOT"
   else
     info "Using workspace root:"
@@ -1585,12 +1638,15 @@ choose_root() {
   local choice=""
   local custom_root=""
   local effective_code_root=""
+  local effective_import_root=""
   local effective_runtime_root=""
   local custom_code_root=""
+  local custom_import_root=""
   local custom_runtime_root=""
 
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     effective_code_root="$(current_default_code_root)"
+    effective_import_root="$(current_default_import_root)"
     effective_runtime_root="$(current_default_runtime_root)"
   else
     effective_default="$(current_default_root)"
@@ -1602,11 +1658,15 @@ choose_root() {
   echo "Workspace Root"
   print_line
   printf 'Edition: %s\n' "$PROFILE_LABEL"
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     printf 'Built-in code root: %s\n' "$DEFAULT_CODE_ROOT"
+    printf 'Built-in import root: %s\n' "$DEFAULT_IMPORT_ROOT"
     printf 'Built-in runtime root: %s\n' "$DEFAULT_RUNTIME_ROOT"
     if [[ -n "$SAVED_CODE_ROOT" ]]; then
       printf 'Saved code root: %s\n' "$SAVED_CODE_ROOT"
+    fi
+    if [[ -n "$SAVED_IMPORT_ROOT" ]]; then
+      printf 'Saved import root: %s\n' "$SAVED_IMPORT_ROOT"
     fi
     if [[ -n "$SAVED_RUNTIME_ROOT" ]]; then
       printf 'Saved runtime root: %s\n' "$SAVED_RUNTIME_ROOT"
@@ -1618,12 +1678,12 @@ choose_root() {
     fi
   fi
   echo
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    echo "Press Enter to use the current Diamond roots and continue to the Main Menu."
-    echo "1) Use current Diamond roots"
-    echo "2) Set my own default Diamond roots for next time"
-    echo "3) Use one-time Diamond roots"
-    echo "4) Reset the saved Diamond roots back to the built-in defaults"
+  if workspace_uses_separate_roots; then
+    echo "Press Enter to use the current Code / Import / Runtime roots and continue to the Main Menu."
+    echo "1) Use current workspace roots"
+    echo "2) Set my own default Code / Import / Runtime roots for next time"
+    echo "3) Use one-time Code / Import / Runtime roots"
+    echo "4) Reset the saved roots back to the built-in defaults"
     echo "5) Explain how $APP_NAME works, why it uses these folders, and where it saves files"
   else
     echo "Press Enter to use the current default root and continue to the Main Menu."
@@ -1639,26 +1699,29 @@ choose_root() {
     read -r -p "Enter choice [1-5] (Enter = 1): " choice
     case "$choice" in
       ""|1)
-        if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-          apply_root_layout "$effective_code_root" "$effective_runtime_root"
+        if workspace_uses_separate_roots; then
+          apply_root_layout "$effective_code_root" "$effective_import_root" "$effective_runtime_root"
         else
           apply_root_layout "$effective_default"
         fi
         break
         ;;
       2)
-        if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+        if workspace_uses_separate_roots; then
           custom_code_root="$(prompt_nonempty "Enter the default code root path" "$effective_code_root")"
+          custom_import_root="$(prompt_nonempty "Enter the default import root path" "$effective_import_root")"
           custom_runtime_root="$(prompt_nonempty "Enter the default runtime root path" "$effective_runtime_root")"
           SAVED_CODE_ROOT="$custom_code_root"
+          SAVED_IMPORT_ROOT="$custom_import_root"
           SAVED_RUNTIME_ROOT="$custom_runtime_root"
           SAVED_DEFAULT_ROOT=""
           save_profile_config
-          apply_root_layout "$custom_code_root" "$custom_runtime_root"
+          apply_root_layout "$custom_code_root" "$custom_import_root" "$custom_runtime_root"
         else
           custom_root="$(prompt_custom_root_value "$effective_default" "Enter the default root path")"
           SAVED_DEFAULT_ROOT="$custom_root"
           SAVED_CODE_ROOT=""
+          SAVED_IMPORT_ROOT=""
           SAVED_RUNTIME_ROOT=""
           save_profile_config
           apply_root_layout "$custom_root"
@@ -1667,10 +1730,11 @@ choose_root() {
         break
         ;;
       3)
-        if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+        if workspace_uses_separate_roots; then
           custom_code_root="$(prompt_nonempty "Enter the one-time code root path" "$effective_code_root")"
+          custom_import_root="$(prompt_nonempty "Enter the one-time import root path" "$effective_import_root")"
           custom_runtime_root="$(prompt_nonempty "Enter the one-time runtime root path" "$effective_runtime_root")"
-          apply_root_layout "$custom_code_root" "$custom_runtime_root"
+          apply_root_layout "$custom_code_root" "$custom_import_root" "$custom_runtime_root"
         else
           custom_root="$(prompt_custom_root_value "$effective_default" "Enter the one-time root path")"
           apply_root_layout "$custom_root"
@@ -1678,15 +1742,17 @@ choose_root() {
         break
         ;;
       4)
-        if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+        if workspace_uses_separate_roots; then
           SAVED_CODE_ROOT=""
+          SAVED_IMPORT_ROOT=""
           SAVED_RUNTIME_ROOT=""
           SAVED_DEFAULT_ROOT=""
           save_profile_config
-          apply_root_layout "$DEFAULT_CODE_ROOT" "$DEFAULT_RUNTIME_ROOT"
+          apply_root_layout "$DEFAULT_CODE_ROOT" "$DEFAULT_IMPORT_ROOT" "$DEFAULT_RUNTIME_ROOT"
         else
           SAVED_DEFAULT_ROOT=""
           SAVED_CODE_ROOT=""
+          SAVED_IMPORT_ROOT=""
           SAVED_RUNTIME_ROOT=""
           save_profile_config
           apply_root_layout "$built_in_default"
@@ -1695,7 +1761,7 @@ choose_root() {
         break
         ;;
       5)
-        show_workspace_root_guide "$effective_default" "$effective_code_root" "$effective_runtime_root"
+        show_workspace_root_guide "$effective_default" "$effective_code_root" "$effective_import_root" "$effective_runtime_root"
         ;;
       *)
         warn "Invalid choice."
@@ -1704,9 +1770,10 @@ choose_root() {
   done
 
   echo
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-    info "Using Diamond roots:"
+  if workspace_uses_separate_roots; then
+    info "Using workspace roots:"
     printf 'Code root: %s\n' "$CODE_ROOT"
+    printf 'Import root: %s\n' "$IMPORT_ROOT"
     printf 'Runtime root: %s\n' "$RUNTIME_ROOT"
   else
     info "Using workspace root:"
@@ -3537,6 +3604,7 @@ prepare_repo_vars() {
     REPO_SPEC="$OWNER/$REPO"
   fi
   CODE_REPO_DIR="$CODE_REPOS_DIR/$OWNER/$REPO"
+  IMPORT_REPO_DIR="$IMPORT_REPOS_DIR/$OWNER/$REPO"
   DEV_REPO_DIR="$RUNTIME_REPOS_DIR/$OWNER/$REPO"
   REPO_DIR="$CODE_REPO_DIR"
   REPORT_FILE="$REPORTS_DIR/$(sanitize_label "$OWNER")-$(sanitize_label "$REPO")-$(date +%Y%m%d-%H%M%S).txt"
@@ -3550,7 +3618,7 @@ mode_requires_runtime_workspace() {
     cleanup_only) return 1 ;;
   esac
 
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     return 0
   fi
 
@@ -3565,7 +3633,7 @@ runtime_repo_available() {
 }
 
 current_dev_workspace_dir() {
-  if [[ "$STORAGE_LAYOUT" == "diamond" && -n "$DEV_REPO_DIR" && -d "$DEV_REPO_DIR" ]]; then
+  if workspace_uses_separate_roots && [[ -n "$DEV_REPO_DIR" && -d "$DEV_REPO_DIR" ]]; then
     printf '%s' "$DEV_REPO_DIR"
   else
     printf '%s' "$REPO_DIR"
@@ -4483,7 +4551,7 @@ clone_or_update_one_repo_copy() {
 }
 
 sync_runtime_repo() {
-  if [[ "$STORAGE_LAYOUT" != "diamond" ]]; then
+  if ! workspace_uses_separate_roots; then
     return 0
   fi
 
@@ -4491,10 +4559,16 @@ sync_runtime_repo() {
   clone_or_update_one_repo_copy "$DEV_REPO_DIR" "Runtime mirror"
 }
 
+stage_import_repo() {
+  info "Preparing import staging for $REPO_SPEC"
+  clone_or_update_one_repo_copy "$IMPORT_REPO_DIR" "Import staging"
+}
+
 clone_or_update_repo() {
   echo
   info "Preparing $REPO_SPEC"
   clone_or_update_one_repo_copy "$CODE_REPO_DIR" "Code"
+  stage_import_repo
 
   if mode_requires_runtime_workspace; then
     sync_runtime_repo
@@ -4514,7 +4588,8 @@ write_report_header() {
     printf 'Full Auto Cleanup Preview: %s\n' "$([[ "$FULL_AUTO_CLEANUP" -eq 1 ]] && printf yes || printf no)"
     printf 'Repo: %s\n' "$REPO_SPEC"
     printf 'Code Path: %s\n' "$CODE_REPO_DIR"
-    if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+    printf 'Import Path: %s\n' "$IMPORT_REPO_DIR"
+    if workspace_uses_separate_roots; then
       printf 'Runtime Path: %s\n' "$DEV_REPO_DIR"
     fi
     printf 'Runner Path: %s\n' "$RUNNER_DIR"
@@ -4841,8 +4916,8 @@ offer_codespace_guidance() {
   {
     echo "== Codespace -> Local Guidance =="
     echo
-    if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
-      echo "Diamond mode keeps the plain repo and runtime workspace separate:"
+    if workspace_uses_separate_roots; then
+      echo "The current workspace keeps the code clone and runtime workspace separate:"
       printf '  Plain repo workspace: %s\n' "$CODE_REPO_DIR"
       printf '  Runtime/local Codespace workspace: %s\n' "$DEV_REPO_DIR"
       echo
@@ -5290,7 +5365,7 @@ process_repo() {
   printf 'Done: %s\n' "$REPO_SPEC"
   printf 'Report saved to: %s\n' "$REPORT_FILE"
   printf 'Code repo path: %s\n' "$REPO_DIR"
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     printf 'Runtime workspace path: %s\n' "$DEV_REPO_DIR"
   fi
 }
@@ -5541,6 +5616,58 @@ parse_cli_args() {
       --use-current-root)
         AUTO_USE_CURRENT_ROOT=1
         ;;
+      --single-root)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--single-root requires a value."
+          exit 1
+        fi
+        CLI_SINGLE_ROOT="$1"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --single-root=*)
+        CLI_SINGLE_ROOT="${1#*=}"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --code-root)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--code-root requires a value."
+          exit 1
+        fi
+        CLI_CODE_ROOT="$1"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --code-root=*)
+        CLI_CODE_ROOT="${1#*=}"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --import-root)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--import-root requires a value."
+          exit 1
+        fi
+        CLI_IMPORT_ROOT="$1"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --import-root=*)
+        CLI_IMPORT_ROOT="${1#*=}"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --runtime-root)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--runtime-root requires a value."
+          exit 1
+        fi
+        CLI_RUNTIME_ROOT="$1"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
+      --runtime-root=*)
+        CLI_RUNTIME_ROOT="${1#*=}"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
       *)
         err "Unknown argument: $1"
         exit 1
@@ -5649,8 +5776,9 @@ main() {
   echo "All done"
   print_line
   printf 'Edition: %s\n' "$PROFILE_LABEL"
-  if [[ "$STORAGE_LAYOUT" == "diamond" ]]; then
+  if workspace_uses_separate_roots; then
     printf 'Code root: %s\n' "$CODE_ROOT"
+    printf 'Import root: %s\n' "$IMPORT_ROOT"
     printf 'Runtime root: %s\n' "$RUNTIME_ROOT"
   else
     printf 'Root workspace: %s\n' "$ROOT"

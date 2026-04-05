@@ -4,6 +4,7 @@
 
 - App name: `CSA-iEM`
 - Full name: `Container Setup & Action Import Engine Manager`
+- Version source: [`VERSION`](./VERSION)
 - Native executable: `CSAiEMMacApp`
 - CLI engine: `CSA-iLEM.sh`
 - Bundle ID: `com.waynetechlab.csa-iem`
@@ -66,6 +67,12 @@ The app stores non-secret last-session metadata in:
 
 - `~/Library/Application Support/CSA-iEM/last-session.env`
 
+That saved state now carries explicit public workspace roots for:
+
+- `CodeRoot`
+- `ImportRoot`
+- `RuntimeRoot`
+
 It also reads legacy session paths for compatibility with:
 
 - earlier `CSA-iLEM` builds
@@ -83,7 +90,7 @@ It also reads legacy session paths for compatibility with:
 Recommended production install path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.sh | bash -s -- --ref 0.3.0
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
 ```
 
 Recommended production update path:
@@ -95,14 +102,15 @@ curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-
 Recommended Windows 11 admin-shell install path:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.0/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.0"
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
 ```
 
 ## Workspace Model
 
-The public app now presents storage as a generic workspace choice:
+The public app now presents storage as an explicit three-root workspace:
 
-- `Single Folder`
-- `Split Folders`
+- `Code`
+- `Import`
+- `Runtime`
 
-It also auto-detects this Mac's current custom-drive setup and offers it as a detected example, while keeping the older CLI preset names only for advanced terminal compatibility.
+It also auto-detects this Mac's current custom-drive setup and offers it as a detected migration example, while keeping the older CLI preset names and `--single-root` only for advanced terminal compatibility.

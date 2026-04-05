@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
 $AppUrl = "https://www.WayneTechLab.com"
-$AppVersion = "0.3.0"
+$AppVersion = "0.0.0"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VersionFile = Join-Path $ScriptDir "VERSION"
@@ -41,6 +41,7 @@ $State = [ordered]@{
     CleanupOnly = $false
     SingleRoot = ""
     CodeRoot = ""
+    ImportRoot = ""
     RuntimeRoot = ""
     RunFilter = ""
     RunId = ""
@@ -105,50 +106,314 @@ function Get-Timestamp {
     return (Get-Date).ToString("yyyyMMdd-HHmmss")
 }
 
-function Get-DefaultSingleRoot {
+function Get-DefaultBaseRoot {
     return (Join-Path $HOME "CSA-iEM")
 }
 
+function Get-DefaultSingleRoot {
+    return (Get-DefaultBaseRoot)
+}
+
 function Get-DefaultCodeRoot {
-    return (Join-Path (Get-DefaultSingleRoot) "Code")
+    return (Join-Path (Get-DefaultBaseRoot) "Code")
+}
+
+function Get-DefaultImportRoot {
+    return (Join-Path (Get-DefaultBaseRoot) "Import")
 }
 
 function Get-DefaultRuntimeRoot {
-    return (Join-Path (Get-DefaultSingleRoot) "Runtime")
+    return (Join-Path (Get-DefaultBaseRoot) "Runtime")
+}
+
+function Get-DefaultSettings {
+    return @{
+        WorkspaceModel = "three-root"
+        BaseRoot = (Get-DefaultBaseRoot)
+        CodeRoot = (Get-DefaultCodeRoot)
+        ImportRoot = (Get-DefaultImportRoot)
+        RuntimeRoot = (Get-DefaultRuntimeRoot)
+        GitHubHost = "github.com"
+        Account = ""
+    }
+}
+
+function Get-JsonStringValue {
+    param(
+        $Content,
+        [string]$Name
+    )
+
+    if ($null -ne $Content -and $null -ne $Content.PSObject.Properties[$Name]) {
+        return [string]$Content.$Name
+    }
+
+    return ""
+}
+
+function Get-PathLeafSafe {
+    param([string]$Path)
+
+    if (-not $Path) {
+        return ""
+    }
+
+    $Trimmed = $Path.TrimEnd("\", "/")
+    if (-not $Trimmed) {
+        return ""
+    }
+
+    return [System.IO.Path]::GetFileName($Trimmed)
+}
+
+function Get-PathParentSafe {
+    param([string]$Path)
+
+    if (-not $Path) {
+        return ""
+    }
+
+    $Trimmed = $Path.TrimEnd("\", "/")
+    if (-not $Trimmed) {
+        return ""
+    }
+
+    $Parent = [System.IO.Path]::GetDirectoryName($Trimmed)
+    if ($null -eq $Parent) {
+        return ""
+    }
+
+    return $Parent
+}
+
+function Join-PathSafe {
+    param(
+        [string]$BasePath,
+        [string]$ChildPath
+    )
+
+    if (-not $BasePath) {
+        return $ChildPath
+    }
+
+    if (-not $ChildPath) {
+        return $BasePath
+    }
+
+    return [System.IO.Path]::Combine($BasePath, $ChildPath)
+}
+
+function Get-ComparablePath {
+    param([string]$Path)
+
+    if (-not $Path) {
+        return ""
+    }
+
+    $Trimmed = $Path.Trim()
+    if (-not $Trimmed) {
+        return ""
+    }
+
+    if ($Trimmed.Length -gt 3) {
+        return $Trimmed.TrimEnd("\", "/")
+    }
+
+    return $Trimmed.TrimEnd("/")
+}
+
+function Normalize-WorkspaceLayout {
+    param(
+        [string]$BaseRoot,
+        [string]$CodeRoot,
+        [string]$ImportRoot,
+        [string]$RuntimeRoot
+    )
+
+    $ComparableCodeRoot = Get-ComparablePath $CodeRoot
+    $ComparableImportRoot = Get-ComparablePath $ImportRoot
+    $ComparableRuntimeRoot = Get-ComparablePath $RuntimeRoot
+
+    if (
+        $ComparableCodeRoot -and
+        $ComparableCodeRoot -eq $ComparableImportRoot -and
+        $ComparableCodeRoot -eq $ComparableRuntimeRoot
+    ) {
+        $CandidateBaseRoot = $CodeRoot
+        if (-not $CandidateBaseRoot) {
+            $CandidateBaseRoot = $BaseRoot
+        }
+
+        if ($CandidateBaseRoot) {
+            $CandidateLeaf = Get-PathLeafSafe $CandidateBaseRoot
+            if ($CandidateLeaf -in @("Code", "Import", "Runtime")) {
+                $CandidateBaseRoot = Get-PathParentSafe $CandidateBaseRoot
+            }
+        }
+
+        if ($CandidateBaseRoot) {
+            return @{
+                BaseRoot = $CandidateBaseRoot
+                CodeRoot = Join-PathSafe -BasePath $CandidateBaseRoot -ChildPath "Code"
+                ImportRoot = Join-PathSafe -BasePath $CandidateBaseRoot -ChildPath "Import"
+                RuntimeRoot = Join-PathSafe -BasePath $CandidateBaseRoot -ChildPath "Runtime"
+                Changed = $true
+            }
+        }
+    }
+
+    return @{
+        BaseRoot = $BaseRoot
+        CodeRoot = $CodeRoot
+        ImportRoot = $ImportRoot
+        RuntimeRoot = $RuntimeRoot
+        Changed = $false
+    }
+}
+
+function Get-BaseRootFromRoots {
+    param(
+        [string]$SingleRoot,
+        [string]$CodeRoot,
+        [string]$ImportRoot,
+        [string]$RuntimeRoot
+    )
+
+    if ($SingleRoot) {
+        return $SingleRoot
+    }
+
+    $Pairs = @(
+        @{ Path = $CodeRoot; Name = "Code" },
+        @{ Path = $ImportRoot; Name = "Import" },
+        @{ Path = $RuntimeRoot; Name = "Runtime" }
+    )
+
+    $Parents = @()
+    foreach ($Pair in $Pairs) {
+        if (-not $Pair.Path) {
+            return ""
+        }
+
+        if ((Get-PathLeafSafe $Pair.Path) -ne $Pair.Name) {
+            return ""
+        }
+
+        $Parents += (Get-PathParentSafe $Pair.Path)
+    }
+
+    $UniqueParents = @($Parents | Select-Object -Unique)
+    if ($UniqueParents.Count -eq 1) {
+        return $UniqueParents[0]
+    }
+
+    return ""
+}
+
+function Get-LegacyImportRoot {
+    param(
+        [string]$SingleRoot,
+        [string]$CodeRoot,
+        [string]$RuntimeRoot
+    )
+
+    if ($SingleRoot) {
+        return (Join-PathSafe -BasePath $SingleRoot -ChildPath "Import")
+    }
+
+    $CodeParent = if ($CodeRoot) { Get-PathParentSafe $CodeRoot } else { "" }
+    $RuntimeParent = if ($RuntimeRoot) { Get-PathParentSafe $RuntimeRoot } else { "" }
+
+    if ($CodeParent -and $CodeParent -eq $RuntimeParent) {
+        return (Join-PathSafe -BasePath $CodeParent -ChildPath "Import")
+    }
+
+    if ($RuntimeParent) {
+        return (Join-PathSafe -BasePath $RuntimeParent -ChildPath "Import")
+    }
+
+    if ($CodeParent) {
+        return (Join-PathSafe -BasePath $CodeParent -ChildPath "Import")
+    }
+
+    return (Get-DefaultImportRoot)
+}
+
+function Convert-SettingsToCurrent {
+    param($Content)
+
+    $Defaults = Get-DefaultSettings
+    $SingleRoot = Get-JsonStringValue -Content $Content -Name "SingleRoot"
+    $CodeRoot = Get-JsonStringValue -Content $Content -Name "CodeRoot"
+    $ImportRoot = Get-JsonStringValue -Content $Content -Name "ImportRoot"
+    $RuntimeRoot = Get-JsonStringValue -Content $Content -Name "RuntimeRoot"
+    $BaseRoot = Get-JsonStringValue -Content $Content -Name "BaseRoot"
+    $GitHubHost = Get-JsonStringValue -Content $Content -Name "GitHubHost"
+    $Account = Get-JsonStringValue -Content $Content -Name "Account"
+
+    if (-not $CodeRoot -and $SingleRoot) {
+        $CodeRoot = Join-PathSafe -BasePath $SingleRoot -ChildPath "Code"
+    }
+
+    if (-not $RuntimeRoot -and $SingleRoot) {
+        $RuntimeRoot = Join-PathSafe -BasePath $SingleRoot -ChildPath "Runtime"
+    }
+
+    if (-not $ImportRoot) {
+        $ImportRoot = Get-LegacyImportRoot -SingleRoot $SingleRoot -CodeRoot $CodeRoot -RuntimeRoot $RuntimeRoot
+    }
+
+    if (-not $BaseRoot) {
+        $BaseRoot = Get-BaseRootFromRoots -SingleRoot $SingleRoot -CodeRoot $CodeRoot -ImportRoot $ImportRoot -RuntimeRoot $RuntimeRoot
+    }
+
+    $NormalizedLayout = Normalize-WorkspaceLayout -BaseRoot $BaseRoot -CodeRoot $CodeRoot -ImportRoot $ImportRoot -RuntimeRoot $RuntimeRoot
+    $BaseRoot = $NormalizedLayout.BaseRoot
+    $CodeRoot = $NormalizedLayout.CodeRoot
+    $ImportRoot = $NormalizedLayout.ImportRoot
+    $RuntimeRoot = $NormalizedLayout.RuntimeRoot
+
+    return @{
+        WorkspaceModel = "three-root"
+        BaseRoot = if ($BaseRoot) { $BaseRoot } else { $Defaults.BaseRoot }
+        CodeRoot = if ($CodeRoot) { $CodeRoot } else { $Defaults.CodeRoot }
+        ImportRoot = if ($ImportRoot) { $ImportRoot } else { $Defaults.ImportRoot }
+        RuntimeRoot = if ($RuntimeRoot) { $RuntimeRoot } else { $Defaults.RuntimeRoot }
+        GitHubHost = if ($GitHubHost) { $GitHubHost } else { $Defaults.GitHubHost }
+        Account = if ($Account) { $Account } else { $Defaults.Account }
+    }
 }
 
 function Load-Settings {
     if (-not (Test-Path $SettingsPath)) {
-        return @{
-            WorkspaceMode = "split"
-            SingleRoot = (Get-DefaultSingleRoot)
-            CodeRoot = (Get-DefaultCodeRoot)
-            RuntimeRoot = (Get-DefaultRuntimeRoot)
-            GitHubHost = "github.com"
-            Account = ""
-        }
+        return (Get-DefaultSettings)
     }
 
     try {
         $Content = Get-Content -Path $SettingsPath -Raw | ConvertFrom-Json
-        return @{
-            WorkspaceMode = if ($Content.WorkspaceMode) { [string]$Content.WorkspaceMode } else { "split" }
-            SingleRoot = if ($Content.SingleRoot) { [string]$Content.SingleRoot } else { Get-DefaultSingleRoot }
-            CodeRoot = if ($Content.CodeRoot) { [string]$Content.CodeRoot } else { Get-DefaultCodeRoot }
-            RuntimeRoot = if ($Content.RuntimeRoot) { [string]$Content.RuntimeRoot } else { Get-DefaultRuntimeRoot }
-            GitHubHost = if ($Content.GitHubHost) { [string]$Content.GitHubHost } else { "github.com" }
-            Account = if ($Content.Account) { [string]$Content.Account } else { "" }
+        $CurrentSettings = Convert-SettingsToCurrent -Content $Content
+        $ShouldSave = $false
+        if (
+            $null -eq $Content.PSObject.Properties["WorkspaceModel"] -or
+            $null -eq $Content.PSObject.Properties["BaseRoot"] -or
+            $null -eq $Content.PSObject.Properties["ImportRoot"]
+        ) {
+            $ShouldSave = $true
         }
+        if ((Get-JsonStringValue -Content $Content -Name "WorkspaceModel") -ne $CurrentSettings.WorkspaceModel) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "BaseRoot") -ne $CurrentSettings.BaseRoot) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "CodeRoot") -ne $CurrentSettings.CodeRoot) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "ImportRoot") -ne $CurrentSettings.ImportRoot) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "RuntimeRoot") -ne $CurrentSettings.RuntimeRoot) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "GitHubHost") -ne $CurrentSettings.GitHubHost) { $ShouldSave = $true }
+        if ((Get-JsonStringValue -Content $Content -Name "Account") -ne $CurrentSettings.Account) { $ShouldSave = $true }
+        if ($ShouldSave) {
+            Save-Settings $CurrentSettings
+        }
+        return $CurrentSettings
     } catch {
         Write-WarnLine "Settings file could not be read. Using defaults."
-        return @{
-            WorkspaceMode = "split"
-            SingleRoot = (Get-DefaultSingleRoot)
-            CodeRoot = (Get-DefaultCodeRoot)
-            RuntimeRoot = (Get-DefaultRuntimeRoot)
-            GitHubHost = "github.com"
-            Account = ""
-        }
+        return (Get-DefaultSettings)
     }
 }
 
@@ -163,21 +428,27 @@ function Resolve-Roots {
     $Settings = Load-Settings
 
     $CodeRoot = if ($State.CodeRoot) { $State.CodeRoot } else { $Settings.CodeRoot }
+    $ImportRoot = if ($State.ImportRoot) { $State.ImportRoot } else { $Settings.ImportRoot }
     $RuntimeRoot = if ($State.RuntimeRoot) { $State.RuntimeRoot } else { $Settings.RuntimeRoot }
 
     if ($State.SingleRoot) {
         $CodeRoot = Join-Path $State.SingleRoot "Code"
+        $ImportRoot = Join-Path $State.SingleRoot "Import"
         $RuntimeRoot = Join-Path $State.SingleRoot "Runtime"
     }
 
     Ensure-Directory $CodeRoot
+    Ensure-Directory $ImportRoot
     Ensure-Directory $RuntimeRoot
+    Ensure-Directory (Join-Path $ImportRoot "Repos")
     Ensure-Directory (Join-Path $RuntimeRoot "Reports")
     Ensure-Directory (Join-Path $RuntimeRoot "Backups")
+    Ensure-Directory (Join-Path $RuntimeRoot "Logs")
     Ensure-Directory (Join-Path $RuntimeRoot "Runners")
 
     return @{
         CodeRoot = $CodeRoot
+        ImportRoot = $ImportRoot
         RuntimeRoot = $RuntimeRoot
         Settings = $Settings
     }
@@ -186,23 +457,22 @@ function Resolve-Roots {
 function Save-WorkspaceChoice {
     param(
         [string]$CodeRoot,
+        [string]$ImportRoot,
         [string]$RuntimeRoot,
         [string]$GitHubHost,
         [string]$Account
     )
 
-    $SingleRoot = ""
-    if ((Split-Path -Parent $CodeRoot) -eq (Split-Path -Parent $RuntimeRoot)) {
-        $Parent = Split-Path -Parent $CodeRoot
-        if ((Split-Path -Leaf $CodeRoot) -eq "Code" -and (Split-Path -Leaf $RuntimeRoot) -eq "Runtime") {
-            $SingleRoot = $Parent
-        }
+    $BaseRoot = Get-BaseRootFromRoots -SingleRoot "" -CodeRoot $CodeRoot -ImportRoot $ImportRoot -RuntimeRoot $RuntimeRoot
+    if (-not $BaseRoot) {
+        $BaseRoot = Get-DefaultBaseRoot
     }
 
     Save-Settings @{
-        WorkspaceMode = if ($SingleRoot) { "single" } else { "split" }
-        SingleRoot = if ($SingleRoot) { $SingleRoot } else { Get-DefaultSingleRoot }
+        WorkspaceModel = "three-root"
+        BaseRoot = $BaseRoot
         CodeRoot = $CodeRoot
+        ImportRoot = $ImportRoot
         RuntimeRoot = $RuntimeRoot
         GitHubHost = $GitHubHost
         Account = $Account
@@ -231,14 +501,61 @@ function Invoke-CommandChecked {
         [switch]$CaptureOutput
     )
 
-    $Output = & $FilePath @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $Message = if ($Output) { ($Output | Out-String).Trim() } else { "$FilePath failed." }
-        throw $Message
-    }
+    $InvocationId = [guid]::NewGuid().ToString("N")
+    $StdErrPath = Join-Path ([System.IO.Path]::GetTempPath()) "csa-iem-$InvocationId.stderr.log"
+    $StdOutPath = $null
 
-    if ($CaptureOutput) {
-        return ($Output | Out-String)
+    try {
+        $StdOutPath = Join-Path ([System.IO.Path]::GetTempPath()) "csa-iem-$InvocationId.stdout.log"
+        $Process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+
+        $ExitCode = $Process.ExitCode
+        $StdErr = if (Test-Path $StdErrPath) { Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue } else { "" }
+        $StdOut = if ($StdOutPath -and (Test-Path $StdOutPath)) { Get-Content -Path $StdOutPath -Raw -ErrorAction SilentlyContinue } else { "" }
+
+        if ($ExitCode -ne 0) {
+            $MessageParts = @()
+            if ($StdOut) {
+                $MessageParts += $StdOut.TrimEnd()
+            }
+            if ($StdErr) {
+                $MessageParts += $StdErr.TrimEnd()
+            }
+
+            $Message = if ($MessageParts.Count -gt 0) {
+                ($MessageParts -join [Environment]::NewLine).Trim()
+            } else {
+                "$FilePath failed with exit code $ExitCode."
+            }
+
+            throw $Message
+        }
+
+        if (-not $CaptureOutput -and $StdErr) {
+            $TrimmedStdErr = $StdErr.Trim()
+            if ($TrimmedStdErr) {
+                Write-Host $TrimmedStdErr
+            }
+        }
+
+        if ($CaptureOutput) {
+            if ($StdOut) {
+                return $StdOut
+            }
+
+            if ($StdErr) {
+                return $StdErr
+            }
+
+            return ""
+        }
+    } finally {
+        if ($StdOutPath -and (Test-Path $StdOutPath)) {
+            Remove-Item -LiteralPath $StdOutPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $StdErrPath) {
+            Remove-Item -LiteralPath $StdErrPath -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -289,6 +606,112 @@ function Ensure-GitHubAuth {
     }
 }
 
+function Test-CommandExitZero {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+
+    try {
+        & $FilePath @Arguments 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+function Get-DockerDesktopPath {
+    $Candidates = @(
+        (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path $env:LocalAppData "Programs\Docker\Docker\Docker Desktop.exe")
+    ) | Where-Object { $_ }
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return $Candidate
+        }
+    }
+
+    return ""
+}
+
+function Start-DockerDesktop {
+    $DockerDesktopPath = Get-DockerDesktopPath
+    if ($DockerDesktopPath) {
+        Start-Process -FilePath $DockerDesktopPath | Out-Null
+        return $true
+    }
+
+    try {
+        Start-Process -FilePath "Docker Desktop" -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Offer-DockerDesktopStartup {
+    param(
+        [string]$Reason = "Docker Desktop is installed but the engine is not running."
+    )
+
+    if (-not (Test-CommandAvailable "docker")) {
+        return $false
+    }
+
+    if (Test-CommandExitZero -FilePath "docker" -Arguments @("info")) {
+        return $true
+    }
+
+    Write-WarnLine $Reason
+
+    if ($State.Yes -or $State.ImportFullAuto) {
+        if (Start-DockerDesktop) {
+            Write-Info "Started Docker Desktop."
+        } else {
+            Write-WarnLine "Docker Desktop could not be started automatically."
+        }
+        return $false
+    }
+
+    if (-not (Confirm-Action "Open Docker Desktop now?")) {
+        return $false
+    }
+
+    if (-not (Start-DockerDesktop)) {
+        Write-WarnLine "Docker Desktop could not be started automatically. Start it manually and retry."
+        return $false
+    }
+
+    Write-Info "Docker Desktop is starting. Finish any onboarding, then retry when the engine shows as running."
+    while ($true) {
+        if (Confirm-Action "Retry the Docker engine check now?") {
+            if (Test-CommandExitZero -FilePath "docker" -Arguments @("info")) {
+                Write-Info "Docker engine is running."
+                return $true
+            }
+
+            Write-WarnLine "Docker engine still looks unavailable."
+            continue
+        }
+
+        return $false
+    }
+}
+
+function Offer-PreflightActions {
+    param($Scan)
+
+    if ($null -eq $Scan) {
+        $Scan = Get-PreflightScan
+    }
+
+    if ($Scan.Docker -eq "available" -and $Scan.DockerEngine -ne "running") {
+        [void](Offer-DockerDesktopStartup -Reason "Docker Desktop is installed but the engine is not running.")
+    }
+}
+
 function Get-PreflightScan {
     $GitHubHost = $State.GitHubHost
     if (-not $GitHubHost) {
@@ -303,8 +726,7 @@ function Get-PreflightScan {
 
     $DockerEngine = "not running"
     if (Test-CommandAvailable "docker") {
-        & docker info *> $null
-        if ($LASTEXITCODE -eq 0) {
+        if (Test-CommandExitZero -FilePath "docker" -Arguments @("info")) {
             $DockerEngine = "running"
         }
     }
@@ -330,6 +752,7 @@ function Show-Preflight {
     foreach ($Key in $Scan.Keys) {
         "{0,-18} {1}" -f $Key, $Scan[$Key] | Write-Host
     }
+    return $Scan
 }
 
 function Get-OwnerRepoPaths {
@@ -457,10 +880,11 @@ function Test-DevcontainerQuickStart {
         return
     }
 
-    & docker info *> $null
-    if ($LASTEXITCODE -ne 0) {
-        Write-WarnLine "Docker is installed but the engine is not ready."
-        return
+    if (-not (Test-CommandExitZero -FilePath "docker" -Arguments @("info"))) {
+        if (-not (Offer-DockerDesktopStartup -Reason "Docker is installed but the engine is not ready for devcontainer startup checks.")) {
+            Write-WarnLine "Docker is installed but the engine is not ready."
+            return
+        }
     }
 
     $ReportsDir = Split-Path -Parent $ReportPath
@@ -852,8 +1276,8 @@ function Browse-ImportedProjects {
 
         $Project = $Projects[$Selection - 1]
         Write-Section $Project.Slug
-        Write-Host "1) Open runtime workspace in VS Code"
-        Write-Host "2) Open code workspace in VS Code"
+        Write-Host "1) Open code workspace in VS Code"
+        Write-Host "2) Open runtime workspace in VS Code"
         Write-Host "3) Open in File Explorer"
         Write-Host "4) Start or update devcontainer"
         Write-Host "5) Back"
@@ -861,17 +1285,17 @@ function Browse-ImportedProjects {
 
         switch ($Action) {
             "1" {
-                if ($Project.RuntimePath -and (Test-CommandAvailable "code")) {
-                    & code $Project.RuntimePath
-                } else {
-                    Write-WarnLine "Runtime workspace or VS Code CLI is unavailable."
-                }
-            }
-            "2" {
                 if ($Project.CodePath -and (Test-CommandAvailable "code")) {
                     & code $Project.CodePath
                 } else {
                     Write-WarnLine "Code workspace or VS Code CLI is unavailable."
+                }
+            }
+            "2" {
+                if ($Project.RuntimePath -and (Test-CommandAvailable "code")) {
+                    & code $Project.RuntimePath
+                } else {
+                    Write-WarnLine "Runtime workspace or VS Code CLI is unavailable."
                 }
             }
             "3" {
@@ -913,6 +1337,7 @@ Options:
   --use-current-root
   --single-root PATH
   --code-root PATH
+  --import-root PATH
   --runtime-root PATH
   --host HOSTNAME
   --account LOGIN
@@ -977,6 +1402,10 @@ function Parse-Args {
                 $Index++
                 $State.CodeRoot = $ArgsList[$Index]
             }
+            "--import-root" {
+                $Index++
+                $State.ImportRoot = $ArgsList[$Index]
+            }
             "--runtime-root" {
                 $Index++
                 $State.RuntimeRoot = $ArgsList[$Index]
@@ -1004,40 +1433,43 @@ function Select-WorkspaceInteractively {
 
     $Settings = Load-Settings
     while ($true) {
-        Write-Section "Workspace Root"
-        Write-Host "1) Use current workspace roots"
+        Write-Section "Workspace Roots"
+        Write-Host "1) Use current saved workspace roots"
         Write-Host "   Code root: $($Settings.CodeRoot)"
+        Write-Host "   Import root: $($Settings.ImportRoot)"
         Write-Host "   Runtime root: $($Settings.RuntimeRoot)"
-        Write-Host "2) Set a single workspace folder"
-        Write-Host "3) Set split code/runtime folders"
-        Write-Host "4) Reset back to the generic defaults"
+        Write-Host "2) Set a single base workspace folder"
+        Write-Host "3) Set custom code/import/runtime folders"
+        Write-Host "4) Reset to the standard Code/Import/Runtime defaults"
         $Choice = Read-Host "Enter choice [1-4] (Enter = 1)"
         if ([string]::IsNullOrWhiteSpace($Choice)) { $Choice = "1" }
 
         switch ($Choice) {
             "1" {
-                Save-WorkspaceChoice -CodeRoot $Settings.CodeRoot -RuntimeRoot $Settings.RuntimeRoot -GitHubHost $GitHubHost -Account $Account
+                Save-WorkspaceChoice -CodeRoot $Settings.CodeRoot -ImportRoot $Settings.ImportRoot -RuntimeRoot $Settings.RuntimeRoot -GitHubHost $GitHubHost -Account $Account
                 return (Resolve-Roots)
             }
             "2" {
-                $SingleRoot = Read-Host "Enter the single workspace folder"
+                $SingleRoot = Read-Host "Enter the base workspace folder"
                 if (-not [string]::IsNullOrWhiteSpace($SingleRoot)) {
                     $CodeRoot = Join-Path $SingleRoot "Code"
+                    $ImportRoot = Join-Path $SingleRoot "Import"
                     $RuntimeRoot = Join-Path $SingleRoot "Runtime"
-                    Save-WorkspaceChoice -CodeRoot $CodeRoot -RuntimeRoot $RuntimeRoot -GitHubHost $GitHubHost -Account $Account
+                    Save-WorkspaceChoice -CodeRoot $CodeRoot -ImportRoot $ImportRoot -RuntimeRoot $RuntimeRoot -GitHubHost $GitHubHost -Account $Account
                     return (Resolve-Roots)
                 }
             }
             "3" {
                 $CodeRoot = Read-Host "Enter the code root"
+                $ImportRoot = Read-Host "Enter the import root"
                 $RuntimeRoot = Read-Host "Enter the runtime root"
-                if (-not [string]::IsNullOrWhiteSpace($CodeRoot) -and -not [string]::IsNullOrWhiteSpace($RuntimeRoot)) {
-                    Save-WorkspaceChoice -CodeRoot $CodeRoot -RuntimeRoot $RuntimeRoot -GitHubHost $GitHubHost -Account $Account
+                if (-not [string]::IsNullOrWhiteSpace($CodeRoot) -and -not [string]::IsNullOrWhiteSpace($ImportRoot) -and -not [string]::IsNullOrWhiteSpace($RuntimeRoot)) {
+                    Save-WorkspaceChoice -CodeRoot $CodeRoot -ImportRoot $ImportRoot -RuntimeRoot $RuntimeRoot -GitHubHost $GitHubHost -Account $Account
                     return (Resolve-Roots)
                 }
             }
             "4" {
-                Save-WorkspaceChoice -CodeRoot (Get-DefaultCodeRoot) -RuntimeRoot (Get-DefaultRuntimeRoot) -GitHubHost $GitHubHost -Account $Account
+                Save-WorkspaceChoice -CodeRoot (Get-DefaultCodeRoot) -ImportRoot (Get-DefaultImportRoot) -RuntimeRoot (Get-DefaultRuntimeRoot) -GitHubHost $GitHubHost -Account $Account
                 return (Resolve-Roots)
             }
             default { }
@@ -1132,15 +1564,18 @@ function Process-Repo {
     )
 
     $CodeRoot = $Roots.CodeRoot
+    $ImportRoot = $Roots.ImportRoot
     $RuntimeRoot = $Roots.RuntimeRoot
     $ReportPath = Get-ReportPath -RuntimeRoot $RuntimeRoot -Slug $Slug
 
     Write-Section "Processing: $Slug"
 
     $CodeRepoPath = Get-OwnerRepoPaths -Root $CodeRoot -Slug $Slug
+    $ImportRepoPath = Get-OwnerRepoPaths -Root $ImportRoot -Slug $Slug
     $RuntimeRepoPath = Get-OwnerRepoPaths -Root $RuntimeRoot -Slug $Slug
 
     Clone-Or-UpdateRepo -Slug $Slug -TargetPath $CodeRepoPath
+    Clone-Or-UpdateRepo -Slug $Slug -TargetPath $ImportRepoPath
     Clone-Or-UpdateRepo -Slug $Slug -TargetPath $RuntimeRepoPath
 
     @"
@@ -1152,6 +1587,7 @@ Account: $($State.Account)
 Mode: $Mode
 Repo: $Slug
 Code Path: $CodeRepoPath
+Import Path: $ImportRepoPath
 Runtime Path: $RuntimeRepoPath
 "@ | Set-Content -Path $ReportPath -Encoding UTF8
 
@@ -1205,7 +1641,8 @@ function Run-DirectAction {
 }
 
 function Run-Interactive {
-    Show-Preflight
+    $Scan = Show-Preflight
+    Offer-PreflightActions -Scan $Scan
 
     $Settings = Load-Settings
     if (-not $State.GitHubHost) {
@@ -1283,9 +1720,12 @@ function Run-Interactive {
                 $State.GitHubHost = $HostValue
                 Ensure-GitHubAuth -GitHubHost $State.GitHubHost
                 $State.Account = Get-GitHubCurrentAccount -GitHubHost $State.GitHubHost
-                Save-WorkspaceChoice -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot -GitHubHost $State.GitHubHost -Account $State.Account
+                Save-WorkspaceChoice -CodeRoot $Roots.CodeRoot -ImportRoot $Roots.ImportRoot -RuntimeRoot $Roots.RuntimeRoot -GitHubHost $State.GitHubHost -Account $State.Account
             }
-            "4" { Show-Preflight }
+            "4" {
+                $Scan = Show-Preflight
+                Offer-PreflightActions -Scan $Scan
+            }
             "5" { Browse-ImportedProjects -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot }
             "6" { return }
             default { }

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VersionFile = Join-Path $ScriptDir "VERSION"
-$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.3.0" }
+$AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.0.0" }
 $AppName = "CSA-iEM"
 
 $InstallRoot = Join-Path $env:LOCALAPPDATA "CSA-iEM"
@@ -68,7 +68,7 @@ if (Test-Path $VersionDir) {
 
 $CurrentVersion = if (Test-Path $CurrentMarker) { (Get-Content -Path $CurrentMarker -TotalCount 1).Trim() } else { "" }
 if ($CurrentVersion -eq $AppVersion) {
-    foreach ($Shim in @("csa-iem.cmd", "csa-iem-open.cmd", "openproj.cmd")) {
+    foreach ($Shim in @("csa-iem.cmd", "csa-iem-open.cmd", "csa-iem-update.cmd", "csa-ilem-update.cmd", "openproj.cmd")) {
         $ShimPath = Join-Path $BinDir $Shim
         if (Test-Path $ShimPath) {
             Remove-Item -Path $ShimPath -Force
