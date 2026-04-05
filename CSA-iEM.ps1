@@ -494,6 +494,62 @@ function Test-CommandAvailable {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Resolve-CommandLaunch {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+
+    $Command = Get-Command $FilePath -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $Command) {
+        return @{
+            Executable = $FilePath
+            Arguments = $Arguments
+        }
+    }
+
+    if ($Command.CommandType -eq "Alias") {
+        return Resolve-CommandLaunch -FilePath $Command.Definition -Arguments $Arguments
+    }
+
+    $SourcePath = if ($null -ne $Command.PSObject.Properties["Source"] -and $Command.Source) {
+        $Command.Source
+    } else {
+        $Command.Definition
+    }
+
+    if ($Command.CommandType -eq "ExternalScript") {
+        $Extension = [System.IO.Path]::GetExtension($SourcePath).ToLowerInvariant()
+        switch ($Extension) {
+            ".ps1" {
+                $PowerShellCommand = Get-Command "powershell.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                $PowerShellPath = if ($PowerShellCommand -and $PowerShellCommand.Source) { $PowerShellCommand.Source } else { "powershell.exe" }
+                return @{
+                    Executable = $PowerShellPath
+                    Arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $SourcePath) + $Arguments
+                }
+            }
+            ".cmd" {
+                return @{
+                    Executable = "cmd.exe"
+                    Arguments = @("/d", "/c", $SourcePath) + $Arguments
+                }
+            }
+            ".bat" {
+                return @{
+                    Executable = "cmd.exe"
+                    Arguments = @("/d", "/c", $SourcePath) + $Arguments
+                }
+            }
+        }
+    }
+
+    return @{
+        Executable = if ($SourcePath) { $SourcePath } else { $FilePath }
+        Arguments = $Arguments
+    }
+}
+
 function Invoke-CommandChecked {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -507,7 +563,8 @@ function Invoke-CommandChecked {
 
     try {
         $StdOutPath = Join-Path ([System.IO.Path]::GetTempPath()) "csa-iem-$InvocationId.stdout.log"
-        $Process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+        $Launch = Resolve-CommandLaunch -FilePath $FilePath -Arguments $Arguments
+        $Process = Start-Process -FilePath $Launch.Executable -ArgumentList $Launch.Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
 
         $ExitCode = $Process.ExitCode
         $StdErr = if (Test-Path $StdErrPath) { Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue } else { "" }
@@ -551,6 +608,59 @@ function Invoke-CommandChecked {
         }
     } finally {
         if ($StdOutPath -and (Test-Path $StdOutPath)) {
+            Remove-Item -LiteralPath $StdOutPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $StdErrPath) {
+            Remove-Item -LiteralPath $StdErrPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-CommandLogged {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @(),
+        [string]$LogPath,
+        [switch]$PrintOutput
+    )
+
+    $InvocationId = [guid]::NewGuid().ToString("N")
+    $StdErrPath = Join-Path ([System.IO.Path]::GetTempPath()) "csa-iem-$InvocationId.stderr.log"
+    $StdOutPath = Join-Path ([System.IO.Path]::GetTempPath()) "csa-iem-$InvocationId.stdout.log"
+
+    try {
+        $Launch = Resolve-CommandLaunch -FilePath $FilePath -Arguments $Arguments
+        $Process = Start-Process -FilePath $Launch.Executable -ArgumentList $Launch.Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+
+        $StdErr = if (Test-Path $StdErrPath) { Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue } else { "" }
+        $StdOut = if (Test-Path $StdOutPath) { Get-Content -Path $StdOutPath -Raw -ErrorAction SilentlyContinue } else { "" }
+
+        $OutputParts = @()
+        if ($StdOut) {
+            $OutputParts += $StdOut.TrimEnd()
+        }
+        if ($StdErr) {
+            $OutputParts += $StdErr.TrimEnd()
+        }
+        $CombinedOutput = ($OutputParts -join [Environment]::NewLine)
+
+        if ($LogPath) {
+            $LogOutput = if ($CombinedOutput) { $CombinedOutput } else { "" }
+            Set-Content -Path $LogPath -Value $LogOutput -Encoding UTF8
+        }
+
+        if ($PrintOutput -and $CombinedOutput) {
+            Write-Host $CombinedOutput
+        }
+
+        return @{
+            ExitCode = $Process.ExitCode
+            StdOut = $StdOut
+            StdErr = $StdErr
+            Output = $CombinedOutput
+        }
+    } finally {
+        if (Test-Path $StdOutPath) {
             Remove-Item -LiteralPath $StdOutPath -Force -ErrorAction SilentlyContinue
         }
         if (Test-Path $StdErrPath) {
@@ -891,7 +1001,7 @@ function Test-DevcontainerQuickStart {
     Ensure-Directory $ReportsDir
     $LogPath = Join-Path $ReportsDir "$(Sanitize-Label (Split-Path -Leaf $WorkspacePath))-devcontainer-$(Get-Timestamp).log"
 
-    $SupportsSkipPostCreate = (& devcontainer up --help 2>$null | Select-String -- "--skip-post-create")
+    $SupportsSkipPostCreate = ((Invoke-CommandChecked -FilePath "devcontainer" -Arguments @("up", "--help") -CaptureOutput) | Select-String -- "--skip-post-create")
     $Args = @("up")
     if ($SupportsSkipPostCreate) {
         $Args += "--skip-post-create"
@@ -899,8 +1009,8 @@ function Test-DevcontainerQuickStart {
     $Args += @("--workspace-folder", $WorkspacePath)
 
     Write-Info "Running quick devcontainer startup check..."
-    & devcontainer @Args 2>&1 | Tee-Object -FilePath $LogPath
-    if ($LASTEXITCODE -eq 0) {
+    $DevcontainerRun = Invoke-CommandLogged -FilePath "devcontainer" -Arguments $Args -LogPath $LogPath -PrintOutput
+    if ($DevcontainerRun.ExitCode -eq 0) {
         "Devcontainer startup check: SUCCESS" | Tee-Object -FilePath $ReportPath -Append | Out-Null
     } else {
         "Devcontainer startup check: FAILED" | Tee-Object -FilePath $ReportPath -Append | Out-Null
