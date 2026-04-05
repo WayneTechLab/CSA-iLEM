@@ -1162,11 +1162,11 @@ function Patch-WorkflowsForSelfHostedWindows {
     }
 
     if (-not $State.ImportFullAuto) {
-        if (-not (Confirm-Action "Patch workflow files to use the self-hosted Windows runner for $Slug?")) {
+        if (-not (Confirm-Action "Patch workflow files to use the self-hosted Windows runner for ${Slug}?")) {
             return
         }
     } else {
-        Write-Info "FULL AUTO: yes -> Patch workflow files to use the self-hosted Windows runner for $Slug?"
+        Write-Info "FULL AUTO: yes -> Patch workflow files to use the self-hosted Windows runner for ${Slug}?"
     }
 
     $Label = Get-LocalRunnerLabel -Slug $Slug
@@ -1226,7 +1226,7 @@ function Invoke-RepoCleanup {
     Write-Host ("Dry run: {0}" -f ($(if ($EffectiveDryRun) { "yes" } else { "no" })))
 
     if (-not $State.Yes -and -not $State.ImportCleanupPreview) {
-        if (-not (Confirm-Action "Proceed with cleanup for $Slug?")) {
+        if (-not (Confirm-Action "Proceed with cleanup for ${Slug}?")) {
             return
         }
     }
