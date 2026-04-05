@@ -700,8 +700,7 @@ function Ensure-GitHubAuth {
         throw "GitHub CLI is not installed."
     }
 
-    & gh auth status -h $GitHubHost *> $null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-CommandExitZero -FilePath "gh" -Arguments @("auth", "status", "-h", $GitHubHost)) {
         return
     }
 
@@ -830,8 +829,7 @@ function Get-PreflightScan {
 
     $GitHubSignedIn = $false
     if (Test-CommandAvailable "gh") {
-        & gh auth status -h $GitHubHost *> $null
-        $GitHubSignedIn = ($LASTEXITCODE -eq 0)
+        $GitHubSignedIn = Test-CommandExitZero -FilePath "gh" -Arguments @("auth", "status", "-h", $GitHubHost)
     }
 
     $DockerEngine = "not running"
@@ -904,7 +902,7 @@ function Clone-Or-UpdateRepo {
         return
     }
 
-    & git -C $TargetPath checkout $DefaultBranch *> $null
+    Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "checkout", $DefaultBranch)
     Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "pull", "--ff-only", "origin", $DefaultBranch)
 }
 
@@ -1239,7 +1237,7 @@ function Invoke-RepoCleanup {
                 if ($EffectiveDryRun) {
                     Write-Host "dry-run disable workflow $($Workflow.name) ($($Workflow.id))"
                 } else {
-                    & gh workflow disable $Workflow.id --repo $Slug | Out-Null
+                    Invoke-CommandChecked -FilePath "gh" -Arguments @("workflow", "disable", $Workflow.id, "--repo", $Slug)
                 }
             }
         }
@@ -1258,7 +1256,7 @@ function Invoke-RepoCleanup {
             if ($EffectiveDryRun) {
                 Write-Host "dry-run delete run $($Run.id)"
             } else {
-                & gh api -X DELETE "repos/$Slug/actions/runs/$($Run.id)" | Out-Null
+                Invoke-CommandChecked -FilePath "gh" -Arguments @("api", "-X", "DELETE", "repos/$Slug/actions/runs/$($Run.id)")
             }
         }
     }
@@ -1270,7 +1268,7 @@ function Invoke-RepoCleanup {
             if ($EffectiveDryRun) {
                 Write-Host "dry-run delete artifact $($Artifact.id)"
             } else {
-                & gh api -X DELETE "repos/$Slug/actions/artifacts/$($Artifact.id)" | Out-Null
+                Invoke-CommandChecked -FilePath "gh" -Arguments @("api", "-X", "DELETE", "repos/$Slug/actions/artifacts/$($Artifact.id)")
             }
         }
     }
@@ -1283,7 +1281,7 @@ function Invoke-RepoCleanup {
                 if ($EffectiveDryRun) {
                     Write-Host "dry-run delete cache $($Cache.id)"
                 } else {
-                    & gh api -X DELETE "repos/$Slug/actions/caches/$($Cache.id)" | Out-Null
+                    Invoke-CommandChecked -FilePath "gh" -Arguments @("api", "-X", "DELETE", "repos/$Slug/actions/caches/$($Cache.id)")
                 }
             }
         } catch {
@@ -1293,12 +1291,13 @@ function Invoke-RepoCleanup {
 
     if ($DoCodespaces) {
         try {
-            $Codespaces = (& gh codespace list --repo $Slug --json name 2>$null | ConvertFrom-Json)
+            $CodespacesJson = Invoke-CommandChecked -FilePath "gh" -Arguments @("codespace", "list", "--repo", $Slug, "--json", "name") -CaptureOutput
+            $Codespaces = ConvertFrom-Json $CodespacesJson
             foreach ($Codespace in $Codespaces) {
                 if ($EffectiveDryRun) {
                     Write-Host "dry-run delete codespace $($Codespace.name)"
                 } else {
-                    & gh codespace delete -c $Codespace.name --force | Out-Null
+                    Invoke-CommandChecked -FilePath "gh" -Arguments @("codespace", "delete", "-c", $Codespace.name, "--force")
                 }
             }
         } catch {
