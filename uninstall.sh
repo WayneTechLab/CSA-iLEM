@@ -10,6 +10,7 @@ INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"
 
 COMMANDS=(
   "csa-iem"
+  "csa-iem-update"
   "csa-iem-public"
   "csa-iem-wtl"
   "csa-iem-diamond"
@@ -17,6 +18,7 @@ COMMANDS=(
   "csa-iem-gui"
   "csa-iem-build-gui"
   "csa-ilem"
+  "csa-ilem-update"
   "csa-ilem-public"
   "csa-ilem-wtl"
   "csa-ilem-diamond"

@@ -58,6 +58,7 @@ git pull --ff-only origin main
 
 Preferred commands:
 - [`csa-iem`](./csa-iem)
+- [`csa-iem-update`](./csa-iem-update)
 - [`csa-iem-gui`](./csa-iem-gui)
 - [`csa-iem-build-gui`](./csa-iem-build-gui)
 - [`csa-iem-open`](./csa-iem-open)
@@ -85,6 +86,7 @@ Advanced compatibility wrappers still ship:
 - [`CSA-iLEM-WTL.sh`](./CSA-iLEM-WTL.sh)
 - [`CSA-iLEM-Diamond.sh`](./CSA-iLEM-Diamond.sh)
 - [`csa-ilem`](./csa-ilem)
+- [`csa-ilem-update`](./csa-ilem-update)
 - [`csa-ilem-public`](./csa-ilem-public)
 - [`csa-ilem-wtl`](./csa-ilem-wtl)
 - [`csa-ilem-diamond`](./csa-ilem-diamond)
@@ -134,6 +136,7 @@ The installer:
 - copies the production bundle into `~/.local/share/csa-iem/<version>`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - links commands into `~/.local/bin`
+- installs `csa-iem-update` and `csa-ilem-update` so an installed Mac can update from the shipped remote installer without recloning first
 - adds `~/.local/bin` to `~/.zprofile`
 - adds macOS Terminal aliases so `CSA-IEM`, `CSA-iEM`, `CSA-ILEM`, and `CSA-iLEM` resolve to the installed lowercase commands after the shell profile is reloaded
 - installs the Swift package sources, assets, and docs needed for the GUI and app-bundle builder
@@ -152,10 +155,23 @@ After install:
 ```bash
 source ~/.zprofile
 csa-iem --version
+csa-iem-update --help
 CSA-IEM --version
 ```
 
-From an installed copy, you can also inspect the shipped remote installer:
+Update an installed macOS copy from any Terminal window:
+
+```bash
+csa-iem-update
+```
+
+Update to a specific tag, branch, or commit:
+
+```bash
+csa-iem-update --ref 0.3.4
+```
+
+From an installed copy, you can also inspect the shipped remote installer directly:
 
 ```bash
 ~/.local/share/csa-iem/current/install-remote.sh --help

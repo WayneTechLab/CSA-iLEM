@@ -45,6 +45,7 @@ FILES=(
   "csa-iem-gui"
   "csa-iem-build-gui"
   "csa-iem"
+  "csa-iem-update"
   "csa-iem-public"
   "csa-iem-wtl"
   "csa-iem-diamond"
@@ -52,6 +53,7 @@ FILES=(
   "csa-ilem-gui"
   "csa-ilem-build-gui"
   "csa-ilem"
+  "csa-ilem-update"
   "csa-ilem-public"
   "csa-ilem-wtl"
   "csa-ilem-diamond"
@@ -68,6 +70,7 @@ DIRS=(
 
 COMMANDS=(
   "csa-iem"
+  "csa-iem-update"
   "csa-iem-public"
   "csa-iem-wtl"
   "csa-iem-diamond"
@@ -75,6 +78,7 @@ COMMANDS=(
   "csa-iem-gui"
   "csa-iem-build-gui"
   "csa-ilem"
+  "csa-ilem-update"
   "csa-ilem-public"
   "csa-ilem-wtl"
   "csa-ilem-diamond"
@@ -546,6 +550,7 @@ chmod +x \
   "$INSTALL_DIR/csa-iem-gui" \
   "$INSTALL_DIR/csa-iem-build-gui" \
   "$INSTALL_DIR/csa-iem" \
+  "$INSTALL_DIR/csa-iem-update" \
   "$INSTALL_DIR/csa-iem-public" \
   "$INSTALL_DIR/csa-iem-wtl" \
   "$INSTALL_DIR/csa-iem-diamond" \
@@ -553,6 +558,7 @@ chmod +x \
   "$INSTALL_DIR/csa-ilem-gui" \
   "$INSTALL_DIR/csa-ilem-build-gui" \
   "$INSTALL_DIR/csa-ilem" \
+  "$INSTALL_DIR/csa-ilem-update" \
   "$INSTALL_DIR/csa-ilem-public" \
   "$INSTALL_DIR/csa-ilem-wtl" \
   "$INSTALL_DIR/csa-ilem-diamond" \
@@ -585,12 +591,12 @@ if ! command -v swift >/dev/null 2>&1; then
   echo
 fi
 echo "Primary commands:"
-printf '  %s\n' "csa-iem" "csa-iem-gui" "csa-iem-build-gui" "csa-iem-open" "openproj"
+printf '  %s\n' "csa-iem" "csa-iem-update" "csa-iem-gui" "csa-iem-build-gui" "csa-iem-open" "openproj"
 echo
 echo "Advanced compatibility commands:"
 printf '  %s\n' \
   "csa-iem-public" "csa-iem-wtl" "csa-iem-diamond" \
-  "csa-ilem" "csa-ilem-public" "csa-ilem-wtl" "csa-ilem-diamond" \
+  "csa-ilem" "csa-ilem-update" "csa-ilem-public" "csa-ilem-wtl" "csa-ilem-diamond" \
   "csa-ilem-open" "csa-ilem-gui" "csa-ilem-build-gui"
 echo
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
@@ -605,6 +611,7 @@ fi
 echo
 echo "Then verify:"
 echo "  csa-iem --version"
+echo "  csa-iem-update --help"
 echo "  CSA-IEM --version"
 echo
 echo "Stable release install from any supported Mac terminal:"
@@ -613,6 +620,9 @@ echo
 echo "Latest main install or update from any supported Mac terminal:"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force"
+echo
+echo "Installed update command:"
+echo "  csa-iem-update"
 echo
 echo "Installed remote installer:"
 echo "  $INSTALL_DIR/install-remote.sh --help"
