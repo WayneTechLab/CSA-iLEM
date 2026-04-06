@@ -630,7 +630,94 @@ function Invoke-CommandLogged {
 
     try {
         $Launch = Resolve-CommandLaunch -FilePath $FilePath -Arguments $Arguments
-        $Process = Start-Process -FilePath $Launch.Executable -ArgumentList $Launch.Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+        $Process = Start-Process -FilePath $Launch.Executable -ArgumentList $Launch.Arguments -NoNewWindow -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+        $StdOutLength = 0
+        $StdErrLength = 0
+        $LastHeartbeat = Get-Date
+
+        if ($LogPath) {
+            Set-Content -Path $LogPath -Value "" -Encoding UTF8
+        }
+
+        while (-not $Process.HasExited) {
+            $StdOutChunk = ""
+            $StdErrChunk = ""
+
+            if (Test-Path $StdOutPath) {
+                $CurrentStdOut = Get-Content -Path $StdOutPath -Raw -ErrorAction SilentlyContinue
+                if ($CurrentStdOut -and $CurrentStdOut.Length -gt $StdOutLength) {
+                    $StdOutChunk = $CurrentStdOut.Substring($StdOutLength)
+                    $StdOutLength = $CurrentStdOut.Length
+                }
+            }
+
+            if (Test-Path $StdErrPath) {
+                $CurrentStdErr = Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue
+                if ($CurrentStdErr -and $CurrentStdErr.Length -gt $StdErrLength) {
+                    $StdErrChunk = $CurrentStdErr.Substring($StdErrLength)
+                    $StdErrLength = $CurrentStdErr.Length
+                }
+            }
+
+            $ChunkParts = @()
+            if ($StdOutChunk) {
+                $ChunkParts += $StdOutChunk
+            }
+            if ($StdErrChunk) {
+                $ChunkParts += $StdErrChunk
+            }
+
+            if ($ChunkParts.Count -gt 0) {
+                $ChunkText = ($ChunkParts -join "")
+                if ($PrintOutput) {
+                    Write-Host $ChunkText -NoNewline
+                }
+                if ($LogPath) {
+                    Add-Content -Path $LogPath -Value $ChunkText -Encoding UTF8
+                }
+                $LastHeartbeat = Get-Date
+            } elseif (((Get-Date) - $LastHeartbeat).TotalSeconds -ge 15) {
+                $Heartbeat = "[INFO] $FilePath is still running..."
+                if ($PrintOutput) {
+                    Write-Host $Heartbeat
+                }
+                if ($LogPath) {
+                    Add-Content -Path $LogPath -Value ($Heartbeat + [Environment]::NewLine) -Encoding UTF8
+                }
+                $LastHeartbeat = Get-Date
+            }
+
+            Start-Sleep -Milliseconds 300
+            $Process.Refresh()
+        }
+
+        $Process.WaitForExit()
+
+        if (Test-Path $StdOutPath) {
+            $CurrentStdOut = Get-Content -Path $StdOutPath -Raw -ErrorAction SilentlyContinue
+            if ($CurrentStdOut -and $CurrentStdOut.Length -gt $StdOutLength) {
+                $StdOutChunk = $CurrentStdOut.Substring($StdOutLength)
+                if ($PrintOutput) {
+                    Write-Host $StdOutChunk -NoNewline
+                }
+                if ($LogPath) {
+                    Add-Content -Path $LogPath -Value $StdOutChunk -Encoding UTF8
+                }
+            }
+        }
+
+        if (Test-Path $StdErrPath) {
+            $CurrentStdErr = Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue
+            if ($CurrentStdErr -and $CurrentStdErr.Length -gt $StdErrLength) {
+                $StdErrChunk = $CurrentStdErr.Substring($StdErrLength)
+                if ($PrintOutput) {
+                    Write-Host $StdErrChunk -NoNewline
+                }
+                if ($LogPath) {
+                    Add-Content -Path $LogPath -Value $StdErrChunk -Encoding UTF8
+                }
+            }
+        }
 
         $StdErr = if (Test-Path $StdErrPath) { Get-Content -Path $StdErrPath -Raw -ErrorAction SilentlyContinue } else { "" }
         $StdOut = if (Test-Path $StdOutPath) { Get-Content -Path $StdOutPath -Raw -ErrorAction SilentlyContinue } else { "" }
@@ -644,12 +731,12 @@ function Invoke-CommandLogged {
         }
         $CombinedOutput = ($OutputParts -join [Environment]::NewLine)
 
-        if ($LogPath) {
+        if ($LogPath -and -not (Test-Path $LogPath)) {
             $LogOutput = if ($CombinedOutput) { $CombinedOutput } else { "" }
             Set-Content -Path $LogPath -Value $LogOutput -Encoding UTF8
         }
 
-        if ($PrintOutput -and $CombinedOutput) {
+        if ($PrintOutput -and $CombinedOutput -and -not $LogPath) {
             Write-Host $CombinedOutput
         }
 
