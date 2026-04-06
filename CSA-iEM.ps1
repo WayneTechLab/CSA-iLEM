@@ -631,6 +631,7 @@ function Invoke-CommandLogged {
     try {
         $Launch = Resolve-CommandLaunch -FilePath $FilePath -Arguments $Arguments
         $Process = Start-Process -FilePath $Launch.Executable -ArgumentList $Launch.Arguments -NoNewWindow -PassThru -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath
+        $null = $Process.Handle
         $StdOutLength = 0
         $StdErrLength = 0
         $LastHeartbeat = Get-Date
@@ -754,6 +755,46 @@ function Invoke-CommandLogged {
             Remove-Item -LiteralPath $StdErrPath -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+function Save-RepoFailureReport {
+    param(
+        [string]$Slug,
+        [string]$RuntimeRoot,
+        [string]$Mode,
+        [string]$Message
+    )
+
+    $ReportPath = Get-ReportPath -RuntimeRoot $RuntimeRoot -Slug $Slug
+    @"
+CSA-iEM Report
+Version: $AppVersion
+Time: $(Get-Date)
+Host: $($State.GitHubHost)
+Account: $($State.Account)
+Mode: $Mode
+Repo: $Slug
+Status: FAILED
+Error:
+$Message
+"@ | Set-Content -Path $ReportPath -Encoding UTF8
+
+    return $ReportPath
+}
+
+function Get-RepoFailureSummary {
+    param([string]$Message)
+
+    if ($Message -match "invalid path" -or $Message -match "unable to checkout working tree") {
+        return "Windows cannot check out one or more file paths in this repository."
+    }
+
+    $FirstLine = ($Message -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+    if ($FirstLine) {
+        return $FirstLine.Trim()
+    }
+
+    return "Repo processing failed."
 }
 
 function Normalize-RepoSlug {
@@ -1897,13 +1938,26 @@ function Run-Interactive {
                 $State.ImportCleanupPreview = [bool]$Selection.CleanupPreview
                 foreach ($Slug in $Selection.Repos) {
                     if (-not $Slug) { continue }
-                    if ($Mode -eq "cleanup") {
-                        $State.CleanupOnly = $true
-                        $State.All = $true
-                        $ReportPath = Get-ReportPath -RuntimeRoot $Roots.RuntimeRoot -Slug $Slug
-                        Invoke-RepoCleanup -Slug $Slug -ReportPath $ReportPath
-                    } else {
-                        Process-Repo -Slug $Slug -Mode $Mode -Roots $Roots
+                    try {
+                        if ($Mode -eq "cleanup") {
+                            $State.CleanupOnly = $true
+                            $State.All = $true
+                            $ReportPath = Get-ReportPath -RuntimeRoot $Roots.RuntimeRoot -Slug $Slug
+                            Invoke-RepoCleanup -Slug $Slug -ReportPath $ReportPath
+                        } else {
+                            Process-Repo -Slug $Slug -Mode $Mode -Roots $Roots
+                        }
+                    } catch {
+                        if (-not $State.ImportFullAuto) {
+                            throw
+                        }
+
+                        $ErrorMessage = $_.Exception.Message
+                        $Summary = Get-RepoFailureSummary -Message $ErrorMessage
+                        $ReportPath = Save-RepoFailureReport -Slug $Slug -RuntimeRoot $Roots.RuntimeRoot -Mode $Mode -Message $ErrorMessage
+
+                        Write-WarnLine "Skipping $Slug. $Summary"
+                        Write-WarnLine "Failure report saved to: $ReportPath"
                     }
                 }
             }
