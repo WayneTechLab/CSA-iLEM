@@ -1000,6 +1000,250 @@ function Get-OwnerRepoPaths {
     return (Join-Path (Join-Path (Join-Path $Root "Repos") $Parts[0]) $Parts[1])
 }
 
+function Test-WindowsInvalidCheckoutMessage {
+    param([string]$Message)
+
+    return ($Message -match "invalid path" -or $Message -match "unable to checkout working tree")
+}
+
+function Get-WindowsInvalidCheckoutMarkerPath {
+    param([string]$TargetPath)
+
+    return (Join-Path $TargetPath ".git\info\csa-iem-windows-invalid-paths.txt")
+}
+
+function Test-CsaIemManagedWindowsInvalidCheckout {
+    param([string]$TargetPath)
+
+    return (Test-Path (Get-WindowsInvalidCheckoutMarkerPath -TargetPath $TargetPath))
+}
+
+function Test-WindowsInvalidPathSegment {
+    param([string]$Segment)
+
+    if (-not $Segment) {
+        return $false
+    }
+
+    if ($Segment -match '[<>:"\\|?*\x00-\x1F]') {
+        return $true
+    }
+
+    if ($Segment.EndsWith(" ") -or $Segment.EndsWith(".")) {
+        return $true
+    }
+
+    $TrimmedUpper = $Segment.TrimEnd(".", " ").ToUpperInvariant()
+    if ($TrimmedUpper -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') {
+        return $true
+    }
+
+    return $false
+}
+
+function Get-WindowsInvalidRepoPaths {
+    param(
+        [string]$TargetPath,
+        [string]$Ref = "HEAD"
+    )
+
+    try {
+        $TreeOutput = Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "ls-tree", "-r", "-z", "--name-only", $Ref) -CaptureOutput
+    } catch {
+        return @()
+    }
+
+    $InvalidPaths = New-Object System.Collections.Generic.List[string]
+    foreach ($Entry in ($TreeOutput -split "`0")) {
+        $RelativePath = $Entry.Trim()
+        if (-not $RelativePath) {
+            continue
+        }
+
+        foreach ($Segment in ($RelativePath -split "/")) {
+            if (Test-WindowsInvalidPathSegment -Segment $Segment) {
+                $InvalidPaths.Add($RelativePath)
+                break
+            }
+        }
+    }
+
+    return @($InvalidPaths | Sort-Object -Unique)
+}
+
+function Set-CsaIemWindowsInvalidCheckoutMarker {
+    param(
+        [string]$TargetPath,
+        [string[]]$InvalidPaths
+    )
+
+    $MarkerPath = Get-WindowsInvalidCheckoutMarkerPath -TargetPath $TargetPath
+    if (-not $InvalidPaths -or $InvalidPaths.Count -eq 0) {
+        if (Test-Path $MarkerPath) {
+            Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
+        }
+        return
+    }
+
+    $MarkerDir = Split-Path -Parent $MarkerPath
+    Ensure-Directory $MarkerDir
+
+    $Content = @(
+        "CSA-iEM managed sparse checkout for Windows-incompatible repository paths.",
+        "These paths are excluded so the checkout can succeed on Windows.",
+        ""
+    ) + $InvalidPaths
+
+    Set-Content -Path $MarkerPath -Value $Content -Encoding UTF8
+}
+
+function Get-CsaIemManagedWindowsInvalidPaths {
+    param([string]$TargetPath)
+
+    $MarkerPath = Get-WindowsInvalidCheckoutMarkerPath -TargetPath $TargetPath
+    if (-not (Test-Path $MarkerPath)) {
+        return @()
+    }
+
+    return @(
+        Get-Content -Path $MarkerPath -ErrorAction SilentlyContinue |
+        Select-Object -Skip 3 |
+        Where-Object { $_ -and $_.Trim() }
+    )
+}
+
+function New-WindowsInvalidPathspecFile {
+    param([string[]]$InvalidPaths)
+
+    $PathspecPath = Join-Path ([System.IO.Path]::GetTempPath()) ("csa-iem-" + [guid]::NewGuid().ToString("N") + ".pathspec.bin")
+    $Bytes = New-Object System.Collections.Generic.List[byte]
+
+    foreach ($Pathspec in (@(".") + ($InvalidPaths | ForEach-Object { ":(exclude)$_" }))) {
+        $Bytes.AddRange([System.Text.Encoding]::UTF8.GetBytes($Pathspec))
+        $Bytes.Add(0)
+    }
+
+    [System.IO.File]::WriteAllBytes($PathspecPath, $Bytes.ToArray())
+    return $PathspecPath
+}
+
+function Invoke-WindowsInvalidCheckoutRestore {
+    param(
+        [string]$TargetPath,
+        [string[]]$InvalidPaths
+    )
+
+    $PathspecPath = New-WindowsInvalidPathspecFile -InvalidPaths $InvalidPaths
+    try {
+        Invoke-CommandChecked -FilePath "git" -Arguments @(
+            "-C", $TargetPath,
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--pathspec-from-file=$PathspecPath",
+            "--pathspec-file-nul"
+        )
+    } finally {
+        if (Test-Path $PathspecPath) {
+            Remove-Item -LiteralPath $PathspecPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-GitStatusEntries {
+    param([string]$TargetPath)
+
+    $StatusOutput = Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "status", "--porcelain=v1", "-z") -CaptureOutput
+    if (-not $StatusOutput) {
+        return @()
+    }
+
+    $RawEntries = @($StatusOutput -split "`0")
+    $Entries = New-Object System.Collections.Generic.List[object]
+
+    for ($Index = 0; $Index -lt $RawEntries.Count; $Index++) {
+        $RawEntry = $RawEntries[$Index]
+        if (-not $RawEntry) {
+            continue
+        }
+
+        if ($RawEntry.Length -lt 4) {
+            continue
+        }
+
+        $Code = $RawEntry.Substring(0, 2)
+        $Path = $RawEntry.Substring(3)
+        $OriginalPath = ""
+
+        if (($Code[0] -eq 'R' -or $Code[0] -eq 'C') -and ($Index + 1) -lt $RawEntries.Count) {
+            $Index++
+            $OriginalPath = $RawEntries[$Index]
+        }
+
+        [void]$Entries.Add([pscustomobject]@{
+            Code = $Code
+            Path = $Path
+            OriginalPath = $OriginalPath
+        })
+    }
+
+    return $Entries.ToArray()
+}
+
+function Get-MeaningfulGitStatusEntries {
+    param(
+        [object[]]$Entries,
+        [string[]]$IgnoredPaths = @()
+    )
+
+    $Ignored = @{}
+    foreach ($Path in $IgnoredPaths) {
+        if ($Path) {
+            $Ignored[$Path] = $true
+        }
+    }
+
+    $MeaningfulEntries = New-Object System.Collections.Generic.List[object]
+    foreach ($Entry in $Entries) {
+        $OnlyDeleted = ($Entry.Code -match '^[ D]{2}$' -and $Entry.Code -match 'D')
+        if ($OnlyDeleted -and $Ignored.ContainsKey($Entry.Path)) {
+            continue
+        }
+
+        [void]$MeaningfulEntries.Add($Entry)
+    }
+
+    return $MeaningfulEntries.ToArray()
+}
+
+function Repair-WindowsInvalidCheckout {
+    param(
+        [string]$Slug,
+        [string]$TargetPath,
+        [string]$Ref = "HEAD",
+        [switch]$Quiet
+    )
+
+    if (-not (Test-Path (Join-Path $TargetPath ".git"))) {
+        return @()
+    }
+
+    $InvalidPaths = @(Get-WindowsInvalidRepoPaths -TargetPath $TargetPath -Ref $Ref)
+    if ($InvalidPaths.Count -eq 0) {
+        return @()
+    }
+
+    if (-not $Quiet) {
+        Write-WarnLine "$Slug contains $($InvalidPaths.Count) Windows-incompatible path(s). CSA-iEM will exclude them from checkout at $TargetPath."
+    }
+
+    Invoke-WindowsInvalidCheckoutRestore -TargetPath $TargetPath -InvalidPaths $InvalidPaths
+    Set-CsaIemWindowsInvalidCheckoutMarker -TargetPath $TargetPath -InvalidPaths $InvalidPaths
+
+    return $InvalidPaths
+}
+
 function Clone-Or-UpdateRepo {
     param(
         [string]$Slug,
@@ -1011,27 +1255,62 @@ function Clone-Or-UpdateRepo {
 
     if (-not (Test-Path (Join-Path $TargetPath ".git"))) {
         Write-Info "Cloning $Slug into $TargetPath"
-        Invoke-CommandChecked -FilePath "gh" -Arguments @("repo", "clone", $Slug, $TargetPath)
-        return
+        try {
+            Invoke-CommandChecked -FilePath "gh" -Arguments @("repo", "clone", $Slug, $TargetPath)
+            return @()
+        } catch {
+            $CloneError = $_.Exception.Message
+            if ((Test-WindowsInvalidCheckoutMessage -Message $CloneError) -and (Test-Path (Join-Path $TargetPath ".git"))) {
+                return @(Repair-WindowsInvalidCheckout -Slug $Slug -TargetPath $TargetPath -Ref "HEAD")
+            }
+
+            throw
+        }
     }
 
     Write-Info "Repository already exists at $TargetPath"
     Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "fetch", "origin", "--prune")
 
-    $Status = (Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "status", "--porcelain") -CaptureOutput).Trim()
-    if ($Status) {
+    $ManagedWindowsRepair = Test-CsaIemManagedWindowsInvalidCheckout -TargetPath $TargetPath
+    $ManagedPaths = if ($ManagedWindowsRepair) { @(Get-CsaIemManagedWindowsInvalidPaths -TargetPath $TargetPath) } else { @() }
+    $StatusEntries = @(Get-GitStatusEntries -TargetPath $TargetPath)
+
+    if ($StatusEntries.Count -gt 0 -and -not $ManagedWindowsRepair) {
+        $RepairedPaths = @(Repair-WindowsInvalidCheckout -Slug $Slug -TargetPath $TargetPath -Ref "HEAD" -Quiet)
+        if ($RepairedPaths.Count -gt 0) {
+            $ManagedWindowsRepair = $true
+            $ManagedPaths = $RepairedPaths
+            $StatusEntries = @(Get-GitStatusEntries -TargetPath $TargetPath)
+        }
+    }
+
+    $MeaningfulStatusEntries = @(Get-MeaningfulGitStatusEntries -Entries $StatusEntries -IgnoredPaths $ManagedPaths)
+    if ($MeaningfulStatusEntries.Count -gt 0) {
         Write-WarnLine "Local changes are present in $TargetPath. Skipping pull."
-        return
+        return $ManagedPaths
     }
 
     $DefaultBranch = (Invoke-CommandChecked -FilePath "gh" -Arguments @("repo", "view", $Slug, "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name") -CaptureOutput).Trim()
     if (-not $DefaultBranch) {
         Write-WarnLine "$Slug does not report a default branch. Treating it as an empty mirror."
-        return
+        return $ManagedPaths
     }
 
-    Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "checkout", $DefaultBranch)
-    Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "pull", "--ff-only", "origin", $DefaultBranch)
+    try {
+        Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "checkout", $DefaultBranch)
+        Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "pull", "--ff-only", "origin", $DefaultBranch)
+        return $ManagedPaths
+    } catch {
+        $UpdateError = $_.Exception.Message
+        if (-not (Test-WindowsInvalidCheckoutMessage -Message $UpdateError)) {
+            throw
+        }
+
+        $ManagedPaths = @(Repair-WindowsInvalidCheckout -Slug $Slug -TargetPath $TargetPath -Ref "origin/$DefaultBranch")
+        Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "checkout", $DefaultBranch)
+        Invoke-CommandChecked -FilePath "git" -Arguments @("-C", $TargetPath, "pull", "--ff-only", "origin", $DefaultBranch)
+        return $ManagedPaths
+    }
 }
 
 function Ensure-DevcontainerStarter {
@@ -1811,9 +2090,10 @@ function Process-Repo {
     $ImportRepoPath = Get-OwnerRepoPaths -Root $ImportRoot -Slug $Slug
     $RuntimeRepoPath = Get-OwnerRepoPaths -Root $RuntimeRoot -Slug $Slug
 
-    Clone-Or-UpdateRepo -Slug $Slug -TargetPath $CodeRepoPath
-    Clone-Or-UpdateRepo -Slug $Slug -TargetPath $ImportRepoPath
-    Clone-Or-UpdateRepo -Slug $Slug -TargetPath $RuntimeRepoPath
+    $CodeExcludedPaths = @(Clone-Or-UpdateRepo -Slug $Slug -TargetPath $CodeRepoPath)
+    $ImportExcludedPaths = @(Clone-Or-UpdateRepo -Slug $Slug -TargetPath $ImportRepoPath)
+    $RuntimeExcludedPaths = @(Clone-Or-UpdateRepo -Slug $Slug -TargetPath $RuntimeRepoPath)
+    $WindowsExcludedPaths = @($CodeExcludedPaths + $ImportExcludedPaths + $RuntimeExcludedPaths | Sort-Object -Unique)
 
     @"
 CSA-iEM Report
@@ -1827,6 +2107,14 @@ Code Path: $CodeRepoPath
 Import Path: $ImportRepoPath
 Runtime Path: $RuntimeRepoPath
 "@ | Set-Content -Path $ReportPath -Encoding UTF8
+
+    if ($WindowsExcludedPaths.Count -gt 0) {
+        @"
+
+Windows Checkout Exclusions:
+$($WindowsExcludedPaths -join [Environment]::NewLine)
+"@ | Add-Content -Path $ReportPath -Encoding UTF8
+    }
 
     if ($Mode -eq "repo-plus" -or $Mode -eq "codespace") {
         Ensure-DevcontainerStarter -WorkspacePath $RuntimeRepoPath
