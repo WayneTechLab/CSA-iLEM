@@ -24,16 +24,22 @@ If you launch PowerShell from somewhere else such as `C:\WINDOWS\system32`, eith
 powershell -ExecutionPolicy Bypass -File H:\WTL-CODE-X\CSA-iEM\install.ps1
 ```
 
-Stable remote install from GitHub:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
-```
-
-Latest remote install from GitHub:
+Latest published `main` install from GitHub:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+```
+
+Latest published `main` update from GitHub:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
+```
+
+Specific release, branch, or commit install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref your-tag-or-branch"
 ```
 
 Local git update:
@@ -61,7 +67,7 @@ csa-iem-update
 Update to a specific version or tag:
 
 ```powershell
-csa-iem-update --ref 0.3.4
+csa-iem-update --ref your-tag-or-branch
 ```
 
 `csa-iem-update` updates from the published GitHub repo. If you are actively working in a newer local checkout that is not pushed yet, use the repo-local installer instead:

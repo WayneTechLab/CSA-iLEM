@@ -98,19 +98,13 @@ Advanced compatibility wrappers still ship:
 
 Use Terminal with `zsh` or `bash`.
 
-Stable public install from any supported Mac terminal:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
-```
-
-Install the latest `main` build:
+Install the latest published `main` build:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
 ```
 
-Update an existing install to the latest `main` build:
+Update an existing install to the latest published `main` build:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
@@ -168,7 +162,7 @@ csa-iem-update
 Update to a specific tag, branch, or commit:
 
 ```bash
-csa-iem-update --ref 0.3.4
+csa-iem-update --ref your-tag-or-branch
 ```
 
 From an installed copy, you can also inspect the shipped remote installer directly:
@@ -188,22 +182,22 @@ cd '/path/to/CSA-iEM'
 
 Use Windows Terminal or PowerShell. Run install commands from an Administrator shell when bootstrapping dependencies or services.
 
-Remote install from GitHub:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
-```
-
-Remote install from `main`:
+Remote install from the latest published `main` build:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
 ```
 
-Remote update:
+Remote update to the latest published `main` build:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
+```
+
+Install a specific release, branch, or commit:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref your-tag-or-branch"
 ```
 
 Local repo install:
@@ -244,7 +238,7 @@ csa-iem-update
 Update to a specific tag or version:
 
 ```powershell
-csa-iem-update --ref 0.3.4
+csa-iem-update --ref your-tag-or-branch
 ```
 
 Important:

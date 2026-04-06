@@ -614,15 +614,16 @@ echo "  csa-iem --version"
 echo "  csa-iem-update --help"
 echo "  CSA-IEM --version"
 echo
-echo "Stable release install from any supported Mac terminal:"
-echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/$APP_VERSION/install-remote.sh | bash -s -- --ref $APP_VERSION"
-echo
-echo "Latest main install or update from any supported Mac terminal:"
+echo "Latest published main install or update from any supported Mac terminal:"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash"
 echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force"
 echo
+echo "Tagged release, branch, or commit install example:"
+echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch"
+echo
 echo "Installed update command:"
 echo "  csa-iem-update"
+echo "  csa-iem-update --ref your-tag-or-branch"
 echo
 echo "Installed remote installer:"
 echo "  $INSTALL_DIR/install-remote.sh --help"

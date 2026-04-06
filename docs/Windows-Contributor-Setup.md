@@ -49,7 +49,7 @@ Update an installed Windows copy from any PowerShell window:
 
 ```powershell
 csa-iem-update
-csa-iem-update --ref 0.3.4
+csa-iem-update --ref your-tag-or-branch
 ```
 
 Browse imported projects with the saved workspace roots:

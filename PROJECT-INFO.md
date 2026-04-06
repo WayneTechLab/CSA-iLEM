@@ -83,26 +83,39 @@ It also reads legacy session paths for compatibility with:
 - `build-gui-app.sh` creates `dist/CSA-iEM.app`
 - `install.sh` installs the terminal and GUI source bundle into `~/.local/share/csa-iem/<version>`
 - `install-remote.sh` lets any supported Mac pull and install the app directly from GitHub with `curl ... | bash`
+- `csa-iem-update` lets installed macOS and Windows copies update from the published GitHub repo without recloning first
 - `csa-iem-build-gui` builds the standalone `.app` from an installed copy
 
 ## Terminal Distribution
 
-Recommended production install path:
+Recommended latest published macOS install path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
 ```
 
-Recommended production update path:
+Recommended latest published macOS update path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
+csa-iem-update
 ```
 
-Recommended Windows 11 admin-shell install path:
+Specific tagged release, branch, or commit install path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
+```
+
+Recommended latest published Windows 11 admin-shell install path:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref 0.3.4"
+powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+```
+
+Recommended latest published Windows 11 update path:
+
+```powershell
+csa-iem-update
 ```
 
 ## Workspace Model

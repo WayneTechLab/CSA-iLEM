@@ -53,16 +53,22 @@ The `.app` bundle includes:
 
 Use Terminal with `zsh` or `bash`.
 
-Stable remote install:
+Latest published `main` install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/0.3.4/install-remote.sh | bash -s -- --ref 0.3.4
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
 ```
 
-Latest remote install:
+Latest published `main` update:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
+```
+
+Specific release, branch, or commit install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
 ```
 
 Local repo install:
@@ -82,6 +88,7 @@ git pull --ff-only origin main
 After reloading the shell profile, macOS Terminal also accepts:
 
 ```bash
+csa-iem-update
 CSA-IEM --version
 CSA-iEM --version
 ```
@@ -91,7 +98,7 @@ CSA-iEM --version
 - run the CLI immediately
 - launch the native SwiftUI app from the installed tree
 - build a standalone `.app` later with `csa-iem-build-gui`
-- rerun the shipped `install-remote.sh` later from the installed copy if needed
+- update later with `csa-iem-update` or rerun the shipped `install-remote.sh` from the installed copy if needed
 - install `@devcontainers/cli` into a user-local npm prefix automatically if the machine blocks system-wide npm global installs
 
 ## Workspace Setup
