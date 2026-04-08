@@ -859,9 +859,13 @@ function Test-CommandExitZero {
 
 function Get-DockerDesktopPath {
     $Candidates = @(
+        (Join-Path $env:ProgramFiles "Docker\Docker\frontend\Docker Desktop.exe"),
         (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Docker\Docker\frontend\Docker Desktop.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "Docker\Docker\Docker Desktop.exe"),
-        (Join-Path $env:LocalAppData "Programs\Docker\Docker\Docker Desktop.exe")
+        (Join-Path $env:LocalAppData "Programs\Docker\Docker\frontend\Docker Desktop.exe"),
+        (Join-Path $env:LocalAppData "Programs\Docker\Docker\Docker Desktop.exe"),
+        (Join-Path $env:LocalAppData "Docker\Docker Desktop.exe")
     ) | Where-Object { $_ }
 
     foreach ($Candidate in $Candidates) {
@@ -876,8 +880,12 @@ function Get-DockerDesktopPath {
 function Start-DockerDesktop {
     $DockerDesktopPath = Get-DockerDesktopPath
     if ($DockerDesktopPath) {
-        Start-Process -FilePath $DockerDesktopPath | Out-Null
-        return $true
+        try {
+            Start-Process -FilePath $DockerDesktopPath -ErrorAction Stop | Out-Null
+            return $true
+        } catch {
+            return $false
+        }
     }
 
     try {
@@ -886,6 +894,28 @@ function Start-DockerDesktop {
     } catch {
         return $false
     }
+}
+
+function Wait-DockerEngineReady {
+    param(
+        [int]$TimeoutSeconds = 90,
+        [int]$PollSeconds = 3
+    )
+
+    if ($TimeoutSeconds -le 0) {
+        return (Test-CommandExitZero -FilePath "docker" -Arguments @("info"))
+    }
+
+    $Deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $Deadline) {
+        if (Test-CommandExitZero -FilePath "docker" -Arguments @("info")) {
+            return $true
+        }
+
+        Start-Sleep -Seconds $PollSeconds
+    }
+
+    return (Test-CommandExitZero -FilePath "docker" -Arguments @("info"))
 }
 
 function Offer-DockerDesktopStartup {
@@ -905,7 +935,13 @@ function Offer-DockerDesktopStartup {
 
     if ($State.Yes -or $State.ImportFullAuto) {
         if (Start-DockerDesktop) {
-            Write-Info "Started Docker Desktop."
+            Write-Info "Started Docker Desktop. Waiting for the engine to come online..."
+            if (Wait-DockerEngineReady -TimeoutSeconds 90) {
+                Write-Info "Docker engine is running."
+                return $true
+            }
+
+            Write-WarnLine "Docker Desktop started, but the engine is not ready yet."
         } else {
             Write-WarnLine "Docker Desktop could not be started automatically."
         }
@@ -921,10 +957,16 @@ function Offer-DockerDesktopStartup {
         return $false
     }
 
-    Write-Info "Docker Desktop is starting. Finish any onboarding, then retry when the engine shows as running."
+    Write-Info "Docker Desktop is starting. Waiting up to 90 seconds for the engine to come online..."
+    if (Wait-DockerEngineReady -TimeoutSeconds 90) {
+        Write-Info "Docker engine is running."
+        return $true
+    }
+
+    Write-WarnLine "Docker Desktop started, but the engine still looks unavailable."
     while ($true) {
         if (Confirm-Action "Retry the Docker engine check now?") {
-            if (Test-CommandExitZero -FilePath "docker" -Arguments @("info")) {
+            if (Wait-DockerEngineReady -TimeoutSeconds 20) {
                 Write-Info "Docker engine is running."
                 return $true
             }

@@ -4,6 +4,7 @@
 
 - repaired Windows imports for repositories that contain Windows-incompatible checkout paths by excluding only the invalid paths instead of failing the whole run
 - fixed the Windows FULL AUTO devcontainer startup check so successful runs no longer produce a false failure warning
+- fixed Windows Docker Desktop startup from `openproj` and other devcontainer entry points by resolving the actual installed Docker Desktop executable path and waiting for the engine to come online before falling back to manual retry prompts
 - added macOS updater command parity by shipping installed `csa-iem-update` and `csa-ilem-update` wrappers on macOS
 - refreshed install, update, and release metadata so the macOS GUI bundle, Windows installer/update help text, and shipped docs all report the `0.3.5` release consistently
 
