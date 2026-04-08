@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5
+
+- repaired Windows imports for repositories that contain Windows-incompatible checkout paths by excluding only the invalid paths instead of failing the whole run
+- fixed the Windows FULL AUTO devcontainer startup check so successful runs no longer produce a false failure warning
+- added macOS updater command parity by shipping installed `csa-iem-update` and `csa-ilem-update` wrappers on macOS
+- refreshed install, update, and release metadata so the macOS GUI bundle, Windows installer/update help text, and shipped docs all report the `0.3.5` release consistently
+
 ## 0.3.4
 
 - improved shell PATH persistence on macOS installs by updating common startup files for `zsh`, `bash`, and generic profile loading

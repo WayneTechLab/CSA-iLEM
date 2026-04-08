@@ -60,7 +60,7 @@ Usage:
   # Windows 11 PowerShell / Windows Terminal
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1
   powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --force
-  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.3.4
+  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.3.5
 "@ | Write-Host
     exit 0
 }

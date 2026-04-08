@@ -1,12 +1,12 @@
 CSA-iEM Disclaimer
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.2.1
+Version: 0.3.5
 Provider: Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
 
 Use at your own risk.
 
-CSA-iEM is a technical automation toolset for macOS Terminal and macOS GUI environments. It can affect local repositories, devcontainers, self-hosted runners, workflow files, packaged app artifacts, and GitHub-related cleanup state.
+CSA-iEM is a technical automation toolset for macOS and Windows 11 environments. It can affect local repositories, devcontainers, self-hosted runners, workflow files, packaged app artifacts, and GitHub-related cleanup state. The native desktop GUI currently ships on macOS; Windows currently ships as a PowerShell-first operational build.
 
 No warranty:
 - The software is provided "AS IS" and "AS AVAILABLE", to the maximum extent permitted by applicable law.

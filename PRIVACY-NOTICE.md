@@ -1,6 +1,6 @@
 CSA-iEM Privacy Notice
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.2.1
+Version: 0.3.5
 Provider: Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
 
@@ -11,13 +11,13 @@ Important:
 
 1. Local-First Operation
 
-CSA-iEM primarily operates on the local Mac where it is run. It can read and write local filesystem paths in order to:
+CSA-iEM primarily operates on the local machine where it is run. It can read and write local filesystem paths in order to:
 - clone and update repositories
 - create runtime workspaces
 - create reports, backups, scripts, and runner folders
 - create or inspect devcontainer files
 - install and manage local self-hosted runner services
-- build and package a local macOS app bundle
+- build and package a local macOS app bundle where supported
 
 2. Local Paths And Artifacts
 
@@ -28,6 +28,7 @@ Depending on the selected edition and actions taken, CSA-iEM may write to:
 - ~/.local/bin/
 - ~/Library/LaunchAgents/
 - ~/Library/Logs/
+- %LOCALAPPDATA%\CSA-iEM\
 - build output such as .build/ and dist/
 
 3. Network Activity

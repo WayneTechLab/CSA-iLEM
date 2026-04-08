@@ -1,7 +1,7 @@
 # CSA-iEM Status
 
-Version baseline: `0.3.4`
-Updated: `2026-04-04`
+Version baseline: `0.3.5`
+Updated: `2026-04-08`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
@@ -27,7 +27,7 @@ These major product areas are built into the app now:
 
 ## Is Done
 
-These items are currently tracked as working in the repo at the `0.3.4` baseline:
+These items are currently tracked as working in the repo at the `0.3.5` baseline:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`

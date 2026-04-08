@@ -1,6 +1,6 @@
 CSA-iEM Terms of Service
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.2.1
+Version: 0.3.5
 Provider: Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
 
@@ -15,7 +15,7 @@ By installing, running, copying, or distributing CSA-iEM, you agree to these Ter
 
 2. Software Scope
 
-CSA-iEM is a macOS toolset, including a command-line workflow and a SwiftUI GUI control center, intended to help technical users:
+CSA-iEM is a cross-platform toolset, including a Windows 11 PowerShell workflow and, on macOS, a command-line workflow plus a SwiftUI GUI control center, intended to help technical users:
 - clone and update repositories
 - prepare local development workspaces
 - create or test devcontainers
@@ -48,7 +48,7 @@ CSA-iEM depends on or interoperates with third-party software and services, incl
 
 CSA-iEM is provided on an "AS IS" and "AS AVAILABLE" basis, to the maximum extent permitted by applicable law. Wayne Tech Lab LLC does not guarantee:
 - uninterrupted operation
-- compatibility with every macOS version or hardware setup
+- compatibility with every macOS version, Windows 11 setup, or hardware environment
 - suitability for any specific business, regulatory, production, or safety-critical use case
 - error-free operation
 - preservation of data, repository state, or service availability
@@ -61,7 +61,7 @@ You acknowledge that CSA-iEM may:
 - create or start containers
 - install or register self-hosted runners
 - alter workflow configuration
-- build and launch a local macOS app bundle
+- build and launch a local macOS app bundle where supported
 - trigger cleanup or deletion behavior when directed by the user
 
 You assume all risk associated with these actions.
