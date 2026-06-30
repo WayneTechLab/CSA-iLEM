@@ -36,9 +36,6 @@ FILES=(
   "update-win.ps1"
   "uninstall.ps1"
   "CSA-iLEM.sh"
-  "CSA-iLEM-Public.sh"
-  "CSA-iLEM-WTL.sh"
-  "CSA-iLEM-Diamond.sh"
   "CSA-iLEM-Open.sh"
   "build-gui-app.sh"
   "run-gui.sh"
@@ -47,17 +44,11 @@ FILES=(
   "csa-iem-build-gui"
   "csa-iem"
   "csa-iem-update"
-  "csa-iem-public"
-  "csa-iem-wtl"
-  "csa-iem-diamond"
   "csa-iem-open"
   "csa-ilem-gui"
   "csa-ilem-build-gui"
   "csa-ilem"
   "csa-ilem-update"
-  "csa-ilem-public"
-  "csa-ilem-wtl"
-  "csa-ilem-diamond"
   "csa-ilem-open"
   "install.sh"
   "uninstall.sh"
@@ -72,17 +63,11 @@ DIRS=(
 COMMANDS=(
   "csa-iem"
   "csa-iem-update"
-  "csa-iem-public"
-  "csa-iem-wtl"
-  "csa-iem-diamond"
   "csa-iem-open"
   "csa-iem-gui"
   "csa-iem-build-gui"
   "csa-ilem"
   "csa-ilem-update"
-  "csa-ilem-public"
-  "csa-ilem-wtl"
-  "csa-ilem-diamond"
   "csa-ilem-open"
   "csa-ilem-gui"
   "csa-ilem-build-gui"
@@ -545,9 +530,6 @@ done
 
 chmod +x \
   "$INSTALL_DIR/CSA-iLEM.sh" \
-  "$INSTALL_DIR/CSA-iLEM-Public.sh" \
-  "$INSTALL_DIR/CSA-iLEM-WTL.sh" \
-  "$INSTALL_DIR/CSA-iLEM-Diamond.sh" \
   "$INSTALL_DIR/CSA-iLEM-Open.sh" \
   "$INSTALL_DIR/build-gui-app.sh" \
   "$INSTALL_DIR/run-gui.sh" \
@@ -556,17 +538,11 @@ chmod +x \
   "$INSTALL_DIR/csa-iem-build-gui" \
   "$INSTALL_DIR/csa-iem" \
   "$INSTALL_DIR/csa-iem-update" \
-  "$INSTALL_DIR/csa-iem-public" \
-  "$INSTALL_DIR/csa-iem-wtl" \
-  "$INSTALL_DIR/csa-iem-diamond" \
   "$INSTALL_DIR/csa-iem-open" \
   "$INSTALL_DIR/csa-ilem-gui" \
   "$INSTALL_DIR/csa-ilem-build-gui" \
   "$INSTALL_DIR/csa-ilem" \
   "$INSTALL_DIR/csa-ilem-update" \
-  "$INSTALL_DIR/csa-ilem-public" \
-  "$INSTALL_DIR/csa-ilem-wtl" \
-  "$INSTALL_DIR/csa-ilem-diamond" \
   "$INSTALL_DIR/csa-ilem-open" \
   "$INSTALL_DIR/install-remote.sh" \
   "$INSTALL_DIR/install.sh" \
@@ -605,8 +581,7 @@ printf '  %s\n' "csa-iem" "csa-iem-update" "csa-iem-gui" "csa-iem-build-gui" "cs
 echo
 echo "Advanced compatibility commands:"
 printf '  %s\n' \
-  "csa-iem-public" "csa-iem-wtl" "csa-iem-diamond" \
-  "csa-ilem" "csa-ilem-update" "csa-ilem-public" "csa-ilem-wtl" "csa-ilem-diamond" \
+  "csa-ilem" "csa-ilem-update" \
   "csa-ilem-open" "csa-ilem-gui" "csa-ilem-build-gui"
 echo
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then

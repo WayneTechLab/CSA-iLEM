@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.3.6`
+Version: `0.3.7`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -42,7 +42,7 @@ Recommended local checkout update:
 Windows 11 PowerShell or Windows Terminal:
 
 ```powershell
-cd H:\WTL-CODE-X\CSA-iEM
+cd C:\Code\CSA-iEM
 git switch main
 git pull --ff-only origin main
 ```
@@ -80,18 +80,9 @@ Core scripts:
 - [`run-gui.sh`](./run-gui.sh)
 - [`build-gui-app.sh`](./build-gui-app.sh)
 
-Advanced compatibility wrappers still ship:
-- [`csa-iem-public`](./csa-iem-public)
-- [`csa-iem-wtl`](./csa-iem-wtl)
-- [`csa-iem-diamond`](./csa-iem-diamond)
-- [`CSA-iLEM-Public.sh`](./CSA-iLEM-Public.sh)
-- [`CSA-iLEM-WTL.sh`](./CSA-iLEM-WTL.sh)
-- [`CSA-iLEM-Diamond.sh`](./CSA-iLEM-Diamond.sh)
+Compatibility wrappers still ship for older installed commands:
 - [`csa-ilem`](./csa-ilem)
 - [`csa-ilem-update`](./csa-ilem-update)
-- [`csa-ilem-public`](./csa-ilem-public)
-- [`csa-ilem-wtl`](./csa-ilem-wtl)
-- [`csa-ilem-diamond`](./csa-ilem-diamond)
 - [`csa-ilem-open`](./csa-ilem-open)
 - [`csa-ilem-gui`](./csa-ilem-gui)
 - [`csa-ilem-build-gui`](./csa-ilem-build-gui)
@@ -210,14 +201,14 @@ powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.c
 Local repo install:
 
 ```powershell
-cd H:\WTL-CODE-X\CSA-iEM
+cd C:\Code\CSA-iEM
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 If you are not already in the repo root, use the absolute path instead:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File H:\WTL-CODE-X\CSA-iEM\install.ps1
+powershell -ExecutionPolicy Bypass -File C:\Code\CSA-iEM\install.ps1
 ```
 
 The Windows installer:
@@ -257,7 +248,7 @@ Important:
 Windows local checkout refresh:
 
 ```powershell
-cd H:\WTL-CODE-X\CSA-iEM
+cd C:\Code\CSA-iEM
 git switch main
 git pull --ff-only origin main
 powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
@@ -366,14 +357,12 @@ Standard public workspace roots:
 - import root: `~/CSA-iEM/Import`
 - runtime root: `~/CSA-iEM/Runtime`
 
-Current-machine auto-detection:
-- if the app finds an existing custom external-drive setup on your Mac, it offers that as a detected workspace migration suggestion
-- this keeps custom layouts working without requiring end users to understand legacy preset names
-
-Advanced CLI compatibility:
-- the CLI still supports the older `public`, `wtl`, and `diamond` profile names for compatibility
+Workspace modes:
+- `Default` uses `~/CSA-iEM/Code`, `~/CSA-iEM/Import`, and `~/CSA-iEM/Runtime`
+- `Custom` lets you enter explicit Code, Import, and Runtime roots
+- `--auto-mode` uses Default mode and current saved roots without stopping for workspace prompts
 - `--single-root PATH` still works as a compatibility alias and expands to `Code`, `Import`, and `Runtime` under that base path
-- the GUI now presents explicit `Code`, `Import`, and `Runtime` paths with `Use Standard` and `Use Detected Setup`
+- the GUI presents explicit `Code`, `Import`, and `Runtime` paths with `Auto Mode`, `Use Standard`, and `Save Workspace`
 
 ## Main CLI Modes
 
@@ -421,10 +410,10 @@ csa-iem --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts -
 csa-iem --host github.com --account USER --repo https://github.com/OWNER/REPO --delete-runs --run-filter "release" --yes
 ```
 
-Advanced compatibility example for an existing split-workspace install:
+Default auto-mode example:
 
 ```bash
-csa-iem --profile diamond --repo OWNER/REPO --dry-run --yes
+csa-iem --auto-mode --repo OWNER/REPO --dry-run --yes
 ```
 
 ## Browser And Open Flows

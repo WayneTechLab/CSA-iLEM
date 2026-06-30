@@ -51,10 +51,6 @@ private let publicDefaultRoot = NSString(string: "~/CSA-iEM").expandingTildeInPa
 private let publicDefaultCodeRoot = (publicDefaultRoot as NSString).appendingPathComponent("Code")
 private let publicDefaultImportRoot = (publicDefaultRoot as NSString).appendingPathComponent("Import")
 private let publicDefaultRuntimeRoot = (publicDefaultRoot as NSString).appendingPathComponent("Runtime")
-private let wtlDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
-private let diamondCodeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
-private let diamondRuntimeDefaultRoot = "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
-private let diamondImportDefaultRoot = (diamondRuntimeDefaultRoot as NSString).appendingPathComponent("Import")
 private let configBaseDir = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
   ?? NSString(string: "~/.config").expandingTildeInPath
 private let profileConfigDir = (configBaseDir as NSString).appendingPathComponent("csa-iem")
@@ -112,9 +108,8 @@ enum LaunchProfile: String, CaseIterable, Identifiable {
 
   var label: String {
     switch self {
-    case .diamond: return "Diamond"
-    case .wtl: return "WTL"
-    case .public: return "Public"
+    case .diamond, .wtl: return "Custom"
+    case .public: return "Default"
     }
   }
 }
@@ -137,7 +132,7 @@ enum WorkspaceStyle: String, CaseIterable, Identifiable {
     case .single:
       return "Legacy layout where code and runtime still share one root."
     case .split:
-      return "Public three-root layout for code, import staging, and runtime."
+      return "Default three-root layout for code, import staging, and runtime."
     }
   }
 }
@@ -1371,7 +1366,7 @@ final class CleanupViewModel: ObservableObject {
       profile: .public,
       style: .split,
       title: "Standard local workspace",
-      detail: "Best default for public use. Keep code, import staging, and runtime state in three clear folders under your home directory.",
+      detail: "Best default for local use. Keep code, import staging, and runtime state in three clear folders under your home directory.",
       codeRoot: publicDefaultCodeRoot,
       importRoot: publicDefaultImportRoot,
       runtimeRoot: publicDefaultRuntimeRoot
@@ -1553,6 +1548,14 @@ final class CleanupViewModel: ObservableObject {
   func applyStandardWorkspace() {
     let suggestion = standardWorkspaceSuggestion
     applyWorkspaceSuggestion(suggestion)
+  }
+
+  func enableAutoMode() {
+    selectedProfile = .public
+    useCurrentRoot = true
+    syncWorkspaceDraftsFromResolvedRoots()
+    refreshOperatorState()
+    settingsStatus = "Auto mode is using the Default workspace and current saved roots."
   }
 
   func applyDetectedWorkspace() {
@@ -2286,7 +2289,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func profileArguments() -> [String] {
-    var args = ["--profile", selectedProfile.rawValue]
+    let profileName = selectedProfile == .public ? "default" : "custom"
+    var args = ["--profile", profileName]
     if useCurrentRoot {
       args.append("--use-current-root")
     }
@@ -4257,61 +4261,16 @@ final class CleanupViewModel: ObservableObject {
       )
     }
 
-    let savedPublicRoot = normalizeWorkspacePath(publicValues["SAVED_DEFAULT_ROOT"] ?? "")
-    if !savedPublicRoot.isEmpty {
+    let savedDefaultRoot = normalizeWorkspacePath(publicValues["SAVED_DEFAULT_ROOT"] ?? "")
+    if !savedDefaultRoot.isEmpty {
       return WorkspaceSuggestion(
         profile: .public,
         style: .split,
         title: "Saved workspace setup",
-        detail: "Using a legacy public workspace and mapping it into Code / Import / Runtime roots for compatibility.",
-        codeRoot: savedPublicRoot,
-        importRoot: (savedPublicRoot as NSString).appendingPathComponent("Import"),
-        runtimeRoot: savedPublicRoot
-      )
-    }
-
-    let diamondValues = loadProfileConfigValues(profile: .diamond)
-    let savedCodeRoot = normalizeWorkspacePath(diamondValues["SAVED_CODE_ROOT"] ?? "")
-    let savedImportRoot = normalizeWorkspacePath(diamondValues["SAVED_IMPORT_ROOT"] ?? "")
-    let savedRuntimeRoot = normalizeWorkspacePath(diamondValues["SAVED_RUNTIME_ROOT"] ?? "")
-    if !savedCodeRoot.isEmpty, !savedRuntimeRoot.isEmpty {
-      return WorkspaceSuggestion(
-        profile: .diamond,
-        style: .split,
-        title: "Saved workspace setup",
-        detail: "Using the migrated external-drive workspace you already configured on this Mac.",
-        codeRoot: savedCodeRoot,
-        importRoot: savedImportRoot.isEmpty ? (savedRuntimeRoot as NSString).appendingPathComponent("Import") : savedImportRoot,
-        runtimeRoot: savedRuntimeRoot
-      )
-    }
-
-    let wtlValues = loadProfileConfigValues(profile: .wtl)
-    let savedLegacyCodeRoot = normalizeWorkspacePath(wtlValues["SAVED_CODE_ROOT"] ?? "")
-    let savedLegacyImportRoot = normalizeWorkspacePath(wtlValues["SAVED_IMPORT_ROOT"] ?? "")
-    let savedLegacyRuntimeRoot = normalizeWorkspacePath(wtlValues["SAVED_RUNTIME_ROOT"] ?? "")
-    if !savedLegacyCodeRoot.isEmpty, !savedLegacyRuntimeRoot.isEmpty {
-      return WorkspaceSuggestion(
-        profile: .wtl,
-        style: .single,
-        title: "Saved workspace setup",
-        detail: "Using a migrated legacy WTL workspace with explicit Code / Import / Runtime roots.",
-        codeRoot: savedLegacyCodeRoot,
-        importRoot: savedLegacyImportRoot.isEmpty ? (savedLegacyRuntimeRoot as NSString).appendingPathComponent("Import") : savedLegacyImportRoot,
-        runtimeRoot: savedLegacyRuntimeRoot
-      )
-    }
-
-    let savedLegacyRoot = normalizeWorkspacePath(wtlValues["SAVED_DEFAULT_ROOT"] ?? "")
-    if !savedLegacyRoot.isEmpty {
-      return WorkspaceSuggestion(
-        profile: .wtl,
-        style: .single,
-        title: "Saved workspace setup",
-        detail: "Using a legacy single-folder setup detected from an earlier build.",
-        codeRoot: savedLegacyRoot,
-        importRoot: (savedLegacyRoot as NSString).appendingPathComponent("Import"),
-        runtimeRoot: savedLegacyRoot
+        detail: "Using a legacy default workspace and mapping it into Code / Import / Runtime roots for compatibility.",
+        codeRoot: savedDefaultRoot,
+        importRoot: (savedDefaultRoot as NSString).appendingPathComponent("Import"),
+        runtimeRoot: savedDefaultRoot
       )
     }
 
@@ -4319,35 +4278,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func detectedWorkspaceConfiguration() -> WorkspaceSuggestion? {
-    let fm = FileManager.default
-
     if let saved = savedWorkspaceConfiguration() {
       return saved
-    }
-
-    let hasLegacySplit = fm.fileExists(atPath: diamondCodeDefaultRoot) && fm.fileExists(atPath: diamondRuntimeDefaultRoot)
-    if hasLegacySplit {
-      return WorkspaceSuggestion(
-        profile: .diamond,
-        style: .split,
-        title: "Detected current Mac setup",
-        detail: "The app found your existing external-drive code and runtime folders and can use them automatically as a migrated Code / Import / Runtime workspace.",
-        codeRoot: diamondCodeDefaultRoot,
-        importRoot: diamondImportDefaultRoot,
-        runtimeRoot: diamondRuntimeDefaultRoot
-      )
-    }
-
-    if fm.fileExists(atPath: wtlDefaultRoot) {
-      return WorkspaceSuggestion(
-        profile: .wtl,
-        style: .single,
-        title: "Detected current Mac setup",
-        detail: "The app found your existing external-drive workspace and can use it automatically as a migrated legacy setup.",
-        codeRoot: wtlDefaultRoot,
-        importRoot: (wtlDefaultRoot as NSString).appendingPathComponent("Import"),
-        runtimeRoot: wtlDefaultRoot
-      )
     }
 
     return nil
@@ -4356,16 +4288,6 @@ final class CleanupViewModel: ObservableObject {
   private func adoptDetectedWorkspaceIfNeeded() {
     if let saved = savedWorkspaceConfiguration() {
       selectedProfile = saved.profile
-      return
-    }
-
-    guard appSettings.preferDetectedWorkspace else {
-      selectedProfile = .public
-      return
-    }
-
-    if let detected = detectedWorkspaceConfiguration() {
-      selectedProfile = detected.profile
       return
     }
 
@@ -4391,25 +4313,8 @@ final class CleanupViewModel: ObservableObject {
         useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? fallbackRuntimeRoot) : publicDefaultRuntimeRoot
       )
       return (codeRoot, importRoot, runtimeRoot)
-    case .wtl:
-      let legacyRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_DEFAULT_ROOT"] ?? wtlDefaultRoot) : wtlDefaultRoot)
-      let codeRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? legacyRoot) : wtlDefaultRoot)
-      let importRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_IMPORT_ROOT"] ?? (legacyRoot as NSString).appendingPathComponent("Import")) : (wtlDefaultRoot as NSString).appendingPathComponent("Import")
-      )
-      let runtimeRoot = normalizeWorkspacePath(useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? legacyRoot) : wtlDefaultRoot)
-      return (codeRoot, importRoot, runtimeRoot)
-    case .diamond:
-      let codeRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_CODE_ROOT"] ?? diamondCodeDefaultRoot) : diamondCodeDefaultRoot
-      )
-      let importRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_IMPORT_ROOT"] ?? diamondImportDefaultRoot) : diamondImportDefaultRoot
-      )
-      let runtimeRoot = normalizeWorkspacePath(
-        useCurrentRoot ? (values["SAVED_RUNTIME_ROOT"] ?? diamondRuntimeDefaultRoot) : diamondRuntimeDefaultRoot
-      )
-      return (codeRoot, importRoot, runtimeRoot)
+    case .wtl, .diamond:
+      return (publicDefaultCodeRoot, publicDefaultImportRoot, publicDefaultRuntimeRoot)
     }
   }
 
@@ -8537,6 +8442,11 @@ struct ContentView: View {
       }
 
       HStack(spacing: 10) {
+        Button("Auto Mode") {
+          model.enableAutoMode()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
         Button("Use Standard") {
           model.applyStandardWorkspace()
         }

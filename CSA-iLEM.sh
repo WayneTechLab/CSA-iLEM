@@ -33,11 +33,6 @@ PUBLIC_DEFAULT_ROOT="$HOME/CSA-iEM"
 PUBLIC_DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_ROOT/Code"
 PUBLIC_DEFAULT_IMPORT_ROOT="$PUBLIC_DEFAULT_ROOT/Import"
 PUBLIC_DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_ROOT/Runtime"
-WTL_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
-DIAMOND_CODE_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH"
-DIAMOND_IMPORT_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH/Import"
-DIAMOND_RUNTIME_DEFAULT_ROOT="/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
-PUBLIC_CUSTOM_EXAMPLE_ROOT="$WTL_DEFAULT_ROOT"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-iem"
 LEGACY_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/csa-ilem"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/CSA-iEM"
@@ -282,15 +277,25 @@ EOF
 load_profile_config() {
   local config_file=""
   local legacy_file=""
+  local public_config_file=""
+  local legacy_public_file=""
 
   config_file="$(profile_config_file)"
   legacy_file="$(legacy_profile_config_file)"
+  public_config_file="$CONFIG_DIR/public.env"
+  legacy_public_file="$LEGACY_CONFIG_DIR/public.env"
   if [[ -f "$config_file" ]]; then
     # shellcheck disable=SC1090
     . "$config_file"
   elif [[ -f "$legacy_file" ]]; then
     # shellcheck disable=SC1090
     . "$legacy_file"
+  elif [[ "$PROFILE_NAME" == "default" && -f "$public_config_file" ]]; then
+    # shellcheck disable=SC1090
+    . "$public_config_file"
+  elif [[ "$PROFILE_NAME" == "default" && -f "$legacy_public_file" ]]; then
+    # shellcheck disable=SC1090
+    . "$legacy_public_file"
   fi
 }
 
@@ -324,6 +329,20 @@ load_last_session() {
   done < "$source_file"
 }
 
+normalize_profile_name() {
+  case "${1:-default}" in
+    ""|default|public)
+      printf 'default\n'
+      ;;
+    custom|wtl|diamond)
+      printf 'custom\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 save_last_session() {
   local previous_umask=""
 
@@ -343,30 +362,27 @@ EOF
 }
 
 set_profile_defaults() {
+  PROFILE_NAME="$(normalize_profile_name "$PROFILE_NAME")" || {
+    err "Unknown profile: $PROFILE_NAME"
+    exit 1
+  }
+
   case "$PROFILE_NAME" in
-    public)
-      PROFILE_LABEL="Public"
+    default)
+      PROFILE_LABEL="Default"
       STORAGE_LAYOUT="split"
       DEFAULT_ROOT="$PUBLIC_DEFAULT_ROOT"
       DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_CODE_ROOT"
       DEFAULT_IMPORT_ROOT="$PUBLIC_DEFAULT_IMPORT_ROOT"
       DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_RUNTIME_ROOT"
       ;;
-    wtl)
-      PROFILE_LABEL="WTL"
-      STORAGE_LAYOUT="single"
-      DEFAULT_ROOT="$WTL_DEFAULT_ROOT"
-      DEFAULT_CODE_ROOT="$WTL_DEFAULT_ROOT"
-      DEFAULT_IMPORT_ROOT="$WTL_DEFAULT_ROOT/Import"
-      DEFAULT_RUNTIME_ROOT="$WTL_DEFAULT_ROOT"
-      ;;
-    diamond)
-      PROFILE_LABEL="Diamond"
+    custom)
+      PROFILE_LABEL="Custom"
       STORAGE_LAYOUT="split"
-      DEFAULT_CODE_ROOT="$DIAMOND_CODE_DEFAULT_ROOT"
-      DEFAULT_IMPORT_ROOT="$DIAMOND_IMPORT_DEFAULT_ROOT"
-      DEFAULT_RUNTIME_ROOT="$DIAMOND_RUNTIME_DEFAULT_ROOT"
-      DEFAULT_ROOT="$DIAMOND_RUNTIME_DEFAULT_ROOT"
+      DEFAULT_ROOT="$PUBLIC_DEFAULT_ROOT"
+      DEFAULT_CODE_ROOT="$PUBLIC_DEFAULT_CODE_ROOT"
+      DEFAULT_IMPORT_ROOT="$PUBLIC_DEFAULT_IMPORT_ROOT"
+      DEFAULT_RUNTIME_ROOT="$PUBLIC_DEFAULT_RUNTIME_ROOT"
       ;;
     *)
       err "Unknown profile: $PROFILE_NAME"
@@ -388,18 +404,16 @@ select_profile() {
 
   echo
   print_line
-  echo "$APP_NAME Edition"
+  echo "$APP_NAME Workspace Mode"
   print_line
-  echo "1) Public"
-  echo "2) WTL"
-  echo "3) Diamond"
+  echo "1) Default"
+  echo "2) Custom"
   echo
-  read -r -p "Enter choice [1-3]: " choice
+  read -r -p "Enter choice [1-2] (Enter = 1): " choice
 
   case "$choice" in
-    1) PROFILE_NAME="public" ;;
-    2) PROFILE_NAME="wtl" ;;
-    3) PROFILE_NAME="diamond" ;;
+    ""|1) PROFILE_NAME="default" ;;
+    2) PROFILE_NAME="custom" ;;
     *)
       err "Invalid choice."
       exit 1
@@ -917,9 +931,8 @@ Usage:
   $(basename "$0") --terms
   $(basename "$0") --privacy
   $(basename "$0") --disclaimer
-  $(basename "$0") --profile public
-  $(basename "$0") --profile wtl
-  $(basename "$0") --profile diamond
+  $(basename "$0") --profile default
+  $(basename "$0") --profile custom
   $(basename "$0") --browse
   $(basename "$0") --browse-projects
   $(basename "$0") --browse --use-current-root
@@ -928,17 +941,17 @@ Usage:
   $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
-  $(basename "$0") --profile public --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
-  $(basename "$0") --profile public --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
+  $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
+  $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
   $(basename "$0") --repo OWNER/REPO --all --yes
-  $(basename "$0") --profile public --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
+  $(basename "$0") --profile default --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
   $(basename "$0") --repo https://github.com/OWNER/REPO --delete-runs --run https://github.com/OWNER/REPO/actions/runs/123456789 --yes
   $(basename "$0") --host github.com --account USER --repo OWNER/REPO --delete-runs --run-filter "release" --dry-run --yes
 
 What it does:
   - Scans the current machine before any install prompts
   - Checks for required Mac tooling
-  - Supports a public three-root workspace plus legacy WTL and Diamond profiles
+  - Supports Default and Custom three-root workspaces
   - Selects an authenticated GitHub host and account
   - Saves default Code / Import / Runtime roots per profile for next time
   - Explains the workspace/root layout, saved paths, and storage behavior from the root menu
@@ -990,49 +1003,30 @@ Direct import flags:
   --code-root PATH
   --import-root PATH
   --runtime-root PATH
+  --auto-mode
 
 Built-in default roots:
-  Public code: $PUBLIC_DEFAULT_CODE_ROOT
-  Public import: $PUBLIC_DEFAULT_IMPORT_ROOT
-  Public runtime: $PUBLIC_DEFAULT_RUNTIME_ROOT
-  WTL: $WTL_DEFAULT_ROOT
-  Diamond code: $DIAMOND_CODE_DEFAULT_ROOT
-  Diamond import: $DIAMOND_IMPORT_DEFAULT_ROOT
-  Diamond runtime: $DIAMOND_RUNTIME_DEFAULT_ROOT
+  Default code: $PUBLIC_DEFAULT_CODE_ROOT
+  Default import: $PUBLIC_DEFAULT_IMPORT_ROOT
+  Default runtime: $PUBLIC_DEFAULT_RUNTIME_ROOT
 
 Wrapper scripts:
   install.sh
   uninstall.sh
   run-gui.sh
   build-gui-app.sh
-  CSA-iLEM-Public.sh
-  CSA-iLEM-WTL.sh
-  CSA-iLEM-Diamond.sh
   CSA-iLEM-Open.sh
   openproj
   csa-iem
-  csa-iem-public
-  csa-iem-wtl
-  csa-iem-diamond
   csa-iem-open
   csa-iem-gui
   csa-iem-build-gui
   csa-ilem
-  csa-ilem-public
-  csa-ilem-wtl
-  csa-ilem-diamond
   csa-ilem-open
   csa-ilem-gui
   csa-ilem-build-gui
 
 Folders created:
-  Single-root editions:
-    Repos/
-    Import/Repos/
-    Reports/
-    Backups/
-    Runners/
-    Scripts/
   Separate code root:
     Repos/
   Separate import root:
@@ -1497,7 +1491,7 @@ apply_single_root_layout() {
   mkdir -p "$REPOS_DIR" "$IMPORT_REPOS_DIR" "$REPORTS_DIR" "$BACKUPS_DIR" "$RUNNERS_DIR" "$SCRIPTS_DIR"
 }
 
-apply_diamond_root_layout() {
+apply_split_root_layout() {
   CODE_ROOT="$1"
   IMPORT_ROOT="$2"
   RUNTIME_ROOT="$3"
@@ -1516,7 +1510,7 @@ apply_diamond_root_layout() {
 
 apply_root_layout() {
   if workspace_uses_separate_roots; then
-    apply_diamond_root_layout "$1" "$2" "$3"
+    apply_split_root_layout "$1" "$2" "$3"
   else
     apply_single_root_layout "$1"
   fi
@@ -1594,10 +1588,6 @@ prompt_custom_root_value() {
   local custom_value=""
   local prompt_label="$2"
 
-  if [[ "$PROFILE_NAME" == "public" ]] && confirm "Use example custom root ($PUBLIC_CUSTOM_EXAMPLE_ROOT) as the starting value?"; then
-    fallback_default="$PUBLIC_CUSTOM_EXAMPLE_ROOT"
-  fi
-
   custom_value="$(prompt_nonempty "$prompt_label" "$fallback_default")"
   printf '%s' "$custom_value"
 }
@@ -1657,7 +1647,7 @@ choose_root() {
   print_line
   echo "Workspace Root"
   print_line
-  printf 'Edition: %s\n' "$PROFILE_LABEL"
+  printf 'Mode: %s\n' "$PROFILE_LABEL"
   if workspace_uses_separate_roots; then
     printf 'Built-in code root: %s\n' "$DEFAULT_CODE_ROOT"
     printf 'Built-in import root: %s\n' "$DEFAULT_IMPORT_ROOT"
@@ -1726,7 +1716,7 @@ choose_root() {
           save_profile_config
           apply_root_layout "$custom_root"
         fi
-        info "Saved the default root for the $PROFILE_LABEL edition."
+        info "Saved the default root for $PROFILE_LABEL mode."
         break
         ;;
       3)
@@ -1757,7 +1747,7 @@ choose_root() {
           save_profile_config
           apply_root_layout "$built_in_default"
         fi
-        info "Reset the saved default root for the $PROFILE_LABEL edition."
+        info "Reset the saved default root for $PROFILE_LABEL mode."
         break
         ;;
       5)
@@ -5461,7 +5451,7 @@ parse_cli_args() {
       --profile)
         shift
         if [[ "$#" -eq 0 ]]; then
-          err "--profile requires a value of public, wtl, or diamond."
+          err "--profile requires a value of default or custom."
           exit 1
         fi
         PROFILE_NAME="$1"
@@ -5616,6 +5606,10 @@ parse_cli_args() {
       --use-current-root)
         AUTO_USE_CURRENT_ROOT=1
         ;;
+      --auto-mode)
+        PROFILE_NAME="default"
+        AUTO_USE_CURRENT_ROOT=1
+        ;;
       --single-root)
         shift
         if [[ "$#" -eq 0 ]]; then
@@ -5685,10 +5679,10 @@ parse_cli_args() {
   fi
 
   if [[ "$DIRECT_IMPORT_MODE" -eq 1 ]]; then
-    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="public"
+    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="default"
     AUTO_USE_CURRENT_ROOT=1
   elif [[ "$DIRECT_CLEANUP_MODE" -eq 1 ]]; then
-    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="public"
+    [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="default"
     AUTO_USE_CURRENT_ROOT=1
   fi
 }
@@ -5710,7 +5704,7 @@ main() {
 
   show_preflight_scan
   select_profile
-  info "Using the $PROFILE_LABEL edition."
+  info "Using $PROFILE_LABEL mode."
 
   if [[ "$ENTRY_MODE" == "interactive" || "$DIRECT_CLEANUP_MODE" -eq 1 || "$DIRECT_IMPORT_MODE" -eq 1 ]]; then
     install_brew_if_missing
@@ -5775,7 +5769,7 @@ main() {
   print_line
   echo "All done"
   print_line
-  printf 'Edition: %s\n' "$PROFILE_LABEL"
+  printf 'Mode: %s\n' "$PROFILE_LABEL"
   if workspace_uses_separate_roots; then
     printf 'Code root: %s\n' "$CODE_ROOT"
     printf 'Import root: %s\n' "$IMPORT_ROOT"

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7
+
+- simplified workspace selection to Default and Custom modes and removed WTL/Diamond/Public presets from the active install and user-facing help
+- fixed `openproj` so stale Diamond/WTL config can no longer force inaccessible external-volume roots
+- added CLI `--auto-mode` and a GUI Auto Mode action for using the Default workspace/current roots without extra workspace prompts
+
 ## 0.3.6
 
 - added a native macOS menu-bar toolbar for opening CSA-iEM, launching the CLI/project browser, inspecting loaded workspace roots, and controlling local GitHub Actions runner services
