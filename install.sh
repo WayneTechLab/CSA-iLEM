@@ -11,7 +11,7 @@ BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
 INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
-FORCE_INSTALL=0
+FORCE_INSTALL=1
 BOOTSTRAP_DEPS=1
 
 FILES=(
@@ -31,6 +31,7 @@ FILES=(
   "install-remote.sh"
   "CSA-iEM.ps1"
   "install.ps1"
+  "csa-iem-tray.ps1"
   "install-remote.ps1"
   "update-win.ps1"
   "uninstall.ps1"
@@ -114,6 +115,10 @@ Usage:
 Defaults:
   install root: $INSTALL_ROOT
   bin dir: $BIN_DIR
+
+Install behavior:
+  Installs and updates replace the target version by default, update the
+  current symlink, and remove older version folders from the install root.
 
 Cross-platform note:
   Windows 11 admin-shell installers also ship in this repo:
@@ -568,6 +573,11 @@ chmod +x \
   "$INSTALL_DIR/uninstall.sh"
 
 ln -sfn "$INSTALL_DIR" "$INSTALL_ROOT/current"
+
+find "$INSTALL_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  ! -name "$APP_VERSION" \
+  ! -name "npm" \
+  -exec rm -rf {} +
 
 for command_name in "${COMMANDS[@]}"; do
   ln -sfn "$INSTALL_DIR/$command_name" "$BIN_DIR/$command_name"

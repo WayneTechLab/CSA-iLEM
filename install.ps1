@@ -10,7 +10,7 @@ $AppUrl = "https://www.WayneTechLab.com"
 
 $InstallRoot = Join-Path $env:LOCALAPPDATA "CSA-iEM"
 $BinDir = Join-Path $InstallRoot "bin"
-$ForceInstall = $false
+$ForceInstall = $true
 $BootstrapDeps = $true
 $UpdatePath = $true
 $ShowHelp = $false
@@ -54,6 +54,10 @@ Usage:
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --no-deps
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --install-root C:\Tools\CSA-iEM --bin-dir C:\Tools\CSA-iEM\bin
+
+Install behavior:
+  Installs and updates replace the target version by default, update current.txt,
+  and remove older version folders from the install root while keeping bin.
 "@ | Write-Host
     exit 0
 }
@@ -159,6 +163,7 @@ function Copy-InstallTree {
         "PROJECT-INFO.md",
         "SHA256SUMS",
         "CSA-iEM.ps1",
+        "csa-iem-tray.ps1",
         "install.ps1",
         "install-remote.ps1",
         "update-win.ps1",
@@ -235,15 +240,21 @@ if (Test-Path $InstallDir) {
 Copy-InstallTree -SourceRoot $ScriptDir -DestinationRoot $InstallDir
 
 $CliScriptPath = Join-Path $InstallDir "CSA-iEM.ps1"
+$TrayScriptPath = Join-Path $InstallDir "csa-iem-tray.ps1"
 $UpdateScriptPath = Join-Path $InstallDir "update-win.ps1"
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem.cmd") -ScriptAbsolutePath $CliScriptPath
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem-open.cmd") -ScriptAbsolutePath $CliScriptPath -DefaultArgs @("--browse-projects", "--use-current-root")
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem-update.cmd") -ScriptAbsolutePath $UpdateScriptPath
 Write-CmdShim -Path (Join-Path $BinDir "csa-ilem-update.cmd") -ScriptAbsolutePath $UpdateScriptPath
 Write-CmdShim -Path (Join-Path $BinDir "openproj.cmd") -ScriptAbsolutePath $CliScriptPath -DefaultArgs @("--browse-projects", "--use-current-root")
+Write-CmdShim -Path (Join-Path $BinDir "csa-iem-tray.cmd") -ScriptAbsolutePath $TrayScriptPath
 
 $CurrentPath = Join-Path $InstallRoot "current.txt"
 $AppVersion | Set-Content -Path $CurrentPath -Encoding ASCII
+
+Get-ChildItem -Path $InstallRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne $AppVersion -and $_.Name -ne "bin" } |
+    Remove-Item -Recurse -Force
 
 if ($UpdatePath) {
     Set-UserPathIfMissing -PathToAdd $BinDir
@@ -260,6 +271,7 @@ Write-Host "Primary commands:"
 Write-Host "  csa-iem"
 Write-Host "  csa-iem-open"
 Write-Host "  openproj"
+Write-Host "  csa-iem-tray"
 Write-Host "  csa-iem-update"
 Write-Host ""
 Write-Host "Open a new PowerShell window, or refresh PATH in the current one with:"

@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.3.5`
+Version: `0.3.6`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -11,6 +11,7 @@ Notice: `Use at your own risk.`
 `CSA-iEM` is now a cross-platform toolset with:
 - a production CLI backend
 - a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, and `GitHub Account` pages
+- a macOS menu-bar toolbar plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling and controlling local GitHub Actions runners
 - terminal installers for macOS
 - a Windows 11 admin-shell PowerShell backend with matching install/update scripts
 - compatibility wrappers for the earlier `CSA-iLEM` command names
@@ -62,6 +63,7 @@ Preferred commands:
 - [`csa-iem-gui`](./csa-iem-gui)
 - [`csa-iem-build-gui`](./csa-iem-build-gui)
 - [`csa-iem-open`](./csa-iem-open)
+- [`csa-iem-tray.ps1`](./csa-iem-tray.ps1)
 - [`openproj`](./openproj)
 
 Core scripts:
@@ -104,7 +106,9 @@ Install the latest published `main` build:
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
 ```
 
-Update an existing install to the latest published `main` build:
+The same command also updates an existing install to the latest published `main` build. The installer replaces the target version, repoints `~/.local/share/csa-iem/current`, and removes older installed version folders automatically.
+
+Force a reinstall of the latest published `main` build:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
@@ -129,6 +133,7 @@ The installer:
 - falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
 - copies the production bundle into `~/.local/share/csa-iem/<version>`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
+- removes older installed version folders after the new version is active
 - links commands into `~/.local/bin`
 - installs `csa-iem-update` and `csa-ilem-update` so an installed Mac can update from the shipped remote installer without recloning first
 - adds `~/.local/bin` to `~/.zprofile`
@@ -188,7 +193,9 @@ Remote install from the latest published `main` build:
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
 ```
 
-Remote update to the latest published `main` build:
+The same command also updates an existing install to the latest published `main` build. The installer replaces the target version, refreshes `%LOCALAPPDATA%\CSA-iEM\current.txt`, and removes older installed version folders automatically.
+
+Force a reinstall of the latest published `main` build:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
@@ -215,7 +222,8 @@ powershell -ExecutionPolicy Bypass -File H:\WTL-CODE-X\CSA-iEM\install.ps1
 
 The Windows installer:
 - installs into `%LOCALAPPDATA%\CSA-iEM\<version>`
-- creates `csa-iem.cmd`, `csa-iem-open.cmd`, `csa-iem-update.cmd`, and `openproj.cmd`
+- creates `csa-iem.cmd`, `csa-iem-open.cmd`, `csa-iem-tray.cmd`, `csa-iem-update.cmd`, and `openproj.cmd`
+- removes older installed version folders after the new version is active while keeping the shared `bin` directory
 - adds the chosen bin directory to the user PATH
 - bootstraps `git`, `gh`, `node`, `code`, `docker`, and `devcontainer` when possible
 - is designed for Windows Terminal and PowerShell admin-shell usage
@@ -227,6 +235,7 @@ After install, open a new PowerShell window and verify:
 csa-iem --version
 csa-iem-update --help
 openproj
+csa-iem-tray
 ```
 
 Installed Windows update command from any PowerShell window:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+- added a native macOS menu-bar toolbar for opening CSA-iEM, launching the CLI/project browser, inspecting loaded workspace roots, and controlling local GitHub Actions runner services
+- added a Windows notification-area tray companion with `csa-iem-tray` for opening CSA-iEM/OpenProject tooling and starting, stopping, or restarting installed `actions.runner.*` services
+- changed macOS and Windows installs so the latest install command also updates by default, replaces the target version, repoints the active install marker, and removes older installed version folders
+- updated README installer guidance and refreshed checksum metadata for the `0.3.6` release
+
 ## 0.3.5
 
 - repaired Windows imports for repositories that contain Windows-incompatible checkout paths by excluding only the invalid paths instead of failing the whole run

@@ -24,7 +24,7 @@ private func resolvedAppVersion() -> String {
   }
 
   let fileManager = FileManager.default
-  let candidates = [
+  let candidates: [String?] = [
     Bundle.main.resourceURL?.appendingPathComponent("VERSION").path,
     Bundle.main.resourceURL?.appendingPathComponent("CLI/VERSION").path,
     ProcessInfo.processInfo.environment["CSA_IEM_ROOT"].map { ($0 as NSString).appendingPathComponent("VERSION") },
@@ -2323,6 +2323,14 @@ final class CleanupViewModel: ObservableObject {
       return
     }
     openTerminalCommand(command)
+  }
+
+  func refreshOperatorState() {
+    refreshLocalProjects()
+    refreshLiveServices()
+    loadStorageInsights()
+    loadProjectSyncStatus()
+    loadPortMonitor()
   }
 
   func openCostControlReviewInTerminal() {
@@ -7002,12 +7010,16 @@ struct LogConsoleView: NSViewRepresentable {
 }
 
 struct ContentView: View {
-  @StateObject private var model = CleanupViewModel()
+  @ObservedObject private var model: CleanupViewModel
   @State private var selectedDestination: AppDestination = .home
   @State private var isMenuVisible = true
   @State private var showLaunchWarning = true
   @State private var acceptedRisk = false
   @State private var acceptedPurpose = false
+
+  init(model: CleanupViewModel) {
+    self.model = model
+  }
 
   private var actionToggleTint: Color { DashboardTheme.accent }
 
@@ -9817,10 +9829,14 @@ struct ContentView: View {
 @main
 struct CSAiEMMacApp: App {
   @NSApplicationDelegateAdaptor(CSAiEMAppDelegate.self) private var appDelegate
+  @StateObject private var model = CleanupViewModel()
 
   var body: some Scene {
     WindowGroup(appTitle) {
-      ContentView()
+      ContentView(model: model)
+        .onAppear {
+          appDelegate.attach(model: model)
+        }
     }
     .commands {
       CommandGroup(replacing: .newItem) { }
@@ -9830,6 +9846,15 @@ struct CSAiEMMacApp: App {
 
 @MainActor
 final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
+  private var statusItem: NSStatusItem?
+  private weak var model: CleanupViewModel?
+
+  func attach(model: CleanupViewModel) {
+    self.model = model
+    installStatusItemIfNeeded()
+    rebuildStatusMenu()
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
 
@@ -9843,6 +9868,162 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
         self.configure(window)
       }
     }
+  }
+
+  private func installStatusItemIfNeeded() {
+    guard statusItem == nil else { return }
+
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    item.button?.title = "CSA-iEM"
+    item.button?.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "CSA-iEM")
+    item.button?.imagePosition = .imageLeading
+    statusItem = item
+  }
+
+  private func rebuildStatusMenu() {
+    guard let model, let statusItem else { return }
+
+    let roots = model.profileRootSummary
+    let runningRunners = model.runnerServices.filter(\.isRunning).count
+    let menu = NSMenu()
+
+    menu.addItem(disabledItem("Loaded Workspace"))
+    menu.addItem(disabledItem("Code: \(roots.codeRoot)"))
+    menu.addItem(disabledItem("Import: \(roots.importRoot)"))
+    menu.addItem(disabledItem("Runtime: \(roots.runtimeRoot)"))
+    menu.addItem(.separator())
+    menu.addItem(disabledItem("\(model.activeContainers.count) active devcontainers · \(runningRunners)/\(model.runnerServices.count) runners running"))
+
+    menu.addItem(actionItem("Open CSA-iEM App", action: #selector(openMainWindow)))
+    menu.addItem(actionItem("Open CSA-iEM CLI", action: #selector(openCLI)))
+    menu.addItem(actionItem("Open Project Browser", action: #selector(openProjectBrowser)))
+    menu.addItem(actionItem("Refresh Workspace State", action: #selector(refreshWorkspaceState)))
+
+    let rootsMenu = NSMenu()
+    rootsMenu.addItem(actionItem("Reveal Code Root", action: #selector(revealCodeRoot)))
+    rootsMenu.addItem(actionItem("Reveal Import Root", action: #selector(revealImportRoot)))
+    rootsMenu.addItem(actionItem("Reveal Runtime Root", action: #selector(revealRuntimeRoot)))
+    let rootsItem = NSMenuItem(title: "Workspace Roots", action: nil, keyEquivalent: "")
+    rootsItem.submenu = rootsMenu
+    menu.addItem(rootsItem)
+
+    let runnersMenu = NSMenu()
+    if model.runnerServices.isEmpty {
+      runnersMenu.addItem(disabledItem("No runner services detected"))
+    } else {
+      for runner in model.runnerServices {
+        let runnerMenu = NSMenu()
+        let status = runner.isRunning ? "running" : "stopped"
+        runnerMenu.addItem(disabledItem(runner.runnerPath))
+        runnerMenu.addItem(disabledItem("Service: \(runner.serviceLabel) · \(status)"))
+        runnerMenu.addItem(runnerActionItem("Open Workspace", action: #selector(openRunnerWorkspace(_:)), runner: runner))
+        runnerMenu.addItem(runnerActionItem("Reveal Runner Folder", action: #selector(revealRunner(_:)), runner: runner))
+        runnerMenu.addItem(.separator())
+        runnerMenu.addItem(runnerActionItem("Start Runner", action: #selector(startRunner(_:)), runner: runner))
+        runnerMenu.addItem(runnerActionItem("Stop Runner", action: #selector(stopRunner(_:)), runner: runner))
+        runnerMenu.addItem(runnerActionItem("Restart Runner", action: #selector(restartRunner(_:)), runner: runner))
+
+        let item = NSMenuItem(title: "\(runner.slug) (\(status))", action: nil, keyEquivalent: "")
+        item.submenu = runnerMenu
+        runnersMenu.addItem(item)
+      }
+    }
+    let runnersItem = NSMenuItem(title: "GitHub Action Runners", action: nil, keyEquivalent: "")
+    runnersItem.submenu = runnersMenu
+    menu.addItem(runnersItem)
+
+    menu.addItem(.separator())
+    menu.addItem(actionItem("Quit CSA-iEM", action: #selector(quitApp)))
+    statusItem.menu = menu
+  }
+
+  private func scheduleMenuRebuild(after delay: TimeInterval = 1.5) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      self?.rebuildStatusMenu()
+    }
+  }
+
+  private func disabledItem(_ title: String) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    item.isEnabled = false
+    return item
+  }
+
+  private func actionItem(_ title: String, action: Selector) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    item.target = self
+    return item
+  }
+
+  private func runnerActionItem(_ title: String, action: Selector, runner: RunnerServiceEntry) -> NSMenuItem {
+    let item = actionItem(title, action: action)
+    item.representedObject = runner
+    return item
+  }
+
+  @objc private func openMainWindow() {
+    NSApp.activate(ignoringOtherApps: true)
+    if let window = NSApp.windows.first {
+      window.makeKeyAndOrderFront(nil)
+    }
+  }
+
+  @objc private func openCLI() {
+    model?.openCLIInTerminal()
+  }
+
+  @objc private func openProjectBrowser() {
+    model?.openProjectBrowserInTerminal()
+  }
+
+  @objc private func refreshWorkspaceState() {
+    model?.refreshOperatorState()
+    rebuildStatusMenu()
+    scheduleMenuRebuild()
+  }
+
+  @objc private func revealCodeRoot() {
+    model?.revealCodeRoot()
+  }
+
+  @objc private func revealImportRoot() {
+    model?.revealImportRoot()
+  }
+
+  @objc private func revealRuntimeRoot() {
+    model?.revealRuntimeRoot()
+  }
+
+  @objc private func openRunnerWorkspace(_ sender: NSMenuItem) {
+    guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
+    model?.openRunnerProject(runner, preferRuntime: true)
+  }
+
+  @objc private func revealRunner(_ sender: NSMenuItem) {
+    guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
+    model?.revealRunnerService(runner)
+  }
+
+  @objc private func startRunner(_ sender: NSMenuItem) {
+    guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
+    model?.startRunnerService(runner)
+    scheduleMenuRebuild()
+  }
+
+  @objc private func stopRunner(_ sender: NSMenuItem) {
+    guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
+    model?.stopRunnerService(runner)
+    scheduleMenuRebuild()
+  }
+
+  @objc private func restartRunner(_ sender: NSMenuItem) {
+    guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
+    model?.restartRunnerService(runner)
+    scheduleMenuRebuild(after: 2.5)
+  }
+
+  @objc private func quitApp() {
+    NSApp.terminate(nil)
   }
 
   private func configure(_ window: NSWindow) {
