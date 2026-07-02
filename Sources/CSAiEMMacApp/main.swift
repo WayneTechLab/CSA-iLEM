@@ -2506,7 +2506,7 @@ final class CleanupViewModel: ObservableObject {
       "printf '\\n'",
       "if [ $EXIT_CODE -eq 0 ]; then echo '\(exitLabel) finished.'; else echo \"\(exitLabel) exited with code $EXIT_CODE.\"; fi",
       "echo",
-      "if [ \"${CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES:-0}\" != \"1\" ]; then read -r -p 'Press Enter to close this window...' _; fi"
+      "read -r -p 'Press Enter or y to close this window...' _"
     ].joined(separator: "; ")
   }
 

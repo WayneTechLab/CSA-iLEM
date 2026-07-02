@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- fixed GUI-launched Terminal fallback windows so they stay open after auto-confirmed CLI runs
+- changed the Terminal hold prompt to accept Enter or `y`, which keeps custom shell/security prompts visible instead of closing immediately
+
 ## 0.4.1
 
 - added auto-confirm support for simple terminal yes/no gates during GUI-launched CLI work and Terminal fallback commands
