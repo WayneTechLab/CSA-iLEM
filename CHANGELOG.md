@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- added toolbar and GUI runner fleet controls: stop all active runners and start only one selected runner
+- added old workspace migration scanning for previous Diamond, WTL, CSA-iLEM, and saved profile roots
+- added copy-or-move migration into the active Default or Custom workspace roots, including project and runner folders
+- changed the menu-bar extra label to a visible `CSA` badge so the toolbar is easier to find
+
 ## 0.3.9
 
 - changed the macOS toolbar to a native SwiftUI `MenuBarExtra` so it appears independently from the main window lifecycle

@@ -263,6 +263,20 @@ struct RunnerServiceEntry: Identifiable, Hashable {
   }
 }
 
+struct LegacyWorkspaceCandidate: Identifiable, Hashable {
+  let id: String
+  let label: String
+  let codeRoot: String
+  let importRoot: String
+  let runtimeRoot: String
+  let projectCount: Int
+  let runnerCount: Int
+
+  var summary: String {
+    "\(projectCount) projects · \(runnerCount) runners"
+  }
+}
+
 enum BackgroundJobState: String, Codable, CaseIterable, Identifiable {
   case queued
   case running
@@ -875,6 +889,9 @@ final class CleanupViewModel: ObservableObject {
   @Published var selectedBackupPreset: BackupPreset = .projectBundle
   @Published var localOperationPreview: LocalOperationPreview?
   @Published var localExportPreparedStamp = ""
+  @Published var legacyWorkspaceCandidates: [LegacyWorkspaceCandidate] = []
+  @Published var selectedLegacyWorkspaceID = ""
+  @Published var legacyWorkspaceScanStatus = "Scan for older CSA-iEM workspace roots before migrating projects."
   @Published var appSettings = AppSettings()
 
   @Published var availableHosts: [String] = []
@@ -1625,6 +1642,65 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func scanLegacyWorkspaces() {
+    let roots = resolvedProfileRoots()
+    let currentRoots: Set<String> = [
+      normalizeWorkspacePath(roots.codeRoot),
+      normalizeWorkspacePath(roots.importRoot),
+      normalizeWorkspacePath(roots.runtimeRoot)
+    ]
+    let candidates = Self.scanLegacyWorkspaceCandidates(excluding: currentRoots)
+    legacyWorkspaceCandidates = candidates
+    if selectedLegacyWorkspaceID.isEmpty || !candidates.contains(where: { $0.id == selectedLegacyWorkspaceID }) {
+      selectedLegacyWorkspaceID = candidates.first?.id ?? ""
+    }
+    legacyWorkspaceScanStatus = candidates.isEmpty
+      ? "No older workspace roots were found."
+      : "Found \(candidates.count) older workspace roots ready for review."
+  }
+
+  func migrateSelectedLegacyWorkspace() {
+    guard let candidate = legacyWorkspaceCandidates.first(where: { $0.id == selectedLegacyWorkspaceID }) else {
+      legacyWorkspaceScanStatus = "Select a scanned old workspace before migrating."
+      return
+    }
+
+    let roots = resolvedProfileRoots()
+    let mode = localFileTransferMode
+    let overwrite = overwriteLocalFileDestination
+    let environment = baseEnvironment()
+    let jobID = createJob(kind: "Migration", title: "Import old workspace", target: candidate.label, detail: "Migrating old workspace into current roots…", initialState: .running)
+    legacyWorkspaceScanStatus = "\(mode.label) in progress from \(candidate.label)..."
+    appendLog("[gui] \(mode.label) old workspace \(candidate.label) into current roots.\n")
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      do {
+        let summary = try Self.migrateLegacyWorkspace(
+          candidate: candidate,
+          destinationRoots: roots,
+          mode: mode,
+          overwrite: overwrite,
+          environment: environment
+        )
+        DispatchQueue.main.async {
+          self.legacyWorkspaceScanStatus = summary
+          self.localFilesStatus = summary
+          self.appendLog("[gui] \(summary)\n")
+          self.finishJob(id: jobID, state: .succeeded, detail: summary)
+          self.refreshOperatorState()
+          self.scanLegacyWorkspaces()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          self.legacyWorkspaceScanStatus = error.localizedDescription
+          self.appendLog("[gui] Old workspace migration failed: \(error.localizedDescription)\n")
+          self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
+        }
+      }
+    }
+  }
+
   func relocateWorkspace(_ scope: WorkspaceRelocationScope) {
     let baseDestination = normalizeWorkspacePath(workspaceMoveDestinationDraft)
     guard !baseDestination.isEmpty else {
@@ -2101,6 +2177,121 @@ final class CleanupViewModel: ObservableObject {
 
   func startRunnerService(_ entry: RunnerServiceEntry) {
     runRunnerService(entry, command: "./svc.sh start", title: "Start runner", successMessage: "Runner service started.")
+  }
+
+  func stopAllActiveRunnerServices() {
+    let activeRunners = runnerServices.filter(\.isRunning)
+    guard !activeRunners.isEmpty else {
+      appendLog("[gui] No running runner services were detected.\n")
+      return
+    }
+
+    let environment = baseEnvironment()
+    let jobID = createJob(kind: "Runner", title: "Stop all runners", target: "\(activeRunners.count) active", detail: "Stopping all active runner services…", initialState: .running)
+    appendLog("[gui] Stopping all active runner services (\(activeRunners.count)).\n")
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      var logLines: [String] = []
+      var failures: [String] = []
+
+      for runner in activeRunners {
+        let svcPath = (runner.runnerPath as NSString).appendingPathComponent("svc.sh")
+        guard FileManager.default.isExecutableFile(atPath: svcPath) else {
+          failures.append("\(runner.slug): missing svc.sh")
+          continue
+        }
+
+        let result = Self.runCommand(
+          executable: "/bin/bash",
+          arguments: ["-lc", "cd \(shellQuote(runner.runnerPath)) && ./svc.sh stop"],
+          environment: environment
+        )
+        if !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          logLines.append("[\(runner.slug)]\n\(result.output)")
+        }
+        if result.status != 0 {
+          failures.append(runner.slug)
+        }
+      }
+
+      DispatchQueue.main.async {
+        if !logLines.isEmpty {
+          let output = logLines.joined(separator: "\n")
+          self.appendLog(output + "\n")
+          self.updateJob(id: jobID, appendLog: output)
+        }
+        if failures.isEmpty {
+          self.finishJob(id: jobID, state: .succeeded, detail: "Stopped \(activeRunners.count) runner services.")
+        } else {
+          self.finishJob(id: jobID, state: .failed, detail: "Some runner services did not stop: \(failures.joined(separator: ", "))")
+        }
+        self.refreshLiveServices()
+      }
+    }
+  }
+
+  func startOnlyRunnerService(_ entry: RunnerServiceEntry) {
+    let otherActiveRunners = runnerServices.filter { $0.id != entry.id && $0.isRunning }
+    let environment = baseEnvironment()
+    let jobID = createJob(kind: "Runner", title: "Start only runner", target: entry.slug, detail: "Stopping other runners, then starting selected runner…", initialState: .running)
+    appendLog("[gui] Starting only \(entry.slug); stopping \(otherActiveRunners.count) other active runners first.\n")
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      var logLines: [String] = []
+      var failures: [String] = []
+
+      for runner in otherActiveRunners {
+        let svcPath = (runner.runnerPath as NSString).appendingPathComponent("svc.sh")
+        guard FileManager.default.isExecutableFile(atPath: svcPath) else {
+          failures.append("\(runner.slug): missing svc.sh")
+          continue
+        }
+        let result = Self.runCommand(
+          executable: "/bin/bash",
+          arguments: ["-lc", "cd \(shellQuote(runner.runnerPath)) && ./svc.sh stop"],
+          environment: environment
+        )
+        if !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          logLines.append("[stop \(runner.slug)]\n\(result.output)")
+        }
+        if result.status != 0 {
+          failures.append("stop \(runner.slug)")
+        }
+      }
+
+      let startPath = (entry.runnerPath as NSString).appendingPathComponent("svc.sh")
+      if FileManager.default.isExecutableFile(atPath: startPath) {
+        let result = Self.runCommand(
+          executable: "/bin/bash",
+          arguments: ["-lc", "cd \(shellQuote(entry.runnerPath)) && ./svc.sh start"],
+          environment: environment
+        )
+        if !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          logLines.append("[start \(entry.slug)]\n\(result.output)")
+        }
+        if result.status != 0 {
+          failures.append("start \(entry.slug)")
+        }
+      } else {
+        failures.append("\(entry.slug): missing svc.sh")
+      }
+
+      DispatchQueue.main.async {
+        if !logLines.isEmpty {
+          let output = logLines.joined(separator: "\n")
+          self.appendLog(output + "\n")
+          self.updateJob(id: jobID, appendLog: output)
+        }
+        if failures.isEmpty {
+          self.finishJob(id: jobID, state: .succeeded, detail: "Only \(entry.slug) should be running.")
+        } else {
+          self.finishJob(id: jobID, state: .failed, detail: "Runner selection had failures: \(failures.joined(separator: ", "))")
+        }
+        self.refreshLiveServices()
+      }
+    }
   }
 
   func restartRunnerService(_ entry: RunnerServiceEntry) {
@@ -5224,6 +5415,183 @@ final class CleanupViewModel: ObservableObject {
     return nil
   }
 
+  private nonisolated static func scanLegacyWorkspaceCandidates(excluding currentRoots: Set<String>) -> [LegacyWorkspaceCandidate] {
+    let fm = FileManager.default
+    let home = NSString(string: "~").expandingTildeInPath
+    let configBase = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+      ?? NSString(string: "~/.config").expandingTildeInPath
+
+    var roots: [(label: String, code: String, importRoot: String, runtime: String)] = [
+      (
+        "Old Diamond external workspace",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-X/GH",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH/Import",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
+      ),
+      (
+        "Old WTL external workspace",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH/Import",
+        "/Volumes/WTL - MACmini EXT/MM-WTL-CODE-R/GH"
+      ),
+      (
+        "Legacy CSA-iLEM workspace",
+        (home as NSString).appendingPathComponent("CSA-iLEM"),
+        (home as NSString).appendingPathComponent("CSA-iLEM/Import"),
+        (home as NSString).appendingPathComponent("CSA-iLEM")
+      )
+    ]
+
+    for profile in ["diamond", "wtl", "public", "default", "custom"] {
+      for base in [profileConfigDir, legacyProfileConfigDir, (configBase as NSString).appendingPathComponent("csa-iem"), (configBase as NSString).appendingPathComponent("csa-ilem")] {
+        let configPath = (base as NSString).appendingPathComponent("\(profile).env")
+        let values = readEnvFile(configPath)
+        let defaultRoot = normalizedPath(values["SAVED_DEFAULT_ROOT"] ?? "")
+        let codeRoot = normalizedPath(values["SAVED_CODE_ROOT"] ?? defaultRoot)
+        let importRoot = normalizedPath(values["SAVED_IMPORT_ROOT"] ?? (defaultRoot.isEmpty ? "" : (defaultRoot as NSString).appendingPathComponent("Import")))
+        let runtimeRoot = normalizedPath(values["SAVED_RUNTIME_ROOT"] ?? defaultRoot)
+        if !codeRoot.isEmpty || !runtimeRoot.isEmpty {
+          roots.append((
+            "Saved old \(profile) workspace",
+            codeRoot.isEmpty ? runtimeRoot : codeRoot,
+            importRoot.isEmpty ? ((runtimeRoot.isEmpty ? codeRoot : runtimeRoot) as NSString).appendingPathComponent("Import") : importRoot,
+            runtimeRoot.isEmpty ? codeRoot : runtimeRoot
+          ))
+        }
+      }
+    }
+
+    var seen: Set<String> = []
+    var candidates: [LegacyWorkspaceCandidate] = []
+
+    for root in roots {
+      let codeRoot = normalizedPath(root.code)
+      let importRoot = normalizedPath(root.importRoot)
+      let runtimeRoot = normalizedPath(root.runtime)
+      let key = "\(codeRoot)|\(importRoot)|\(runtimeRoot)"
+      guard seen.insert(key).inserted else { continue }
+      guard !currentRoots.contains(codeRoot) || !currentRoots.contains(runtimeRoot) else { continue }
+
+      let codeRepos = (codeRoot as NSString).appendingPathComponent("Repos")
+      let runtimeRepos = (runtimeRoot as NSString).appendingPathComponent("Repos")
+      let runners = (runtimeRoot as NSString).appendingPathComponent("Runners")
+      let hasContent = fm.fileExists(atPath: codeRepos) || fm.fileExists(atPath: runtimeRepos) || fm.fileExists(atPath: runners)
+      guard hasContent else { continue }
+
+      let projectCount = countOwnerRepoChildren(under: codeRepos) + (runtimeRepos == codeRepos ? 0 : countOwnerRepoChildren(under: runtimeRepos))
+      let runnerCount = countOwnerRepoChildren(under: runners)
+      candidates.append(
+        LegacyWorkspaceCandidate(
+          id: key,
+          label: root.label,
+          codeRoot: codeRoot,
+          importRoot: importRoot,
+          runtimeRoot: runtimeRoot,
+          projectCount: projectCount,
+          runnerCount: runnerCount
+        )
+      )
+    }
+
+    return candidates.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+  }
+
+  private nonisolated static func migrateLegacyWorkspace(
+    candidate: LegacyWorkspaceCandidate,
+    destinationRoots: (codeRoot: String, importRoot: String, runtimeRoot: String),
+    mode: LocalFileTransferMode,
+    overwrite: Bool,
+    environment: [String: String]
+  ) throws -> String {
+    let fm = FileManager.default
+    var operations: [LocalTransferOperation] = []
+
+    func appendOwnerRepoTransfers(from sourceBase: String, to destinationBase: String) {
+      let owners = (try? fm.contentsOfDirectory(atPath: sourceBase))?.sorted() ?? []
+      for owner in owners {
+        let ownerPath = (sourceBase as NSString).appendingPathComponent(owner)
+        var isOwnerDir: ObjCBool = false
+        guard fm.fileExists(atPath: ownerPath, isDirectory: &isOwnerDir), isOwnerDir.boolValue else { continue }
+        let repos = (try? fm.contentsOfDirectory(atPath: ownerPath))?.sorted() ?? []
+        for repo in repos {
+          let source = (ownerPath as NSString).appendingPathComponent(repo)
+          var isRepoDir: ObjCBool = false
+          guard fm.fileExists(atPath: source, isDirectory: &isRepoDir), isRepoDir.boolValue else { continue }
+          let destination = (destinationBase as NSString).appendingPathComponent("\(owner)/\(repo)")
+          if normalizedPath(source) != normalizedPath(destination) {
+            operations.append(LocalTransferOperation(source: source, destination: destination))
+          }
+        }
+      }
+    }
+
+    appendOwnerRepoTransfers(
+      from: (candidate.codeRoot as NSString).appendingPathComponent("Repos"),
+      to: (destinationRoots.codeRoot as NSString).appendingPathComponent("Repos")
+    )
+    appendOwnerRepoTransfers(
+      from: (candidate.runtimeRoot as NSString).appendingPathComponent("Repos"),
+      to: (destinationRoots.runtimeRoot as NSString).appendingPathComponent("Repos")
+    )
+    appendOwnerRepoTransfers(
+      from: (candidate.runtimeRoot as NSString).appendingPathComponent("Runners"),
+      to: (destinationRoots.runtimeRoot as NSString).appendingPathComponent("Runners")
+    )
+
+    var seenDestinations: Set<String> = []
+    operations = operations.filter { seenDestinations.insert(normalizedPath($0.destination)).inserted }
+
+    guard !operations.isEmpty else {
+      return "No movable projects or runners were found in \(candidate.label)."
+    }
+
+    let outcome = try performTransactionalTransfers(
+      operations: operations,
+      mode: mode,
+      overwrite: overwrite,
+      environment: environment
+    )
+    let warnings = outcome.warnings.isEmpty ? "" : " Warnings: \(outcome.warnings.joined(separator: " "))"
+    return "\(mode.label) migrated \(operations.count) project/runner folders from \(candidate.label) into current workspace roots." + warnings
+  }
+
+  private nonisolated static func countOwnerRepoChildren(under root: String) -> Int {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: root) else { return 0 }
+    let owners = (try? fm.contentsOfDirectory(atPath: root)) ?? []
+    return owners.reduce(0) { total, owner in
+      let ownerPath = (root as NSString).appendingPathComponent(owner)
+      var isOwnerDir: ObjCBool = false
+      guard fm.fileExists(atPath: ownerPath, isDirectory: &isOwnerDir), isOwnerDir.boolValue else { return total }
+      let repos = (try? fm.contentsOfDirectory(atPath: ownerPath)) ?? []
+      return total + repos.filter {
+        let repoPath = (ownerPath as NSString).appendingPathComponent($0)
+        var isRepoDir: ObjCBool = false
+        return fm.fileExists(atPath: repoPath, isDirectory: &isRepoDir) && isRepoDir.boolValue
+      }.count
+    }
+  }
+
+  private nonisolated static func readEnvFile(_ path: String) -> [String: String] {
+    guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return [:] }
+    var values: [String: String] = [:]
+    for line in contents.split(whereSeparator: \.isNewline).map(String.init) {
+      let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), let separator = trimmed.firstIndex(of: "=") else { continue }
+      let key = String(trimmed[..<separator])
+      var value = String(trimmed[trimmed.index(after: separator)...])
+      if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
+        value = String(value.dropFirst().dropLast()).replacingOccurrences(of: "'\"'\"'", with: "'")
+      }
+      values[key] = NSString(string: value).expandingTildeInPath
+    }
+    return values
+  }
+
+  private nonisolated static func normalizedPath(_ value: String) -> String {
+    NSString(string: value.trimmingCharacters(in: .whitespacesAndNewlines)).expandingTildeInPath
+  }
+
   private nonisolated static func relocateWorkspaceRoots(
     scope: WorkspaceRelocationScope,
     style: WorkspaceStyle,
@@ -6576,6 +6944,7 @@ struct RunnerServiceRow: View {
   let openCode: () -> Void
   let reveal: () -> Void
   let start: () -> Void
+  let startOnly: () -> Void
   let restart: () -> Void
   let verify: () -> Void
   let stop: () -> Void
@@ -6629,6 +6998,11 @@ struct RunnerServiceRow: View {
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
         .disabled(runner.isRunning)
+
+        Button("Only This") {
+          startOnly()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
 
         Button("Restart") {
           restart()
@@ -7259,6 +7633,7 @@ struct ContentView: View {
           HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 18) {
               rootsPanel
+              legacyWorkspaceMigrationPanel
               localFilesRelocationPanel
               backupPresetsPanel
             }
@@ -7273,6 +7648,7 @@ struct ContentView: View {
           }
         } else {
           rootsPanel
+          legacyWorkspaceMigrationPanel
           localFilesRelocationPanel
           backupPresetsPanel
           localFilesExportPanel
@@ -7359,6 +7735,7 @@ struct ContentView: View {
 
           VStack(alignment: .leading, spacing: 18) {
             rootsPanel
+            legacyWorkspaceMigrationPanel
             if model.appSettings.showAdvancedTools || model.appSettings.keepTerminalFallbacksVisible {
               advancedToolsPanel
             } else {
@@ -7371,6 +7748,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
           workspaceSetupPanel
           rootsPanel
+          legacyWorkspaceMigrationPanel
           if model.appSettings.showAdvancedTools || model.appSettings.keepTerminalFallbacksVisible {
             advancedToolsPanel
           } else {
@@ -8536,6 +8914,79 @@ struct ContentView: View {
     }
   }
 
+  private var legacyWorkspaceMigrationPanel: some View {
+    PanelCard(title: "Old Workspace Migration", subtitle: "Find projects and runners from older Default, Diamond, WTL, or CSA-iLEM folders and import them into the current Default or Custom roots.") {
+      HStack(spacing: 10) {
+        Button("Scan Old Workspaces") {
+          model.scanLegacyWorkspaces()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Use Default Roots") {
+          model.applyStandardWorkspace()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+
+        Button("Save Custom Roots") {
+          model.saveWorkspaceDrafts()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      Text(model.legacyWorkspaceScanStatus)
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+
+      if !model.legacyWorkspaceCandidates.isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+          FieldLabel(text: "Old Workspace To Import")
+          Picker("", selection: $model.selectedLegacyWorkspaceID) {
+            ForEach(model.legacyWorkspaceCandidates) { candidate in
+              Text("\(candidate.label) · \(candidate.summary)").tag(candidate.id)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .dashboardFieldStyle()
+        }
+
+        if let selected = model.legacyWorkspaceCandidates.first(where: { $0.id == model.selectedLegacyWorkspaceID }) {
+          VStack(alignment: .leading, spacing: 6) {
+            FixedValueRow(label: "Old Code Root", value: selected.codeRoot)
+            FixedValueRow(label: "Old Import Root", value: selected.importRoot)
+            FixedValueRow(label: "Old Runtime Root", value: selected.runtimeRoot)
+          }
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          FieldLabel(text: "Migration Mode")
+          Picker("", selection: $model.localFileTransferMode) {
+            ForEach(LocalFileTransferMode.allCases) { mode in
+              Text(mode.label).tag(mode)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.segmented)
+        }
+
+        Toggle("Allow overwrite when destination project folders already exist", isOn: $model.overwriteLocalFileDestination)
+          .toggleStyle(.switch)
+          .tint(DashboardTheme.warning)
+          .foregroundStyle(DashboardTheme.text)
+
+        Button(model.localFileTransferMode == .move ? "Move Into Current Workspace" : "Copy Into Current Workspace") {
+          model.migrateSelectedLegacyWorkspace()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: model.localFileTransferMode == .move ? DashboardTheme.warning : DashboardTheme.success, bordered: false))
+      }
+
+      Text("Copy Backup is the safest migration mode. Move removes old project folders only after staged copies land in the current workspace. Docker/devcontainer and runner views refresh after migration.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
   private var localFilesExportPanel: some View {
     PanelCard(title: "Backup & Export", subtitle: "Copy or move selected projects or workspace content into a structured export bundle for another drive, archive, or handoff.") {
       VStack(alignment: .leading, spacing: 6) {
@@ -9408,6 +9859,18 @@ struct ContentView: View {
           VStack(alignment: .leading, spacing: 10) {
             FieldLabel(text: "Local Runner Services")
 
+            HStack(spacing: 10) {
+              Button("Stop All Active Runners") {
+                model.stopAllActiveRunnerServices()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: false))
+
+              Button("Refresh Services") {
+                model.refreshLiveServices()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+            }
+
             ScrollView {
               LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(model.runnerServices) { runner in
@@ -9417,6 +9880,7 @@ struct ContentView: View {
                     openCode: { model.openRunnerProject(runner, preferRuntime: false) },
                     reveal: { model.revealRunnerService(runner) },
                     start: { model.startRunnerService(runner) },
+                    startOnly: { model.startOnlyRunnerService(runner) },
                     restart: { model.restartRunnerService(runner) },
                     verify: { model.verifyRunnerService(runner) },
                     stop: { model.stopRunnerService(runner) }
@@ -9785,11 +10249,18 @@ struct CSAiEMMenuBarView: View {
       if model.runnerServices.isEmpty {
         Text("No runner services detected")
       } else {
+        Button("Stop All Active Runners") {
+          model.stopAllActiveRunnerServices()
+        }
+        Divider()
         ForEach(model.runnerServices) { runner in
           Menu("\(runner.slug) (\(runner.statusLabel))") {
             Text(runner.runnerPath)
             Text("Service: \(runner.serviceLabel)")
             Divider()
+            Button("Start Only This Runner") {
+              model.startOnlyRunnerService(runner)
+            }
             Button("Open Workspace") {
               model.openRunnerProject(runner, preferRuntime: true)
             }
@@ -9833,7 +10304,10 @@ struct CSAiEMMacApp: App {
     MenuBarExtra {
       CSAiEMMenuBarView(model: model)
     } label: {
-      Label(appTitle, systemImage: "terminal")
+      HStack(spacing: 4) {
+        Image(systemName: "shippingbox.fill")
+        Text("CSA")
+      }
     }
   }
 }
