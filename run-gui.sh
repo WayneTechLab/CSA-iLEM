@@ -11,6 +11,8 @@ SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 APP_NAME="CSA-iEM"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
 APP_DIR="$SCRIPT_DIR/dist/$APP_NAME.app"
+SYSTEM_APP_DIR="/Applications/$APP_NAME.app"
+USER_APP_DIR="$HOME/Applications/$APP_NAME.app"
 BUILD_GUI_SCRIPT="$SCRIPT_DIR/build-gui-app.sh"
 BUILD_LOG="${TMPDIR:-/tmp}/csa-iem-gui-build.log"
 FORCE_REBUILD=0
@@ -74,6 +76,15 @@ if [[ "$SOURCE_RUN" -eq 1 ]]; then
   fi
 
   exec swift run --scratch-path "$SCRATCH_PATH" --package-path "$SCRIPT_DIR" CSAiEMMacApp
+fi
+
+if [[ "$FORCE_REBUILD" -eq 0 ]]; then
+  if [[ -d "$SYSTEM_APP_DIR" ]]; then
+    exec open "$SYSTEM_APP_DIR"
+  fi
+  if [[ -d "$USER_APP_DIR" ]]; then
+    exec open "$USER_APP_DIR"
+  fi
 fi
 
 if [[ "$FORCE_REBUILD" -eq 1 || ! -d "$APP_DIR" ]]; then

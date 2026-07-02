@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8
+
+- fixed macOS updates so they build and install `CSA-iEM.app` automatically instead of only updating CLI files
+- installs the app into `/Applications` when possible or `~/Applications` as a user-safe fallback
+- starts the app after install and registers a LaunchAgent so the menu-bar toolbar appears after update and returns at login
+- updated `csa-iem-gui` to prefer the installed Applications app before falling back to the versioned build folder
+
 ## 0.3.7
 
 - simplified workspace selection to Default and Custom modes and removed WTL/Diamond/Public presets from the active install and user-facing help

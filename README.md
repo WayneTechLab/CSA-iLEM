@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.3.7`
+Version: `0.3.8`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -98,6 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-
 ```
 
 The same command also updates an existing install to the latest published `main` build. The installer replaces the target version, repoints `~/.local/share/csa-iem/current`, and removes older installed version folders automatically.
+On macOS, update also builds and installs `CSA-iEM.app` into `/Applications` when writable, or `~/Applications` otherwise, starts it so the menu-bar toolbar appears, and registers a LaunchAgent so the toolbar returns at login.
 
 Force a reinstall of the latest published `main` build:
 
@@ -125,6 +126,9 @@ The installer:
 - copies the production bundle into `~/.local/share/csa-iem/<version>`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - removes older installed version folders after the new version is active
+- builds and installs `CSA-iEM.app` into Applications when Swift is available
+- starts the app after install so the menu-bar toolbar appears
+- registers `~/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist` so the toolbar opens again at login
 - links commands into `~/.local/bin`
 - installs `csa-iem-update` and `csa-ilem-update` so an installed Mac can update from the shipped remote installer without recloning first
 - adds `~/.local/bin` to `~/.zprofile`

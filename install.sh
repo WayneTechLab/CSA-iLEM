@@ -13,6 +13,8 @@ INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=1
 BOOTSTRAP_DEPS=1
+INSTALL_GUI_APP=1
+OPEN_GUI_APP=1
 
 FILES=(
   "VERSION"
@@ -95,6 +97,8 @@ Usage:
   ./install.sh --bin-dir <dir>
   ./install.sh --no-shell-profile
   ./install.sh --no-deps
+  ./install.sh --no-gui-app
+  ./install.sh --no-open
   ./install.sh --force
 
 Defaults:
@@ -104,6 +108,8 @@ Defaults:
 Install behavior:
   Installs and updates replace the target version by default, update the
   current symlink, and remove older version folders from the install root.
+  On macOS, the installer also builds and installs CSA-iEM.app, starts it so
+  the menu-bar toolbar appears, and registers it to launch at login.
 
 Cross-platform note:
   Windows 11 admin-shell installers also ship in this repo:
@@ -225,6 +231,94 @@ activate_brew_shellenv() {
   brew_bin="$(detect_brew_bin || true)"
   if [[ -n "$brew_bin" ]]; then
     eval "$("$brew_bin" shellenv)"
+  fi
+}
+
+default_app_install_dir() {
+  if [[ -d /Applications && -w /Applications ]]; then
+    printf '/Applications\n'
+  else
+    printf '%s\n' "$HOME/Applications"
+  fi
+}
+
+install_login_toolbar_agent() {
+  local app_path="$1"
+  local launch_agents_dir="$HOME/Library/LaunchAgents"
+  local plist_path="$launch_agents_dir/com.waynetechlab.csa-iem.toolbar.plist"
+
+  mkdir -p "$launch_agents_dir"
+  cat > "$plist_path" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.waynetechlab.csa-iem.toolbar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/open</string>
+    <string>-gj</string>
+    <string>$app_path</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+  if command -v launchctl >/dev/null 2>&1; then
+    launchctl unload "$plist_path" >/dev/null 2>&1 || true
+    launchctl load "$plist_path" >/dev/null 2>&1 || true
+  fi
+}
+
+install_gui_app_bundle() {
+  local app_install_dir=""
+  local built_app="$INSTALL_DIR/dist/$APP_NAME.app"
+  local target_app=""
+  local build_log="${TMPDIR:-/tmp}/csa-iem-install-gui-build.log"
+
+  if [[ "$INSTALL_GUI_APP" -ne 1 ]]; then
+    return 0
+  fi
+
+  if ! command -v swift >/dev/null 2>&1; then
+    warn "Swift was not found, so $APP_NAME.app could not be built automatically."
+    warn "Install Xcode Command Line Tools or Xcode, then run: csa-iem-build-gui"
+    return 0
+  fi
+
+  if [[ ! -x "$INSTALL_DIR/build-gui-app.sh" ]]; then
+    warn "GUI builder was not found, so $APP_NAME.app could not be installed."
+    return 0
+  fi
+
+  info "Building native $APP_NAME.app for the menu-bar toolbar..."
+  if ! "$INSTALL_DIR/build-gui-app.sh" >"$build_log" 2>&1; then
+    warn "GUI app build failed. See log: $build_log"
+    tail -n 30 "$build_log" >&2 || true
+    return 0
+  fi
+
+  if [[ ! -d "$built_app" ]]; then
+    warn "GUI builder finished but did not create $built_app."
+    return 0
+  fi
+
+  app_install_dir="$(default_app_install_dir)"
+  mkdir -p "$app_install_dir"
+  target_app="$app_install_dir/$APP_NAME.app"
+  rm -rf "$target_app"
+  cp -R "$built_app" "$target_app"
+  install_login_toolbar_agent "$target_app"
+
+  info "Installed native app: $target_app"
+  info "Installed login toolbar launcher: ~/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist"
+
+  if [[ "$OPEN_GUI_APP" -eq 1 ]]; then
+    open -gj "$target_app" >/dev/null 2>&1 || open "$target_app" >/dev/null 2>&1 || true
+    info "Started $APP_NAME.app so the menu-bar toolbar can appear."
   fi
 }
 
@@ -480,6 +574,13 @@ while [[ "$#" -gt 0 ]]; do
     --no-deps)
       BOOTSTRAP_DEPS=0
       ;;
+    --no-gui-app)
+      INSTALL_GUI_APP=0
+      OPEN_GUI_APP=0
+      ;;
+    --no-open)
+      OPEN_GUI_APP=0
+      ;;
     --force)
       FORCE_INSTALL=1
       ;;
@@ -562,6 +663,8 @@ done
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
   configure_shell_profiles "$(build_path_export_line "$BIN_DIR")" "${COMMAND_ALIAS_LINES[@]}"
 fi
+
+install_gui_app_bundle
 
 echo
 printf '%s %s installed.\n' "$APP_NAME" "$APP_VERSION"

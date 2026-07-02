@@ -19,19 +19,10 @@ SCRATCH_PATH="${CSA_IEM_SCRATCH_PATH:-${TMPDIR:-/tmp}/csa-iem-swiftpm-$SCRATCH_I
 CLI_FILES=(
   "VERSION"
   "CSA-iLEM.sh"
-  "CSA-iLEM-Public.sh"
-  "CSA-iLEM-WTL.sh"
-  "CSA-iLEM-Diamond.sh"
   "CSA-iLEM-Open.sh"
   "csa-ilem"
-  "csa-ilem-public"
-  "csa-ilem-wtl"
-  "csa-ilem-diamond"
   "csa-ilem-open"
   "csa-iem"
-  "csa-iem-public"
-  "csa-iem-wtl"
-  "csa-iem-diamond"
   "csa-iem-open"
   "csa-iem-gui"
   "csa-iem-build-gui"
@@ -42,7 +33,9 @@ CLI_FILES=(
   "install-remote.sh"
   "CSA-iEM.ps1"
   "install.ps1"
+  "csa-iem-tray.ps1"
   "install-remote.ps1"
+  "update-win.ps1"
   "uninstall.ps1"
   "install.sh"
   "uninstall.sh"
@@ -180,21 +173,12 @@ fi
 
 chmod +x \
   "$APP_DIR/Contents/Resources/CLI/CSA-iLEM.sh" \
-  "$APP_DIR/Contents/Resources/CLI/CSA-iLEM-Public.sh" \
-  "$APP_DIR/Contents/Resources/CLI/CSA-iLEM-WTL.sh" \
-  "$APP_DIR/Contents/Resources/CLI/CSA-iLEM-Diamond.sh" \
   "$APP_DIR/Contents/Resources/CLI/CSA-iLEM-Open.sh" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem" \
-  "$APP_DIR/Contents/Resources/CLI/csa-iem-public" \
-  "$APP_DIR/Contents/Resources/CLI/csa-iem-wtl" \
-  "$APP_DIR/Contents/Resources/CLI/csa-iem-diamond" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem-open" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem-gui" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem-build-gui" \
   "$APP_DIR/Contents/Resources/CLI/csa-ilem" \
-  "$APP_DIR/Contents/Resources/CLI/csa-ilem-public" \
-  "$APP_DIR/Contents/Resources/CLI/csa-ilem-wtl" \
-  "$APP_DIR/Contents/Resources/CLI/csa-ilem-diamond" \
   "$APP_DIR/Contents/Resources/CLI/csa-ilem-open" \
   "$APP_DIR/Contents/Resources/CLI/csa-ilem-gui" \
   "$APP_DIR/Contents/Resources/CLI/csa-ilem-build-gui" \
@@ -202,7 +186,9 @@ chmod +x \
   "$APP_DIR/Contents/Resources/CLI/install-remote.sh" \
   "$APP_DIR/Contents/Resources/CLI/CSA-iEM.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/csa-iem-tray.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install-remote.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/update-win.ps1" \
   "$APP_DIR/Contents/Resources/CLI/uninstall.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install.sh" \
   "$APP_DIR/Contents/Resources/CLI/uninstall.sh"
