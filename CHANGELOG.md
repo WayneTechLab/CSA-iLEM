@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3
+
+- expanded the macOS toolbar into a window-style mini control app instead of a plain dropdown menu
+- added toolbar quick actions for opening the loaded repo in VS Code, Codex, GitHub Copilot, Finder, the CLI, or the project browser
+- added toolbar active-container controls for opening the linked workspace, viewing logs, and stopping the container
+- kept runner fleet controls in the toolbar, including stop-all, start-only, open-in-VS-Code, open-in-Codex, reveal, start, stop, and restart
+
 ## 0.4.2
 
 - fixed GUI-launched Terminal fallback windows so they stay open after auto-confirmed CLI runs

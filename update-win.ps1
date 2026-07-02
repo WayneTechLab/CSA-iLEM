@@ -68,7 +68,7 @@ Provider: $AppVendor
 
 Usage:
   csa-iem-update
-  csa-iem-update --ref 0.4.2
+  csa-iem-update --ref 0.4.3
   powershell -ExecutionPolicy Bypass -File .\update-win.ps1
 
 Options:

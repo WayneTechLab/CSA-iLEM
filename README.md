@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.4.2`
+Version: `0.4.3`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -11,7 +11,8 @@ Notice: `Use at your own risk.`
 `CSA-iEM` is now a cross-platform toolset with:
 - a production CLI backend
 - a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, and `GitHub Account` pages
-- a macOS menu-bar toolbar plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling and controlling local GitHub Actions runners
+- a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling and controlling local GitHub Actions runners
+- toolbar quick actions for opening the loaded repo or active container in VS Code, Codex, GitHub Copilot, Finder, CLI, or the project browser
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
 - auto-confirm support for simple terminal yes/no gates while pausing on sudo/password/security prompts

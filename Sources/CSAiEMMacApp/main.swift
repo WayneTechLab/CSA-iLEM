@@ -1328,6 +1328,14 @@ final class CleanupViewModel: ObservableObject {
     return filteredLocalProjects.first ?? localProjects.first
   }
 
+  var primaryActiveContainer: LiveContainerEntry? {
+    if let project = primaryLocalProject,
+       let container = activeContainers.first(where: { $0.slug == project.slug }) {
+      return container
+    }
+    return activeContainers.first
+  }
+
   var filteredTaskTemplates: [ProjectTaskTemplate] {
     guard let primaryLocalProject else { return [] }
     return taskTemplates.filter { $0.slug == primaryLocalProject.slug }
@@ -2011,12 +2019,47 @@ final class CleanupViewModel: ObservableObject {
     )
   }
 
+  func openLocalProject(_ project: LocalProjectEntry, preferRuntime: Bool, inApplication appName: String) {
+    openProjectPaths(
+      codePath: project.codePath,
+      runtimePath: project.runtimePath,
+      fallbackPath: project.preferredOpenPath,
+      preferRuntime: preferRuntime,
+      label: project.slug,
+      appName: appName
+    )
+  }
+
+  func openPrimaryLocalProject(preferRuntime: Bool) {
+    guard let project = primaryLocalProject else {
+      appendLog("[gui] No loaded local project is available to open.\n")
+      return
+    }
+    openLocalProject(project, preferRuntime: preferRuntime)
+  }
+
+  func openPrimaryLocalProject(preferRuntime: Bool, inApplication appName: String) {
+    guard let project = primaryLocalProject else {
+      appendLog("[gui] No loaded local project is available to open in \(appName).\n")
+      return
+    }
+    openLocalProject(project, preferRuntime: preferRuntime, inApplication: appName)
+  }
+
   func revealLocalProject(_ project: LocalProjectEntry) {
     guard let targetPath = project.preferredOpenPath else {
       appendLog("[gui] No local path was found for \(project.slug)\n")
       return
     }
     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: targetPath)])
+  }
+
+  func revealPrimaryLocalProject() {
+    guard let project = primaryLocalProject else {
+      appendLog("[gui] No loaded local project is available to reveal.\n")
+      return
+    }
+    revealLocalProject(project)
   }
 
   func revealCodeRoot() {
@@ -2041,6 +2084,17 @@ final class CleanupViewModel: ObservableObject {
       fallbackPath: entry.workspacePath,
       preferRuntime: preferRuntime,
       label: entry.slug
+    )
+  }
+
+  func openContainerProject(_ entry: LiveContainerEntry, preferRuntime: Bool, inApplication appName: String) {
+    openProjectPaths(
+      codePath: entry.codePath,
+      runtimePath: entry.runtimePath,
+      fallbackPath: entry.workspacePath,
+      preferRuntime: preferRuntime,
+      label: entry.slug,
+      appName: appName
     )
   }
 
@@ -2143,6 +2197,17 @@ final class CleanupViewModel: ObservableObject {
       fallbackPath: entry.runnerPath,
       preferRuntime: preferRuntime,
       label: entry.slug
+    )
+  }
+
+  func openRunnerProject(_ entry: RunnerServiceEntry, preferRuntime: Bool, inApplication appName: String) {
+    openProjectPaths(
+      codePath: entry.codePath,
+      runtimePath: entry.runtimePath,
+      fallbackPath: entry.runnerPath,
+      preferRuntime: preferRuntime,
+      label: entry.slug,
+      appName: appName
     )
   }
 
@@ -4740,10 +4805,15 @@ final class CleanupViewModel: ObservableObject {
     NSWorkspace.shared.activateFileViewerSelecting([targetURL])
   }
 
-  private func openProjectPaths(codePath: String?, runtimePath: String?, fallbackPath: String?, preferRuntime: Bool, label: String) {
+  private func openProjectPaths(codePath: String?, runtimePath: String?, fallbackPath: String?, preferRuntime: Bool, label: String, appName: String? = nil) {
     let targetPath = preferRuntime ? (runtimePath ?? codePath ?? fallbackPath) : (codePath ?? runtimePath ?? fallbackPath)
     guard let targetPath else {
       appendLog("[gui] No local path was found for \(label)\n")
+      return
+    }
+
+    if let appName, !appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      openPathInApplication(targetPath, appName: appName, label: label)
       return
     }
 
@@ -4761,6 +4831,16 @@ final class CleanupViewModel: ObservableObject {
     }
 
     launchDetached(executable: "/usr/bin/open", arguments: ["-a", "Visual Studio Code", targetPath])
+  }
+
+  private func openPathInApplication(_ path: String, appName: String, label: String) {
+    guard FileManager.default.fileExists(atPath: path) else {
+      appendLog("[gui] Path was not found for \(label): \(path)\n")
+      return
+    }
+
+    launchDetached(executable: "/usr/bin/open", arguments: ["-a", appName, path])
+    appendLog("[gui] Opening \(label) in \(appName): \(path)\n")
   }
 
   private func openTerminalCommand(_ command: String) {
@@ -10311,80 +10391,138 @@ struct CSAiEMMenuBarView: View {
     model.runnerServices.filter(\.isRunning).count
   }
 
+  private var primaryProjectLabel: String {
+    model.primaryLocalProject?.slug ?? "No loaded repo"
+  }
+
+  private var primaryContainerLabel: String {
+    model.primaryActiveContainer?.slug ?? "No active container"
+  }
+
   var body: some View {
-    Text("Loaded Workspace")
-    Text("Code: \(roots.codeRoot)")
-    Text("Import: \(roots.importRoot)")
-    Text("Runtime: \(roots.runtimeRoot)")
-    Divider()
-    Text("\(model.activeContainers.count) active devcontainers")
-    Text("\(runningRunnerCount)/\(model.runnerServices.count) runners running")
-    Divider()
-    Button("Open CSA-iEM App") {
-      NSApp.activate(ignoringOtherApps: true)
-      NSApp.windows.first?.makeKeyAndOrderFront(nil)
-    }
-    Button("Open CSA-iEM CLI") {
-      model.openCLIInTerminal()
-    }
-    Button("Open Project Browser") {
-      model.openProjectBrowserInTerminal()
-    }
-    Button("Refresh Workspace State") {
-      model.refreshOperatorState()
-    }
-    Divider()
-    Menu("Workspace Roots") {
-      Button("Reveal Code Root") {
-        model.revealCodeRoot()
-      }
-      Button("Reveal Import Root") {
-        model.revealImportRoot()
-      }
-      Button("Reveal Runtime Root") {
-        model.revealRuntimeRoot()
-      }
-    }
-    Menu("GitHub Action Runners") {
-      if model.runnerServices.isEmpty {
-        Text("No runner services detected")
-      } else {
-        Button("Stop All Active Runners") {
-          model.stopAllActiveRunnerServices()
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Image(systemName: "shippingbox.fill")
+          .font(.system(size: 22, weight: .semibold))
+          .foregroundStyle(DashboardTheme.success)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("CSA-iEM Control")
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+          Text("\(model.activeContainers.count) containers · \(runningRunnerCount)/\(model.runnerServices.count) runners")
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
         }
-        Divider()
-        ForEach(model.runnerServices) { runner in
-          Menu("\(runner.slug) (\(runner.statusLabel))") {
-            Text(runner.runnerPath)
-            Text("Service: \(runner.serviceLabel)")
-            Divider()
-            Button("Start Only This Runner") {
-              model.startOnlyRunnerService(runner)
-            }
-            Button("Open Workspace") {
-              model.openRunnerProject(runner, preferRuntime: true)
-            }
-            Button("Reveal Runner Folder") {
-              model.revealRunnerService(runner)
-            }
-            Divider()
-            Button("Start Runner") {
-              model.startRunnerService(runner)
-            }
-            Button("Stop Runner") {
-              model.stopRunnerService(runner)
-            }
-            Button("Restart Runner") {
-              model.restartRunnerService(runner)
+        Spacer()
+        Button {
+          model.refreshOperatorState()
+        } label: {
+          Image(systemName: "arrow.clockwise")
+        }
+        .buttonStyle(.borderless)
+        .help("Refresh workspace state")
+      }
+
+      Divider()
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Loaded Repo")
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+        Text(primaryProjectLabel)
+          .font(.system(size: 13, weight: .semibold, design: .rounded))
+          .foregroundStyle(DashboardTheme.text)
+          .lineLimit(1)
+
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+          Button("VS Code") { model.openPrimaryLocalProject(preferRuntime: true, inApplication: "Visual Studio Code") }
+            .disabled(model.primaryLocalProject == nil)
+          Button("Codex") { model.openPrimaryLocalProject(preferRuntime: true, inApplication: "Codex") }
+            .disabled(model.primaryLocalProject == nil)
+          Button("GitHub Copilot") { model.openPrimaryLocalProject(preferRuntime: true, inApplication: "GitHub Copilot") }
+            .disabled(model.primaryLocalProject == nil)
+          Button("Finder") { model.revealPrimaryLocalProject() }
+            .disabled(model.primaryLocalProject == nil)
+          Button("CLI") { model.openCLIInTerminal() }
+          Button("Browser") { model.openProjectBrowserInTerminal() }
+        }
+      }
+
+      Divider()
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Active Container")
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+        Text(primaryContainerLabel)
+          .font(.system(size: 13, weight: .semibold, design: .rounded))
+          .foregroundStyle(DashboardTheme.text)
+          .lineLimit(1)
+
+        if let container = model.primaryActiveContainer {
+          HStack(spacing: 8) {
+            Button("Open") { model.openContainerProject(container, preferRuntime: true) }
+            Button("Codex") { model.openContainerProject(container, preferRuntime: true, inApplication: "Codex") }
+            Button("Logs") { model.openContainerLogs(container) }
+            Button("Stop") { model.stopContainer(container) }
+          }
+        } else {
+          Text("No running devcontainer was detected.")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+        }
+      }
+
+      Divider()
+
+      Menu("GitHub Action Runners") {
+        if model.runnerServices.isEmpty {
+          Text("No runner services detected")
+        } else {
+          Button("Stop All Active Runners") {
+            model.stopAllActiveRunnerServices()
+          }
+          Divider()
+          ForEach(model.runnerServices) { runner in
+            Menu("\(runner.slug) (\(runner.statusLabel))") {
+              Text(runner.runnerPath)
+              Text("Service: \(runner.serviceLabel)")
+              Divider()
+              Button("Start Only This Runner") { model.startOnlyRunnerService(runner) }
+              Button("Open in VS Code") { model.openRunnerProject(runner, preferRuntime: true) }
+              Button("Open in Codex") { model.openRunnerProject(runner, preferRuntime: true, inApplication: "Codex") }
+              Button("Reveal Runner Folder") { model.revealRunnerService(runner) }
+              Divider()
+              Button("Start Runner") { model.startRunnerService(runner) }
+              Button("Stop Runner") { model.stopRunnerService(runner) }
+              Button("Restart Runner") { model.restartRunnerService(runner) }
             }
           }
         }
       }
+
+      Menu("Workspace Roots") {
+        Text("Code: \(roots.codeRoot)")
+        Text("Import: \(roots.importRoot)")
+        Text("Runtime: \(roots.runtimeRoot)")
+        Divider()
+        Button("Reveal Code Root") { model.revealCodeRoot() }
+        Button("Reveal Import Root") { model.revealImportRoot() }
+        Button("Reveal Runtime Root") { model.revealRuntimeRoot() }
+      }
+
+      HStack(spacing: 8) {
+        Button("Open App") {
+          NSApp.activate(ignoringOtherApps: true)
+          NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+        Button("Quit") {
+          NSApp.terminate(nil)
+        }
+      }
     }
-    Divider()
-    Button("Quit CSA-iEM") {
-      NSApp.terminate(nil)
-    }
+    .padding(14)
+    .frame(width: 380)
   }
 }
 
@@ -10409,6 +10547,7 @@ struct CSAiEMMacApp: App {
         Text("CSA")
       }
     }
+    .menuBarExtraStyle(.window)
   }
 }
 
