@@ -9736,6 +9736,87 @@ struct ContentView: View {
   }
 }
 
+struct CSAiEMMenuBarView: View {
+  @ObservedObject var model: CleanupViewModel
+
+  private var roots: (codeRoot: String, importRoot: String, runtimeRoot: String) {
+    model.profileRootSummary
+  }
+
+  private var runningRunnerCount: Int {
+    model.runnerServices.filter(\.isRunning).count
+  }
+
+  var body: some View {
+    Text("Loaded Workspace")
+    Text("Code: \(roots.codeRoot)")
+    Text("Import: \(roots.importRoot)")
+    Text("Runtime: \(roots.runtimeRoot)")
+    Divider()
+    Text("\(model.activeContainers.count) active devcontainers")
+    Text("\(runningRunnerCount)/\(model.runnerServices.count) runners running")
+    Divider()
+    Button("Open CSA-iEM App") {
+      NSApp.activate(ignoringOtherApps: true)
+      NSApp.windows.first?.makeKeyAndOrderFront(nil)
+    }
+    Button("Open CSA-iEM CLI") {
+      model.openCLIInTerminal()
+    }
+    Button("Open Project Browser") {
+      model.openProjectBrowserInTerminal()
+    }
+    Button("Refresh Workspace State") {
+      model.refreshOperatorState()
+    }
+    Divider()
+    Menu("Workspace Roots") {
+      Button("Reveal Code Root") {
+        model.revealCodeRoot()
+      }
+      Button("Reveal Import Root") {
+        model.revealImportRoot()
+      }
+      Button("Reveal Runtime Root") {
+        model.revealRuntimeRoot()
+      }
+    }
+    Menu("GitHub Action Runners") {
+      if model.runnerServices.isEmpty {
+        Text("No runner services detected")
+      } else {
+        ForEach(model.runnerServices) { runner in
+          Menu("\(runner.slug) (\(runner.statusLabel))") {
+            Text(runner.runnerPath)
+            Text("Service: \(runner.serviceLabel)")
+            Divider()
+            Button("Open Workspace") {
+              model.openRunnerProject(runner, preferRuntime: true)
+            }
+            Button("Reveal Runner Folder") {
+              model.revealRunnerService(runner)
+            }
+            Divider()
+            Button("Start Runner") {
+              model.startRunnerService(runner)
+            }
+            Button("Stop Runner") {
+              model.stopRunnerService(runner)
+            }
+            Button("Restart Runner") {
+              model.restartRunnerService(runner)
+            }
+          }
+        }
+      }
+    }
+    Divider()
+    Button("Quit CSA-iEM") {
+      NSApp.terminate(nil)
+    }
+  }
+}
+
 @main
 struct CSAiEMMacApp: App {
   @NSApplicationDelegateAdaptor(CSAiEMAppDelegate.self) private var appDelegate
@@ -9744,12 +9825,15 @@ struct CSAiEMMacApp: App {
   var body: some Scene {
     WindowGroup(appTitle) {
       ContentView(model: model)
-        .onAppear {
-          appDelegate.attach(model: model)
-        }
     }
     .commands {
       CommandGroup(replacing: .newItem) { }
+    }
+
+    MenuBarExtra {
+      CSAiEMMenuBarView(model: model)
+    } label: {
+      Label(appTitle, systemImage: "terminal")
     }
   }
 }

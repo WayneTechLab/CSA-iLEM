@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.9
+
+- changed the macOS toolbar to a native SwiftUI `MenuBarExtra` so it appears independently from the main window lifecycle
+- keeps the same toolbar actions for opening CSA-iEM, opening the CLI/project browser, inspecting workspace roots, and controlling local GitHub Actions runner services
+
 ## 0.3.8
 
 - fixed macOS updates so they build and install `CSA-iEM.app` automatically instead of only updating CLI files
