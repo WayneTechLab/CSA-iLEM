@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- added auto-confirm support for simple terminal yes/no gates during GUI-launched CLI work and Terminal fallback commands
+- added Settings control for auto-confirming terminal gates, with sudo/password/auth prompts treated as manual security gates
+- taught the macOS CLI and installer scripts to honor `CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES=1`
+
 ## 0.4.0
 
 - added toolbar and GUI runner fleet controls: stop all active runners and start only one selected runner

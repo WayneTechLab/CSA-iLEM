@@ -208,6 +208,10 @@ err() {
 }
 
 pause() {
+  if [[ "${CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES:-0}" == "1" ]]; then
+    info "Auto-confirm terminal gate -> continuing past pause"
+    return 0
+  fi
   read -r -p "Press Enter to continue..."
 }
 
@@ -222,6 +226,11 @@ confirm() {
 
   if [[ "$ASSUME_YES" -eq 1 ]]; then
     info "Assume yes -> $prompt"
+    return 0
+  fi
+
+  if [[ "${CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES:-0}" == "1" ]]; then
+    info "Auto-confirm terminal gate: yes -> $prompt"
     return 0
   fi
 

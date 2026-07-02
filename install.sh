@@ -134,6 +134,11 @@ confirm() {
     return 0
   fi
 
+  if [[ "${CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES:-0}" == "1" ]]; then
+    info "Auto-confirm terminal gate: yes -> $prompt"
+    return 0
+  fi
+
   read -r -p "$prompt [Y/n]: " answer
   case "$answer" in
     ""|y|Y|yes|YES|Yes) return 0 ;;

@@ -323,6 +323,7 @@ struct AppSettings: Codable, Hashable {
   var autoLoadWorkflowRuns = true
   var showAdvancedTools = false
   var keepTerminalFallbacksVisible = false
+  var autoConfirmTerminalGates = true
   var firstRunComplete = false
 }
 
@@ -2495,14 +2496,17 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let commandParts = [shellQuote(cliPath)] + arguments.map(shellQuote)
+    let autoConfirm = appSettings.autoConfirmTerminalGates ? "1" : "0"
     return [
       "export PATH=\(shellQuote(defaultSearchPaths.joined(separator: ":")))",
+      "export CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES=\(shellQuote(autoConfirm))",
+      "export CSA_IEM_PAUSE_ON_SECURITY_GATE=1",
       commandParts.joined(separator: " "),
       "EXIT_CODE=$?",
       "printf '\\n'",
       "if [ $EXIT_CODE -eq 0 ]; then echo '\(exitLabel) finished.'; else echo \"\(exitLabel) exited with code $EXIT_CODE.\"; fi",
       "echo",
-      "read -r -p 'Press Enter to close this window...' _"
+      "if [ \"${CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES:-0}\" != \"1\" ]; then read -r -p 'Press Enter to close this window...' _; fi"
     ].joined(separator: "; ")
   }
 
@@ -3769,12 +3773,14 @@ final class CleanupViewModel: ObservableObject {
 
     let environment = baseEnvironment()
     let pipe = Pipe()
+    let stdinPipe = Pipe()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: cliPath)
     process.arguments = arguments
     process.environment = environment
     process.standardOutput = pipe
     process.standardError = pipe
+    process.standardInput = stdinPipe
     runningProcess = process
 
     pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -3786,8 +3792,10 @@ final class CleanupViewModel: ObservableObject {
       }
 
       DispatchQueue.main.async {
-        self?.appendLog(chunk)
-        self?.updateJob(id: jobID, appendLog: chunk)
+        guard let self else { return }
+        self.appendLog(chunk)
+        self.updateJob(id: jobID, appendLog: chunk)
+        self.handleTerminalGate(chunk, stdinPipe: stdinPipe, jobID: jobID)
       }
     }
 
@@ -3803,6 +3811,7 @@ final class CleanupViewModel: ObservableObject {
           self.updateJob(id: jobID, appendLog: tailText)
         }
         self.runningProcess = nil
+        try? stdinPipe.fileHandleForWriting.close()
 
         if self.cancellationRequested {
           self.finishImportQueue(cancelled: true, jobID: jobID)
@@ -3830,6 +3839,7 @@ final class CleanupViewModel: ObservableObject {
         try process.run()
       } catch {
         DispatchQueue.main.async {
+          try? stdinPipe.fileHandleForWriting.close()
           self.failedRepoTargets.append(repoTarget)
           self.appendLog("[gui] Failed to launch import: \(error.localizedDescription)\n")
           self.updateJob(id: jobID, appendLog: "Failed to launch import: \(error.localizedDescription)")
@@ -3994,12 +4004,14 @@ final class CleanupViewModel: ObservableObject {
 
     let environment = baseEnvironment()
     let pipe = Pipe()
+    let stdinPipe = Pipe()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: cliPath)
     process.arguments = arguments
     process.environment = environment
     process.standardOutput = pipe
     process.standardError = pipe
+    process.standardInput = stdinPipe
     runningProcess = process
 
     pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -4011,7 +4023,9 @@ final class CleanupViewModel: ObservableObject {
       }
 
       DispatchQueue.main.async {
-        self?.appendLog(chunk)
+        guard let self else { return }
+        self.appendLog(chunk)
+        self.handleTerminalGate(chunk, stdinPipe: stdinPipe, jobID: nil)
       }
     }
 
@@ -4026,6 +4040,7 @@ final class CleanupViewModel: ObservableObject {
           self.appendLog(tailText)
         }
         self.runningProcess = nil
+        try? stdinPipe.fileHandleForWriting.close()
 
         if self.cancellationRequested {
           self.finishCleanupQueue(cancelled: true)
@@ -4053,6 +4068,7 @@ final class CleanupViewModel: ObservableObject {
         try process.run()
       } catch {
         DispatchQueue.main.async {
+          try? stdinPipe.fileHandleForWriting.close()
           self.failedRepoTargets.append(repoTarget)
           self.appendLog("[gui] Failed to launch cleanup: \(error.localizedDescription)\n")
           if let nextTarget = self.pendingRepoTargets.first {
@@ -4094,6 +4110,41 @@ final class CleanupViewModel: ObservableObject {
     totalRepoTargets = 0
     cancellationRequested = false
     reloadAuthInventory()
+  }
+
+  private func handleTerminalGate(_ chunk: String, stdinPipe: Pipe, jobID: String?) {
+    guard Self.looksLikeTerminalGate(chunk) else {
+      return
+    }
+
+    if Self.looksLikeCredentialGate(chunk) {
+      let message = "[gui] Security gate detected. This looks like a sudo/password/auth prompt, so CSA-iEM paused for manual approval instead of auto-typing credentials.\n"
+      appendLog(message)
+      if let jobID {
+        updateJob(id: jobID, state: .running, detail: "Waiting for manual security approval.", appendLog: message)
+      }
+      return
+    }
+
+    guard appSettings.autoConfirmTerminalGates else {
+      let message = "[gui] Confirmation gate detected. Auto-confirm is off, so answer the terminal prompt manually or enable Auto-confirm terminal gates in Settings.\n"
+      appendLog(message)
+      if let jobID {
+        updateJob(id: jobID, state: .running, detail: "Waiting for manual confirmation.", appendLog: message)
+      }
+      return
+    }
+
+    guard let data = "y\n".data(using: .utf8) else {
+      return
+    }
+
+    stdinPipe.fileHandleForWriting.write(data)
+    let message = "[gui] Auto-confirmed a terminal yes/no gate with y.\n"
+    appendLog(message)
+    if let jobID {
+      updateJob(id: jobID, appendLog: message)
+    }
   }
 
   private func appendLog(_ text: String) {
@@ -4648,6 +4699,8 @@ final class CleanupViewModel: ObservableObject {
   private func baseEnvironment() -> [String: String] {
     var environment = ProcessInfo.processInfo.environment
     environment["PATH"] = defaultSearchPaths.joined(separator: ":")
+    environment["CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES"] = appSettings.autoConfirmTerminalGates ? "1" : "0"
+    environment["CSA_IEM_PAUSE_ON_SECURITY_GATE"] = "1"
     if let cliRootPath {
       environment["CSA_IEM_ROOT"] = cliRootPath
     }
@@ -4758,6 +4811,48 @@ final class CleanupViewModel: ObservableObject {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
     return CommandResult(status: process.terminationStatus, output: output)
+  }
+
+  private nonisolated static func looksLikeTerminalGate(_ output: String) -> Bool {
+    let lower = output.lowercased()
+    if looksLikeCredentialGate(lower) {
+      return true
+    }
+
+    let confirmationMarkers = [
+      "(y/n)",
+      "[y/n]",
+      "[y/n]:",
+      "[y/n]?",
+      "[y/n] ",
+      "[y/n]:",
+      "[y/n]",
+      "[yes/no]",
+      "yes/no",
+      "proceed?",
+      "continue?",
+      "do you want to continue",
+      "are you sure",
+      "type y",
+      "press y"
+    ]
+    return confirmationMarkers.contains { lower.contains($0) }
+  }
+
+  private nonisolated static func looksLikeCredentialGate(_ output: String) -> Bool {
+    let lower = output.lowercased()
+    let credentialMarkers = [
+      "password:",
+      "passphrase",
+      "sudo",
+      "authentication required",
+      "administrator password",
+      "touch id",
+      "authorization required",
+      "keychain",
+      "enter pin"
+    ]
+    return credentialMarkers.contains { lower.contains($0) }
   }
 
   private nonisolated static func decodeJSONArray<T: Decodable>(_ type: T.Type, from output: String) -> T? {
@@ -8282,6 +8377,11 @@ struct ContentView: View {
       Toggle("Auto-load workflow runs after workflow catalog loads", isOn: $model.appSettings.autoLoadWorkflowRuns)
         .toggleStyle(.switch)
         .tint(DashboardTheme.warning)
+        .foregroundStyle(DashboardTheme.text)
+
+      Toggle("Auto-confirm terminal yes/no gates", isOn: $model.appSettings.autoConfirmTerminalGates)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
         .foregroundStyle(DashboardTheme.text)
 
       Toggle("Show advanced tools in the workspace page", isOn: $model.appSettings.showAdvancedTools)
