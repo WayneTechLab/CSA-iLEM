@@ -2062,9 +2062,72 @@ final class CleanupViewModel: ObservableObject {
     revealLocalProject(project)
   }
 
+  func copyPrimaryLocalProjectSlug() {
+    guard let slug = primaryLocalProject?.slug else {
+      appendLog("[gui] No loaded local project is available to copy.\n")
+      return
+    }
+    copyToClipboard(slug, label: "project slug")
+  }
+
+  func copyPrimaryLocalProjectPath() {
+    guard let project = primaryLocalProject else {
+      appendLog("[gui] No loaded local project is available to copy.\n")
+      return
+    }
+    let path = project.preferredOpenPath ?? project.codePath ?? project.runtimePath ?? project.slug
+    copyToClipboard(path, label: "project path")
+  }
+
+  func copyPrimaryLocalProjectURL() {
+    guard let slug = primaryLocalProject?.slug else {
+      appendLog("[gui] No loaded local project is available to copy.\n")
+      return
+    }
+
+    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host
+    guard let url = URL(string: "https://\(normalizedHost)/\(slug)") else {
+      appendLog("[gui] Could not build a repository URL for \(slug).\n")
+      return
+    }
+    copyToClipboard(url.absoluteString, label: "repository URL")
+  }
+
+  func openPrimaryLocalProjectInTerminal() {
+    guard let project = primaryLocalProject else {
+      appendLog("[gui] No loaded local project is available to open in Terminal.\n")
+      return
+    }
+    let path = project.preferredOpenPath ?? project.codePath ?? project.runtimePath
+    guard let path, !path.isEmpty else {
+      appendLog("[gui] No local path was found for \(project.slug)\n")
+      return
+    }
+    openTerminalCommand("cd \(shellQuote(path)) && exec \(shellQuote(ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"))")
+  }
+
+  func openPrimaryLocalProjectInBrowser() {
+    guard let slug = primaryLocalProject?.slug else {
+      appendLog("[gui] No loaded local project is available to open in the browser.\n")
+      return
+    }
+
+    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host
+    guard let url = URL(string: "https://\(normalizedHost)/\(slug)") else {
+      appendLog("[gui] Could not build a browser URL for \(slug).\n")
+      return
+    }
+    NSWorkspace.shared.open(url)
+    appendLog("[gui] Opening repository in browser: \(url.absoluteString)\n")
+  }
+
   func revealCodeRoot() {
     let roots = resolvedProfileRoots()
     revealPath(roots.codeRoot)
+  }
+
+  func copyCodeRoot() {
+    copyToClipboard(resolvedProfileRoots().codeRoot, label: "code root")
   }
 
   func revealImportRoot() {
@@ -2072,9 +2135,42 @@ final class CleanupViewModel: ObservableObject {
     revealPath(roots.importRoot)
   }
 
+  func copyImportRoot() {
+    copyToClipboard(resolvedProfileRoots().importRoot, label: "import root")
+  }
+
   func revealRuntimeRoot() {
     let roots = resolvedProfileRoots()
     revealPath(roots.runtimeRoot)
+  }
+
+  func copyRuntimeRoot() {
+    copyToClipboard(resolvedProfileRoots().runtimeRoot, label: "runtime root")
+  }
+
+  func copyWorkspaceSummary() {
+    let roots = resolvedProfileRoots()
+    let summary = [
+      "Profile: \(selectedProfile.label)",
+      "Code: \(roots.codeRoot)",
+      "Import: \(roots.importRoot)",
+      "Runtime: \(roots.runtimeRoot)"
+    ].joined(separator: "\n")
+    copyToClipboard(summary, label: "workspace summary")
+  }
+
+  func openApplicationSupportFolder() {
+    revealPath(appSupportDir)
+  }
+
+  func openSettingsFolder() {
+    revealPath(profileConfigDir)
+  }
+
+  func resetLaunchWarningAcceptance() {
+    appSettings.firstRunComplete = false
+    persistSettings()
+    settingsStatus = "Launch warning reset. The agreement sheet will show again on next launch."
   }
 
   func openContainerProject(_ entry: LiveContainerEntry, preferRuntime: Bool) {
@@ -2756,6 +2852,59 @@ final class CleanupViewModel: ObservableObject {
     NSWorkspace.shared.open(url)
   }
 
+  func openRepoActionsPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=actions")
+  }
+
+  func openRepoIssuesPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=issues")
+  }
+
+  func openRepoPullRequestsPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=pulls")
+  }
+
+  func openRepoProjectsPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=projects")
+  }
+
+  func openRepoSecurityPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=security")
+  }
+
+  func openRepoInsightsPage() {
+    openPrimaryRepoPage(pathSuffix: "?tab=insights")
+  }
+
+  func copyGitHubHost() {
+    copyToClipboard(host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host, label: "GitHub host")
+  }
+
+  func copyGitHubAccount() {
+    copyToClipboard(account.trimmingCharacters(in: .whitespacesAndNewlines), label: "GitHub account")
+  }
+
+  func copyPrimaryRepoSlug() {
+    copyToClipboard(primaryRepoSlug ?? "", label: "repository slug")
+  }
+
+  func copyPrimaryRepoURL() {
+    guard let url = primaryRepoURL() else {
+      appendLog("[gui] No repository target is available to copy.\n")
+      return
+    }
+    copyToClipboard(url.absoluteString, label: "repository URL")
+  }
+
+  func copySelectedRepoSummary() {
+    let repos = selectedRepos.sorted()
+    guard !repos.isEmpty else {
+      appendLog("[gui] No selected repositories are available to copy.\n")
+      return
+    }
+    copyToClipboard(repos.joined(separator: "\n"), label: "selected repositories")
+  }
+
   func openRepoOwnerPage() {
     let selectedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
     let owner = repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2767,6 +2916,22 @@ final class CleanupViewModel: ObservableObject {
       return
     }
     NSWorkspace.shared.open(url)
+  }
+
+  private func primaryRepoURL() -> URL? {
+    let selectedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let repo = primaryRepoSlug else { return nil }
+    return URL(string: "https://\(selectedHost.isEmpty ? "github.com" : selectedHost)/\(repo)")
+  }
+
+  private func openPrimaryRepoPage(pathSuffix: String) {
+    guard let baseURL = primaryRepoURL() else {
+      appendLog("[gui] No repository target is available.\n")
+      return
+    }
+
+    let finalURL = URL(string: pathSuffix, relativeTo: baseURL) ?? baseURL
+    NSWorkspace.shared.open(finalURL)
   }
 
   func openBundledHelpDocument(_ fileName: String) {
@@ -2920,6 +3085,11 @@ final class CleanupViewModel: ObservableObject {
     appSettings.firstRunComplete = true
     persistSettings()
     settingsStatus = "Settings saved."
+  }
+
+  func markLaunchWarningAccepted() {
+    appSettings.firstRunComplete = true
+    persistSettings()
   }
 
   func applyBackupPreset(_ preset: BackupPreset) {
@@ -4841,6 +5011,12 @@ final class CleanupViewModel: ObservableObject {
 
     launchDetached(executable: "/usr/bin/open", arguments: ["-a", appName, path])
     appendLog("[gui] Opening \(label) in \(appName): \(path)\n")
+  }
+
+  private func copyToClipboard(_ value: String, label: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
+    appendLog("[gui] Copied \(label) to clipboard.\n")
   }
 
   private func openTerminalCommand(_ command: String) {
@@ -7467,7 +7643,7 @@ struct ContentView: View {
   @ObservedObject private var model: CleanupViewModel
   @State private var selectedDestination: AppDestination = .home
   @State private var isMenuVisible = true
-  @State private var showLaunchWarning = true
+  @State private var showLaunchWarning = false
   @State private var acceptedRisk = false
   @State private var acceptedPurpose = false
 
@@ -7533,12 +7709,19 @@ struct ContentView: View {
     .frame(minWidth: 760, minHeight: 640)
     .preferredColorScheme(.dark)
     .tint(DashboardTheme.link)
+    .onAppear {
+      let shouldShowWarning = !model.appSettings.firstRunComplete
+      showLaunchWarning = shouldShowWarning
+      acceptedRisk = !shouldShowWarning
+      acceptedPurpose = !shouldShowWarning
+    }
     .sheet(isPresented: $showLaunchWarning) {
       LaunchWarningSheet(
         acceptedRisk: $acceptedRisk,
         acceptedPurpose: $acceptedPurpose,
         brandMark: model.bundledBrandMark,
         continueAction: {
+          model.markLaunchWarningAccepted()
           showLaunchWarning = false
         },
         quitAction: {
@@ -8241,6 +8424,61 @@ struct ContentView: View {
       }
 
       HStack(spacing: 10) {
+        Button("Load Workflows") {
+          model.loadWorkflowCatalog()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isLoadingWorkflowData)
+
+        Button("Load Runs") {
+          model.loadWorkflowRuns()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        .disabled(model.isLoadingWorkflowData)
+
+        Button("Load Secrets") {
+          model.loadSecretsAndVariables()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.isLoadingSecretsData)
+      }
+
+      HStack(spacing: 10) {
+        Button("Load Rules") {
+          model.loadBranchProtectionAndRulesets()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.isLoadingRulesData)
+
+        Button("Open GitHub Settings") {
+          model.openGitHubSettingsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accentPink, bordered: true))
+
+        Button("Open Repo Settings") {
+          model.openRepoSettingsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.link, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Copy Repo URL") {
+          model.copyPrimaryRepoURL()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Copy Selected") {
+          model.copySelectedRepoSummary()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Open Owner Page") {
+          model.openRepoOwnerPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+      }
+
+      HStack(spacing: 10) {
         Button("Open GitHub") {
           model.openGitHubHostPage()
         }
@@ -8267,6 +8505,76 @@ struct ContentView: View {
           model.openGitHubSettingsPage()
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accentPink, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Copy Host") {
+          model.copyGitHubHost()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Copy Account") {
+          model.copyGitHubAccount()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Copy Repo") {
+          model.copyPrimaryRepoSlug()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Open Login") {
+          model.openGitHubLogin()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+
+        Button("Load Repo Health") {
+          model.loadRepoHealthForSelectedRepos()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.isLoadingRepoHealth)
+
+        Button("Load Codespaces") {
+          model.loadCodespaces()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isLoadingCodespaces)
+      }
+
+      HStack(spacing: 10) {
+        Button("Open Actions") {
+          model.openRepoActionsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Open Issues") {
+          model.openRepoIssuesPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Open Pulls") {
+          model.openRepoPullRequestsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Open Projects") {
+          model.openRepoProjectsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Open Security") {
+          model.openRepoSecurityPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
+
+        Button("Open Insights") {
+          model.openRepoInsightsPage()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.link, bordered: true))
       }
 
       Text("This page is the dedicated place for host, account, org, and repository management. Cleanup can still use the same connected session, but the home screen stays simpler.")
@@ -8495,6 +8803,47 @@ struct ContentView: View {
           selectedDestination = .workspace
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Copy Workspace Summary") {
+          model.copyWorkspaceSummary()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Open App Support") {
+          model.openApplicationSupportFolder()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+        Button("Open Settings Folder") {
+          model.openSettingsFolder()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Copy Code Root") {
+          model.copyCodeRoot()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Copy Import Root") {
+          model.copyImportRoot()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Copy Runtime Root") {
+          model.copyRuntimeRoot()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      HStack(spacing: 10) {
+        Button("Reset Launch Warning") {
+          model.resetLaunchWarningAcceptance()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
       }
 
       Text(model.settingsStatus)
@@ -9428,6 +9777,33 @@ struct ContentView: View {
         }
 
         HStack(spacing: 10) {
+          Button("Open in Browser") {
+            model.openPrimaryLocalProjectInBrowser()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+          Button("Open in Terminal") {
+            model.openPrimaryLocalProjectInTerminal()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+          Button("Copy Repo Slug") {
+            model.copyPrimaryLocalProjectSlug()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+          Button("Copy Repo Path") {
+            model.copyPrimaryLocalProjectPath()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+          Button("Copy Repo URL") {
+            model.copyPrimaryLocalProjectURL()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        }
+
+        HStack(spacing: 10) {
           Button("Open Devcontainer") {
             model.openDevcontainerConfig(for: project)
           }
@@ -9998,6 +10374,11 @@ struct ContentView: View {
           selectedDestination = .workspace
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Open App Support") {
+          model.openApplicationSupportFolder()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
       }
 
       BannerCard(
