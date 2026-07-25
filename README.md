@@ -13,6 +13,7 @@ Notice: `Use at your own risk.`
 - a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, and `GitHub Account` pages
 - a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling and controlling local GitHub Actions runners
 - toolbar quick actions for opening the loaded repo or active container in VS Code, Codex, GitHub Copilot, Finder, CLI, or the project browser
+- GitHub account and repo shortcuts for login, org/repo navigation, workflow and run loading, Codespaces, secrets, rulesets, repo settings, and direct tab links for Actions, Issues, Pull Requests, Projects, Security, and Insights
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
 - auto-confirm support for simple terminal yes/no gates while pausing on sudo/password/security prompts
@@ -313,6 +314,7 @@ csa-iem-gui --source-run
 The GUI is a SwiftUI macOS app that:
 - uses simple task pages for `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
 - keeps project browsing on-screen with native search, targeting, and direct VS Code / Finder open actions
+- adds GitHub quick actions for host, account, repo, workflow, Codespaces, rules, issues, pull requests, projects, and security page jumps
 - adds a native jobs center for background operations, status, retries, and logs
 - adds a dedicated `GitHub Account` page for host, account, organization, and repository management while staying connected to the same `gh` session
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets

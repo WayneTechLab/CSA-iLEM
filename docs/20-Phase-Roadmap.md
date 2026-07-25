@@ -191,6 +191,8 @@ Deliverables:
 - release-note and changelog aggregation
 - security advisory and workflow surface review
 - documentation snapshot panel
+- GitHub tab shortcuts for Actions, Issues, Pull Requests, Projects, Security, and Insights
+- copy-to-clipboard utilities for host, account, repo slug, repo URL, and selected repo sets
 
 Exit criteria:
 - the app can help answer “what is this repo, how does it work, what changed, what is risky?”
