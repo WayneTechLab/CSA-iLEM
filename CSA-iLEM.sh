@@ -85,6 +85,7 @@ MODE=""
 IMPORT_MODE_NAME=""
 FULL_AUTO=0
 FULL_AUTO_CLEANUP=0
+FULL_AUTO_DESTRUCTIVE_CLEANUP=0
 SELECTED_REPOS=()
 REPO_LIST=()
 FAILED_REPOS=()
@@ -952,6 +953,7 @@ Usage:
   $(basename "$0") --browse-devcontainers --use-current-root
   $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
   $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
+  $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --cleanup-full-auto
   $(basename "$0") --repo OWNER/REPO --all --yes
   $(basename "$0") --profile default --repo OWNER/REPO --disable-workflows --delete-runs --delete-artifacts --delete-caches --delete-codespaces --yes
   $(basename "$0") --repo https://github.com/OWNER/REPO --delete-runs --run https://github.com/OWNER/REPO/actions/runs/123456789 --yes
@@ -965,6 +967,7 @@ What it does:
   - Saves default Code / Import / Runtime roots per profile for next time
   - Explains the workspace/root layout, saved paths, and storage behavior from the root menu
   - Lets you choose one repo, all repos one by one, a FULL AUTO batch import, a FULL AUTO + cleanup preview batch import, or a manual repo
+  - Lets you run a FULL AUTO cleanup sweep with a second Y security confirmation before deleting GitHub Actions resources
   - Supports direct noninteractive import commands for GUI/background use
   - Can create a starter .devcontainer if one is missing
   - Can test starting the local devcontainer
@@ -1791,14 +1794,16 @@ choose_mode() {
     echo "2) Repo -> Local"
     echo "3) Repo -> Local + local devcontainer + local Actions prep"
     echo "4) Cleanup only (workflows, runs, artifacts, caches, Codespaces)"
+    echo "5) Cleanup only (FULL AUTO cleanup sweep)"
     echo
-    read -r -p "Enter choice [1-4]: " choice
+    read -r -p "Enter choice [1-5]: " choice
 
     case "$choice" in
       1) MODE="codespace_to_local"; return 0 ;;
       2) MODE="repo_to_local"; return 0 ;;
       3) MODE="repo_to_local_plus"; return 0 ;;
       4) MODE="cleanup_only"; return 0 ;;
+      5) MODE="cleanup_only"; FULL_AUTO=1; FULL_AUTO_CLEANUP=1; FULL_AUTO_DESTRUCTIVE_CLEANUP=1; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
   done
@@ -1838,9 +1843,36 @@ choose_repositories() {
   local manual_owner=""
   local manual_repo=""
   local normalized=""
+  local requested_full_auto_cleanup="$FULL_AUTO_DESTRUCTIVE_CLEANUP"
 
   FULL_AUTO=0
   FULL_AUTO_CLEANUP=0
+  FULL_AUTO_DESTRUCTIVE_CLEANUP="$requested_full_auto_cleanup"
+
+  if [[ "$MODE" == "cleanup_only" && "$FULL_AUTO_DESTRUCTIVE_CLEANUP" -eq 1 ]]; then
+    load_repo_list
+    printf 'Total repositories found: %s\n' "${#REPO_LIST[@]}"
+    read -r -p "Start from repo number [1-${#REPO_LIST[@]}] (Enter = 1): " start_index
+    case "$start_index" in
+      "")
+        start_index=1
+        ;;
+      *[!0-9]*)
+        warn "Invalid start number."
+        return 1
+        ;;
+    esac
+    if [[ "$start_index" -lt 1 || "$start_index" -gt "${#REPO_LIST[@]}" ]]; then
+      warn "Start number is out of range."
+      return 1
+    fi
+    SELECTED_REPOS=("${REPO_LIST[@]:$((start_index - 1))}")
+    FULL_AUTO=1
+    FULL_AUTO_CLEANUP=1
+    info "FULL AUTO CLEANUP is enabled for this batch."
+    info "Cleanup prompts will require a second Y security confirmation before wiping GitHub Actions resources."
+    return 0
+  fi
 
   while true; do
     echo
@@ -1851,6 +1883,7 @@ choose_repositories() {
       echo "1) One repo at a time from my GitHub repo list"
       echo "2) All repos one by one from my GitHub repo list"
       echo "3) Enter one repo manually"
+      echo "4) All repos one by one from my GitHub repo list (FULL AUTO CLEANUP)"
     else
       echo "1) One repo at a time from my GitHub repo list"
       echo "2) All repos one by one from my GitHub repo list"
@@ -1860,7 +1893,7 @@ choose_repositories() {
     fi
     echo
     if [[ "$MODE" == "cleanup_only" ]]; then
-      read -r -p "Enter choice [1-3]: " repo_choice
+      read -r -p "Enter choice [1-4]: " repo_choice
     else
       read -r -p "Enter choice [1-5]: " repo_choice
     fi
@@ -1947,8 +1980,29 @@ choose_repositories() {
         ;;
       4)
         if [[ "$MODE" == "cleanup_only" ]]; then
-          warn "Invalid selection."
-          continue
+          FULL_AUTO=1
+          FULL_AUTO_CLEANUP=1
+          FULL_AUTO_DESTRUCTIVE_CLEANUP=1
+          load_repo_list
+          printf 'Total repositories found: %s\n' "${#REPO_LIST[@]}"
+          read -r -p "Start from repo number [1-${#REPO_LIST[@]}] (Enter = 1): " start_index
+          case "$start_index" in
+            "")
+              start_index=1
+              ;;
+            *[!0-9]*)
+              warn "Invalid start number."
+              continue
+              ;;
+          esac
+          if [[ "$start_index" -lt 1 || "$start_index" -gt "${#REPO_LIST[@]}" ]]; then
+            warn "Start number is out of range."
+            continue
+          fi
+          SELECTED_REPOS=("${REPO_LIST[@]:$((start_index - 1))}")
+          info "FULL AUTO CLEANUP is enabled for this batch."
+          info "Cleanup prompts will require a second Y security confirmation before wiping GitHub Actions resources."
+          return 0
         fi
         FULL_AUTO=1
         FULL_AUTO_CLEANUP=1
@@ -4420,6 +4474,29 @@ EOF
   return 1
 }
 
+confirm_full_auto_cleanup() {
+  local first_answer=""
+  local second_answer=""
+
+  echo
+  warn "FULL AUTO CLEANUP will wipe GitHub Actions resources across the selected repos."
+  read -r -p "Type Y to continue: " first_answer
+  case "$first_answer" in
+    Y) ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  read -r -p "Type Y again to confirm the security wipe: " second_answer
+  case "$second_answer" in
+    Y) return 0 ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 run_cleanup_flow() {
   local cleanup_failed=0
   local plan_is_preconfigured=0
@@ -4453,7 +4530,12 @@ run_cleanup_flow() {
 
     show_cleanup_summary
 
-    if [[ "$ASSUME_YES" -ne 1 ]] && ! confirm "Proceed with cleanup?"; then
+    if [[ "$FULL_AUTO_DESTRUCTIVE_CLEANUP" -eq 1 ]]; then
+      if ! confirm_full_auto_cleanup; then
+        warn "Full-auto cleanup cancelled."
+        return 0
+      fi
+    elif [[ "$ASSUME_YES" -ne 1 ]] && ! confirm "Proceed with cleanup?"; then
       warn "Cleanup cancelled."
       return 0
     fi
@@ -5397,7 +5479,7 @@ process_selected_repositories() {
       warn "Skipping to the next repo."
     fi
 
-    if [[ "$idx" -lt "$total" ]]; then
+    if [[ "$idx" -lt "$total" && "$FULL_AUTO_DESTRUCTIVE_CLEANUP" -eq 0 ]]; then
       echo
       if ! confirm "Continue to the next repo?"; then
         echo "Stopped by user."
@@ -5417,7 +5499,7 @@ process_selected_repositories() {
       printf '%s\n' "${FAILED_REPOS[@]}"
     fi
 
-    if [[ "$FULL_AUTO" -eq 1 && "${#successful_repos[@]}" -gt 0 ]]; then
+    if [[ "$FULL_AUTO" -eq 1 && "$FULL_AUTO_DESTRUCTIVE_CLEANUP" -eq 0 && "${#successful_repos[@]}" -gt 0 ]]; then
       echo
       if manual_confirm "Open the successful projects from this batch one at a time in VS Code now?"; then
         review_projects_one_by_one "${successful_repos[@]}"
@@ -5529,6 +5611,12 @@ parse_cli_args() {
         FULL_AUTO=1
         FULL_AUTO_CLEANUP=1
         DIRECT_IMPORT_MODE=1
+        ;;
+      --cleanup-full-auto)
+        FULL_AUTO=1
+        FULL_AUTO_CLEANUP=1
+        FULL_AUTO_DESTRUCTIVE_CLEANUP=1
+        DIRECT_CLEANUP_MODE=1
         ;;
       --disable-workflows)
         DO_DISABLE=1

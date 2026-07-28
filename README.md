@@ -426,6 +426,14 @@ Default auto-mode example:
 csa-iem --auto-mode --repo OWNER/REPO --dry-run --yes
 ```
 
+Full-auto cleanup sweep:
+
+```bash
+csa-iem --profile default --repo OWNER/REPO --cleanup-full-auto
+```
+
+That mode walks every selected repo and requires a second literal `Y` before it starts deleting GitHub Actions resources.
+
 ## Browser And Open Flows
 
 The browser can show:
