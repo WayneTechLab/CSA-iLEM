@@ -324,6 +324,7 @@ struct AppSettings: Codable, Hashable {
   var showAdvancedTools = false
   var keepTerminalFallbacksVisible = false
   var autoConfirmTerminalGates = true
+  var privacyFirstMode = true
   var firstRunComplete = false
 }
 
@@ -386,6 +387,14 @@ struct GitHubBillingSummary: Hashable {
     guard let packageGBDays else { return "Unavailable" }
     return String(format: "%.2f GB-days", packageGBDays)
   }
+}
+
+struct StartupReadinessEntry: Identifiable, Hashable {
+  let id: String
+  let title: String
+  let detail: String
+  let kind: StatusKind
+  let canAutoFix: Bool
 }
 
 struct WorkflowCatalogEntry: Identifiable, Hashable, Decodable {
@@ -967,6 +976,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var storageInsights: [StorageInsightEntry] = []
   @Published var projectSyncEntries: [ProjectSyncEntry] = []
   @Published var portMonitorEntries: [PortMonitorEntry] = []
+  @Published var startupReadiness: [StartupReadinessEntry] = []
   @Published var selectedRepos: Set<String> = [] {
     didSet {
       if selectedRepos != oldValue {
@@ -992,6 +1002,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var syncStatus = "Load project sync status to compare code and runtime worktrees."
   @Published var portsStatus = "Scan local listening ports and service endpoints."
   @Published var taskStatus = "Create reusable per-project tasks and run them from the GUI."
+  @Published var startupReadinessStatus = "Checking local tools and GitHub CLI login state."
   @Published var snapshotStatus = "Create point-in-time snapshots before major local file changes."
   @Published var logText = "[gui] CSA-iEM ready.\n"
   @Published var statusTitle = "Checking GitHub CLI"
@@ -1213,13 +1224,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var lastSessionSummary: String? {
-    let session = loadLastSession()
-    guard !session.isEmpty else { return nil }
-
-    let hostValue = session["HOST"] ?? "github.com"
-    let accountValue = session["ACCOUNT"] ?? "unknown"
-    let repoValue = session["REPO"]?.replacingOccurrences(of: "\(hostValue)/", with: "") ?? "not set"
-    return "Last session: \(accountValue) on \(hostValue) -> \(repoValue)"
+    nil
   }
 
   var filteredRepos: [RepoCatalogEntry] {
@@ -1482,29 +1487,6 @@ final class CleanupViewModel: ObservableObject {
   func bootstrap() {
     loadPersistentState()
 
-    let session = loadLastSession()
-    if let savedHost = session["HOST"], !savedHost.isEmpty {
-      host = savedHost
-    }
-    if let savedAccount = session["ACCOUNT"], !savedAccount.isEmpty {
-      account = savedAccount
-    }
-    if let savedRepo = session["REPO"], !savedRepo.isEmpty {
-      if savedRepo.hasPrefix("\(host)/") {
-        repoTarget = String(savedRepo.dropFirst(host.count + 1))
-      } else {
-        repoTarget = savedRepo
-      }
-      let components = repoTarget.split(separator: "/")
-      if components.count >= 2 {
-        repoOwner = String(components[0])
-      }
-    }
-
-    if repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      repoOwner = account
-    }
-
     if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       host = appSettings.defaultGitHubHost
     }
@@ -1514,6 +1496,7 @@ final class CleanupViewModel: ObservableObject {
     reloadAuthInventory()
     refreshAuthStatus()
     refreshLocalProjects()
+    refreshStartupReadiness()
   }
 
   private func loadPersistentState() {
@@ -1524,8 +1507,12 @@ final class CleanupViewModel: ObservableObject {
     if let loadedSettings: AppSettings = readJSON(AppSettings.self, from: settingsFile) {
       appSettings = loadedSettings
     }
-    if let loadedContexts: [SavedGitHubContext] = readJSON([SavedGitHubContext].self, from: contextsFile) {
+    if appSettings.privacyFirstMode == false,
+       let loadedContexts: [SavedGitHubContext] = readJSON([SavedGitHubContext].self, from: contextsFile) {
       savedContexts = loadedContexts
+    } else {
+      savedContexts = []
+      try? fm.removeItem(atPath: contextsFile)
     }
     if let loadedTasks: [ProjectTaskTemplate] = readJSON([ProjectTaskTemplate].self, from: taskTemplatesFile) {
       taskTemplates = loadedTasks
@@ -1926,9 +1913,7 @@ final class CleanupViewModel: ObservableObject {
       return
     }
 
-    if let lastAccount = loadLastSession()["ACCOUNT"], accounts.contains(lastAccount) {
-      account = lastAccount
-    } else if let active = hostConfig?.activeUser, !active.isEmpty {
+    if let active = hostConfig?.activeUser, !active.isEmpty {
       account = active
     } else if let first = accounts.first {
       account = first
@@ -2607,6 +2592,7 @@ final class CleanupViewModel: ObservableObject {
       statusKind = .error
       statusTitle = "GitHub CLI Missing"
       statusDetail = "Install GitHub CLI first. The GUI and CLI both depend on gh."
+      refreshStartupReadiness()
       return
     }
 
@@ -2616,6 +2602,7 @@ final class CleanupViewModel: ObservableObject {
       statusKind = .warning
       statusTitle = "GitHub Host Required"
       statusDetail = "Enter a GitHub host, then refresh login status."
+      refreshStartupReadiness()
       return
     }
 
@@ -2644,12 +2631,8 @@ final class CleanupViewModel: ObservableObject {
           }
           self.statusKind = .ready
           self.statusTitle = "GitHub Ready @ \(selectedHost)"
-          self.statusDetail = sanitizedCleaned.isEmpty
-            ? "User \(resolvedAccount.isEmpty ? (self.selectedHostConfig?.activeUser ?? "Unknown") : resolvedAccount) on account \(resolvedAccount.isEmpty ? (self.selectedHostConfig?.activeUser ?? "Unknown") : resolvedAccount) ready."
-            : "User \(resolvedAccount.isEmpty ? (self.selectedHostConfig?.activeUser ?? "Unknown") : resolvedAccount) on account \(resolvedAccount.isEmpty ? (self.selectedHostConfig?.activeUser ?? "Unknown") : resolvedAccount) ready.\n\(sanitizedCleaned)"
+          self.statusDetail = "GitHub CLI has an active local session. CSA-iEM does not import, store, or log tokens, API keys, or account identity."
           self.githubAccountStatus = self.statusDetail
-          self.fetchAvailableRepos()
-          self.fetchViewerOrganizations()
         } else {
           self.isAuthenticated = false
           self.clearRepoCatalog(resetOwner: false)
@@ -2661,8 +2644,67 @@ final class CleanupViewModel: ObservableObject {
           self.githubAccountStatus = self.statusDetail
           self.viewerOrganizations = []
         }
+        self.refreshStartupReadiness()
       }
     }
+  }
+
+  func refreshStartupReadiness() {
+    var checks = [StartupReadinessEntry]()
+    let ghReady = ghPath != nil && isAuthenticated
+    checks.append(StartupReadinessEntry(
+      id: "github-cli",
+      title: ghReady ? "GitHub CLI session ready" : (ghPath == nil ? "GitHub CLI is missing" : "GitHub CLI login is required"),
+      detail: ghReady ? "An existing local GitHub CLI session is available for this launch. Identity and credentials stay outside CSA-iEM." : (ghPath == nil ? "Install GitHub CLI to connect repositories and Actions." : "Sign in through GitHub CLI when you choose to connect."),
+      kind: ghReady ? .ready : .warning,
+      canAutoFix: true
+    ))
+
+    let dockerReady = dockerPath != nil
+    checks.append(StartupReadinessEntry(
+      id: "docker",
+      title: dockerReady ? "Docker CLI ready" : "Docker CLI is missing",
+      detail: dockerReady ? "Local devcontainer checks are available." : "Install or start Docker Desktop to use devcontainer controls.",
+      kind: dockerReady ? .ready : .warning,
+      canAutoFix: true
+    ))
+
+    let devcontainerReady = executablePath(named: "devcontainer") != nil
+    checks.append(StartupReadinessEntry(
+      id: "devcontainer",
+      title: devcontainerReady ? "Dev Containers CLI ready" : "Dev Containers CLI is missing",
+      detail: devcontainerReady ? "Local devcontainer build and lifecycle controls are available." : "Install the Dev Containers CLI to build and manage local containers.",
+      kind: devcontainerReady ? .ready : .warning,
+      canAutoFix: true
+    ))
+
+    let codeReady = executablePath(named: "code") != nil || FileManager.default.fileExists(atPath: "/Applications/Visual Studio Code.app")
+    checks.append(StartupReadinessEntry(
+      id: "vscode",
+      title: codeReady ? "Visual Studio Code ready" : "Visual Studio Code is optional",
+      detail: codeReady ? "Projects can open in VS Code from the app and toolbar." : "Install Visual Studio Code to enable one-click project opening.",
+      kind: codeReady ? .ready : .warning,
+      canAutoFix: false
+    ))
+
+    startupReadiness = checks
+    let unresolved = checks.filter { $0.kind != .ready }
+    startupReadinessStatus = unresolved.isEmpty ? "Local setup is ready. GitHub identity and credentials remain managed by GitHub CLI." : "\(unresolved.count) setup item(s) need attention. You can auto-fix, review manual steps, or continue without changing anything."
+  }
+
+  func autoFixStartupReadiness() {
+    if ghPath == nil {
+      NSWorkspace.shared.open(URL(string: "https://cli.github.com")!)
+    } else if !isAuthenticated {
+      openGitHubLogin()
+    }
+    if dockerPath == nil {
+      launchDetached(executable: "/usr/bin/open", arguments: ["-a", "Docker"])
+    }
+    if executablePath(named: "devcontainer") == nil {
+      openTerminalCommand("npm install -g @devcontainers/cli")
+    }
+    refreshStartupReadiness()
   }
 
   func openGitHubLogin() {
@@ -3172,6 +3214,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func saveCurrentContext() {
+    guard appSettings.privacyFirstMode == false else {
+      settingsStatus = "Saved GitHub contexts are disabled in Privacy-First Mode."
+      return
+    }
     let name = contextNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else {
       settingsStatus = "Enter a name before saving a GitHub context."
@@ -4508,7 +4554,16 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func appendLog(_ text: String) {
-    logText += redactSensitiveText(text)
+    logText += redactRuntimeIdentity(text)
+  }
+
+  private func redactRuntimeIdentity(_ text: String) -> String {
+    var sanitized = redactSensitiveText(text)
+    let identities = Set(([account] + availableAccounts).filter { !$0.isEmpty })
+    for identity in identities {
+      sanitized = sanitized.replacingOccurrences(of: identity, with: "[GITHUB_IDENTITY]")
+    }
+    return sanitized
   }
 
   @discardableResult
@@ -4556,7 +4611,7 @@ final class CleanupViewModel: ObservableObject {
       backgroundJobs[index].progressText = progressText
     }
     if let logChunk, !logChunk.isEmpty {
-      backgroundJobs[index].log += redactSensitiveText(logChunk)
+      backgroundJobs[index].log += redactRuntimeIdentity(logChunk)
       if backgroundJobs[index].log.hasSuffix("\n") == false {
         backgroundJobs[index].log += "\n"
       }
@@ -7769,6 +7824,69 @@ struct LaunchWarningSheet: View {
   }
 }
 
+struct StartupReadinessSheet: View {
+  @ObservedObject var model: CleanupViewModel
+  let continueAction: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text("Startup Check")
+        .font(.system(size: 24, weight: .bold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+
+      Text("CSA-iEM checks this Mac locally before you start. It does not import, store, or log GitHub tokens, API keys, account identity, repositories, or organization data during this check.")
+        .font(.system(size: 13, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(3)
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(model.startupReadiness) { entry in
+            HStack(alignment: .top, spacing: 12) {
+              Image(systemName: entry.kind.icon)
+                .foregroundStyle(entry.kind.tint)
+                .frame(width: 22)
+              VStack(alignment: .leading, spacing: 4) {
+                Text(entry.title)
+                  .font(.system(size: 14, weight: .bold, design: .rounded))
+                  .foregroundStyle(DashboardTheme.text)
+                Text(entry.detail)
+                  .font(.system(size: 12, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+              }
+              Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(DashboardTheme.panelStrong))
+          }
+        }
+      }
+      .frame(maxHeight: 280)
+
+      Text("Manual setup: install GitHub CLI, Docker Desktop, and the Dev Containers CLI as needed. Then select Refresh Check. Choose Continue to use local-only features without changing your system.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+
+      HStack(spacing: 10) {
+        Button("Auto Fix") { model.autoFixStartupReadiness() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: false))
+
+        Button("Refresh Check") { model.refreshAuthStatus() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Spacer()
+
+        Button("Ignore and Continue") { continueAction() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      }
+    }
+    .padding(24)
+    .frame(width: 640, height: 580)
+    .background(DashboardTheme.canvasTop)
+  }
+}
+
 struct LogConsoleView: NSViewRepresentable {
   let text: String
 
@@ -7808,6 +7926,7 @@ struct ContentView: View {
   @State private var selectedDestination: AppDestination = .home
   @State private var isMenuVisible = true
   @State private var showLaunchWarning = false
+  @State private var showStartupReadiness = false
   @State private var acceptedRisk = false
   @State private var acceptedPurpose = false
 
@@ -7876,6 +7995,7 @@ struct ContentView: View {
     .onAppear {
       let shouldShowWarning = !model.appSettings.firstRunComplete
       showLaunchWarning = shouldShowWarning
+      showStartupReadiness = !shouldShowWarning
       acceptedRisk = !shouldShowWarning
       acceptedPurpose = !shouldShowWarning
     }
@@ -7887,11 +8007,18 @@ struct ContentView: View {
         continueAction: {
           model.markLaunchWarningAccepted()
           showLaunchWarning = false
+          showStartupReadiness = true
         },
         quitAction: {
           NSApp.terminate(nil)
         }
       )
+      .interactiveDismissDisabled(true)
+    }
+    .sheet(isPresented: $showStartupReadiness) {
+      StartupReadinessSheet(model: model) {
+        showStartupReadiness = false
+      }
       .interactiveDismissDisabled(true)
     }
   }
@@ -8962,6 +9089,11 @@ struct ContentView: View {
         .tint(DashboardTheme.success)
         .foregroundStyle(DashboardTheme.text)
 
+      Toggle("Privacy-First Mode (do not save GitHub identity or contexts)", isOn: $model.appSettings.privacyFirstMode)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .foregroundStyle(DashboardTheme.text)
+
       Toggle("Show advanced tools in the workspace page", isOn: $model.appSettings.showAdvancedTools)
         .toggleStyle(.switch)
         .tint(DashboardTheme.accentPink)
@@ -9057,6 +9189,7 @@ struct ContentView: View {
           model.saveCurrentContext()
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.appSettings.privacyFirstMode)
 
         Button("Refresh GitHub") {
           model.refreshAuthStatus()
@@ -9064,7 +9197,11 @@ struct ContentView: View {
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
       }
 
-      if model.savedContexts.isEmpty {
+      if model.appSettings.privacyFirstMode {
+        Text("Privacy-First Mode is on. GitHub account and owner contexts are not stored by CSA-iEM.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      } else if model.savedContexts.isEmpty {
         Text("No saved contexts yet.")
           .font(.system(size: 13, weight: .medium, design: .rounded))
           .foregroundStyle(DashboardTheme.muted)

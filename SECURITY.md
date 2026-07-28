@@ -2,6 +2,8 @@
 
 `CSA-iEM` uses the existing GitHub CLI authentication state instead of embedding or storing GitHub tokens itself.
 
+Privacy-First Mode is enabled by default in the macOS app. Startup checks report only local tool readiness and whether GitHub CLI has an active session; they do not import or persist account identity, repository inventory, organization data, API keys, or tokens. Active GitHub identity is redacted from the app's live and job logs.
+
 ### What This Project Stores
 
 The project stores only the last-used:

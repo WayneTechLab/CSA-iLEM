@@ -42,9 +42,9 @@ CSA-iEM may initiate network activity through the tools it invokes, including Gi
 - package downloads
 - Swift package dependency resolution and build traffic
 
-4. Credentials And Tokens
+4. Credentials, Tokens, And GitHub Identity
 
-CSA-iEM does not implement its own separate identity system. It relies on credentials already managed by the third-party tools it uses, especially GitHub CLI. You are responsible for:
+CSA-iEM does not implement its own separate identity system. It relies on credentials already managed by the third-party tools it uses, especially GitHub CLI. Privacy-First Mode is enabled by default: the macOS app checks only whether the local GitHub CLI session is ready and does not import, store, or log GitHub tokens, API keys, account identity, repository inventory, or organization data during startup. GitHub identity is held only in memory when the user explicitly connects and is redacted from the app's live and job logs. You are responsible for:
 - securing tokens and credentials
 - managing GitHub scopes and access
 - understanding which account is active

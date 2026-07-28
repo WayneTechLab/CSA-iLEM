@@ -1,7 +1,9 @@
 # Changelog
 
-## 0.4.4
+## 0.4.5
 
+- added a Privacy-First startup readiness check with Auto Fix, manual setup guidance, and Ignore and Continue choices
+- stopped using legacy GitHub session files to prefill macOS app identity or repository targets; saved GitHub contexts are disabled by default and active identities are redacted from GUI logs
 - added a native GitHub Billing Reports page for Actions minutes, paid minute usage, storage, Packages, and per-project Actions activity signals
 - added GitHub billing usage and billing-summary shortcuts to both macOS toolbar menus
 - wired the AppDelegate to the shared GUI model at launch so the native status-bar toolbar is installed with its runner controls
