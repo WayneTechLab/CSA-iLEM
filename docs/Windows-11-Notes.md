@@ -34,6 +34,8 @@ Latest published `main` update from GitHub:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
+
+The Windows notification-area tray includes runner start/stop/restart controls, `Stop All Active Runners`, and GitHub Billing shortcuts. Use `csa-iem --billing-report` for the matching CLI report. GitHub organization billing data may require a token with organization billing access.
 ```
 
 Specific release, branch, or commit install:

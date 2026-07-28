@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.4.3`
+Version: `0.4.4`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -10,10 +10,11 @@ Notice: `Use at your own risk.`
 
 `CSA-iEM` is now a cross-platform toolset with:
 - a production CLI backend
-- a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, and `GitHub Account` pages
-- a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling and controlling local GitHub Actions runners
+- a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, `GitHub Account`, and `GitHub Billing Reports` pages
+- a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling, controlling local GitHub Actions runners, and opening GitHub billing reports
 - toolbar quick actions for opening the loaded repo or active container in VS Code, Codex, GitHub Copilot, Finder, CLI, or the project browser
 - GitHub account and repo shortcuts for login, org/repo navigation, workflow and run loading, Codespaces, secrets, rulesets, repo settings, and direct tab links for Actions, Issues, Pull Requests, Projects, Security, and Insights
+- GitHub billing reports for Actions minutes, paid minutes, storage, Packages, project-level usage signals, and direct account or organization billing links
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
 - auto-confirm support for simple terminal yes/no gates while pausing on sudo/password/security prompts
@@ -312,11 +313,12 @@ csa-iem-gui --source-run
 ```
 
 The GUI is a SwiftUI macOS app that:
-- uses simple task pages for `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
+- uses simple task pages for `Home`, `Jobs`, `GitHub Account`, `GitHub Billing Reports`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
 - keeps project browsing on-screen with native search, targeting, and direct VS Code / Finder open actions
 - adds GitHub quick actions for host, account, repo, workflow, Codespaces, rules, issues, pull requests, projects, and security page jumps
 - adds a native jobs center for background operations, status, retries, and logs
 - adds a dedicated `GitHub Account` page for host, account, organization, and repository management while staying connected to the same `gh` session
+- adds `GitHub Billing Reports` for API-backed Actions, storage, and Packages usage plus direct GitHub billing-summary navigation; currency totals remain GitHub's plan-adjusted source of truth
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
 - adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/import/runtime/runner combinations to another folder or external drive
 - adds native backup presets, previews, snapshots, restore actions, storage insights, sync status, per-project task templates, and local port monitoring

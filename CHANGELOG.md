@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4
+
+- added a native GitHub Billing Reports page for Actions minutes, paid minute usage, storage, Packages, and per-project Actions activity signals
+- added GitHub billing usage and billing-summary shortcuts to both macOS toolbar menus
+- wired the AppDelegate to the shared GUI model at launch so the native status-bar toolbar is installed with its runner controls
+- added Stop All Active Runners to the native status-bar toolbar menu
+- added matching Windows CLI and tray entry points for GitHub billing and Actions usage reports, plus tray stop-all runner control
+
 ## 0.4.3
 
 - expanded the macOS toolbar into a window-style mini control app instead of a plain dropdown menu

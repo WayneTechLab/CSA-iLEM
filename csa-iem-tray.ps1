@@ -48,6 +48,39 @@ function Get-GitHubRunnerServices {
         Sort-Object -Property DisplayName
 }
 
+function Get-GitHubBillingSummary {
+    $Default = [ordered]@{
+        Account = "GitHub login required"
+        Actions = "Usage unavailable"
+    }
+
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        $Default.Account = "GitHub CLI not installed"
+        return $Default
+    }
+
+    try {
+        $Account = (& gh api user --jq ".login" 2>$null).Trim()
+        if (-not $Account) { return $Default }
+        $Default.Account = $Account
+        $Actions = & gh api "user/settings/billing/actions" 2>$null | ConvertFrom-Json
+        if ($Actions -and $null -ne $Actions.total_minutes_used) {
+            $Paid = if ($null -ne $Actions.total_paid_minutes_used) { " · paid $($Actions.total_paid_minutes_used)" } else { "" }
+            $Default.Actions = "$($Actions.total_minutes_used) Actions min$Paid"
+        } else {
+            $Default.Actions = "Open GitHub Billing for usage"
+        }
+    } catch {
+        $Default.Actions = "Open GitHub Billing for usage"
+    }
+
+    return $Default
+}
+
+function Open-GitHubBilling {
+    Start-Process -FilePath "https://github.com/settings/billing" | Out-Null
+}
+
 function Invoke-RunnerServiceAction {
     param(
         [System.ServiceProcess.ServiceController]$Service,
@@ -107,6 +140,7 @@ function Build-CsaIemContextMenu {
     $Workspace = Get-CsaIemWorkspaceSummary
     $RunnerServices = @(Get-GitHubRunnerServices)
     $RunningCount = @($RunnerServices | Where-Object { $_.Status -eq "Running" }).Count
+    $Billing = Get-GitHubBillingSummary
 
     [void]$Menu.Items.Add((New-MenuItem -Text "Loaded Workspace" -Enabled $false))
     [void]$Menu.Items.Add((New-MenuItem -Text "Install: $($Workspace.Install)" -Enabled $false))
@@ -118,6 +152,12 @@ function Build-CsaIemContextMenu {
     [void]$Menu.Items.Add((New-MenuItem -Text "Open CSA-iEM CLI" -OnClick { Start-CsaIemPowerShell }))
     [void]$Menu.Items.Add((New-MenuItem -Text "Open Project Browser" -OnClick { Start-CsaIemPowerShell -Arguments @("--browse-projects", "--use-current-root") }))
     [void]$Menu.Items.Add((New-MenuItem -Text "Reveal Install Folder" -OnClick { Open-CsaIemFolder -Path $InstallRoot }))
+
+    $BillingItem = [System.Windows.Forms.ToolStripMenuItem]::new("GitHub Billing")
+    [void]$BillingItem.DropDownItems.Add((New-MenuItem -Text "$($Billing.Account): $($Billing.Actions)" -Enabled $false))
+    [void]$BillingItem.DropDownItems.Add((New-MenuItem -Text "Open GitHub Billing Report" -OnClick { Open-GitHubBilling }))
+    [void]$BillingItem.DropDownItems.Add((New-MenuItem -Text "Open CSA-iEM Billing Reports" -OnClick { Start-CsaIemPowerShell -Arguments @("--billing-report", "--use-current-root") }))
+    [void]$Menu.Items.Add($BillingItem)
 
     $RootsItem = [System.Windows.Forms.ToolStripMenuItem]::new("Workspace Roots")
     foreach ($Key in @("Code", "Import", "Runtime")) {
@@ -131,6 +171,11 @@ function Build-CsaIemContextMenu {
     if ($RunnerServices.Count -eq 0) {
         [void]$RunnersItem.DropDownItems.Add((New-MenuItem -Text "No actions.runner.* services detected" -Enabled $false))
     } else {
+        [void]$RunnersItem.DropDownItems.Add((New-MenuItem -Text "Stop All Active Runners" -OnClick {
+            Get-GitHubRunnerServices | Where-Object { $_.Status -eq "Running" } | ForEach-Object { Stop-Service -Name $_.Name -ErrorAction SilentlyContinue }
+            $NotifyIcon.ContextMenuStrip = Build-CsaIemContextMenu -NotifyIcon $NotifyIcon
+        }))
+        [void]$RunnersItem.DropDownItems.Add([System.Windows.Forms.ToolStripSeparator]::new())
         foreach ($Service in $RunnerServices) {
             $ServiceItem = [System.Windows.Forms.ToolStripMenuItem]::new("$($Service.DisplayName) ($($Service.Status))")
             $StartItem = New-MenuItem -Text "Start" -OnClick {

@@ -26,6 +26,7 @@ $State = [ordered]@{
     ImportFullAuto = $false
     ImportCleanupPreview = $false
     BrowseProjects = $false
+    BillingReport = $false
     UseCurrentRoot = $false
     DisableWorkflows = $false
     DeleteRuns = $false
@@ -1873,6 +1874,51 @@ function Browse-ImportedProjects {
     }
 }
 
+function Show-GitHubBillingReport {
+    param(
+        [string]$GitHubHost,
+        [string]$DefaultOwner
+    )
+
+    if (-not (Test-CommandAvailable "gh")) {
+        Write-ErrLine "GitHub CLI is required for billing reports."
+        return
+    }
+
+    try {
+        Ensure-GitHubAuth -GitHubHost $GitHubHost
+        $Owner = Read-Host "GitHub owner or org (Enter = $DefaultOwner)"
+        if (-not $Owner) { $Owner = $DefaultOwner }
+        if (-not $Owner) { throw "No GitHub owner or organization was selected." }
+
+        Write-Section "GitHub Billing and Actions Usage: $Owner"
+        $Account = Get-GitHubCurrentAccount -GitHubHost $GitHubHost
+        $EndpointRoot = if ($Owner -eq $Account) { "user/settings/billing" } else { "orgs/$Owner/settings/billing" }
+        $Labels = [ordered]@{
+            "actions" = "Actions"
+            "shared-storage" = "Shared storage"
+            "packages" = "Packages"
+        }
+
+        foreach ($Entry in $Labels.GetEnumerator()) {
+            try {
+                $Json = Invoke-CommandChecked -FilePath "gh" -Arguments @("api", "--hostname", $GitHubHost, "$EndpointRoot/$($Entry.Key)") -CaptureOutput
+                $Data = $Json | ConvertFrom-Json
+                $Usage = if ($null -ne $Data.total_minutes_used) { "$($Data.total_minutes_used) minutes" } elseif ($null -ne $Data.total_gigabytes_used) { "$($Data.total_gigabytes_used) GB-days" } else { "Usage field unavailable" }
+                $Paid = if ($null -ne $Data.total_paid_minutes_used) { " · paid minutes: $($Data.total_paid_minutes_used)" } else { "" }
+                Write-Info "$($Entry.Value): $Usage$Paid"
+            } catch {
+                Write-WarnLine "$($Entry.Value): unavailable. GitHub organization billing access may be required."
+            }
+        }
+
+        Write-Host "Billing page: https://github.com/settings/billing"
+        Write-Host "Usage data is not a price quote. GitHub billing is the source of truth for plan allowances, credits, invoices, and currency totals."
+    } catch {
+        Write-ErrLine $_.Exception.Message
+    }
+}
+
 function Show-HelpText {
     @"
 $AppName $AppVersion
@@ -1885,6 +1931,7 @@ Windows 11 admin-shell usage:
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --repo OWNER/REPO --import-mode repo-plus --import-full-auto
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --repo OWNER/REPO --all --dry-run --yes
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --browse-projects --use-current-root
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --billing-report
 
 Options:
   --repo OWNER/REPO
@@ -1892,6 +1939,7 @@ Options:
   --import-full-auto
   --import-cleanup-preview
   --browse-projects
+  --billing-report
   --use-current-root
   --single-root PATH
   --code-root PATH
@@ -1924,6 +1972,7 @@ function Parse-Args {
             "-h" { $State.Help = $true }
             "--version" { $State.ShowVersion = $true }
             "--browse-projects" { $State.BrowseProjects = $true }
+            "--billing-report" { $State.BillingReport = $true }
             "--use-current-root" { $State.UseCurrentRoot = $true }
             "--import-full-auto" { $State.ImportFullAuto = $true }
             "--import-cleanup-preview" { $State.ImportCleanupPreview = $true }
@@ -2185,6 +2234,11 @@ function Run-DirectAction {
         $State.Account = Get-GitHubCurrentAccount -GitHubHost $State.GitHubHost
     }
 
+    if ($State.BillingReport) {
+        Show-GitHubBillingReport -GitHubHost $State.GitHubHost -DefaultOwner $State.Account
+        return
+    }
+
     if ($State.BrowseProjects) {
         Browse-ImportedProjects -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot
         return
@@ -2231,8 +2285,9 @@ function Run-Interactive {
         Write-Host "3) Switch GitHub host/account"
         Write-Host "4) Show preflight scan"
         Write-Host "5) Browse imported projects"
-        Write-Host "6) Exit"
-        $Choice = Read-Host "Enter choice [1-6]"
+        Write-Host "6) GitHub billing and Actions usage report"
+        Write-Host "7) Exit"
+        $Choice = Read-Host "Enter choice [1-7]"
 
         switch ($Choice) {
             "1" {
@@ -2307,7 +2362,8 @@ function Run-Interactive {
                 Offer-PreflightActions -Scan $Scan
             }
             "5" { Browse-ImportedProjects -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot }
-            "6" { return }
+            "6" { Show-GitHubBillingReport -GitHubHost $State.GitHubHost -DefaultOwner $State.Account }
+            "7" { return }
             default { }
         }
     }
@@ -2331,7 +2387,7 @@ Write-Host "Provider: $AppVendor"
 Write-Host "Website: $AppUrl"
 Write-Host "Use at your own risk."
 
-if ($State.BrowseProjects -or ($State.Repo -and ($State.ImportMode -or $State.CleanupOnly))) {
+if ($State.BrowseProjects -or $State.BillingReport -or ($State.Repo -and ($State.ImportMode -or $State.CleanupOnly))) {
     Run-DirectAction
 } else {
     Run-Interactive

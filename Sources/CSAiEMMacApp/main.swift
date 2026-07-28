@@ -350,6 +350,44 @@ struct RepoHealthEntry: Identifiable, Hashable {
   var id: String { slug }
 }
 
+struct GitHubBillingBreakdownEntry: Identifiable, Hashable {
+  let platform: String
+  let minutes: Double
+
+  var id: String { platform }
+}
+
+struct GitHubBillingSummary: Hashable {
+  let owner: String
+  let actionsMinutes: Double?
+  let paidActionsMinutes: Double?
+  let includedActionsMinutes: Double?
+  let storageGBDays: Double?
+  let packageGBDays: Double?
+  let actionBreakdown: [GitHubBillingBreakdownEntry]
+  let unavailableReports: [String]
+
+  var actionUsageLabel: String {
+    guard let actionsMinutes else { return "Unavailable" }
+    return "\(Int(actionsMinutes.rounded())) min"
+  }
+
+  var paidUsageLabel: String {
+    guard let paidActionsMinutes else { return "Unavailable" }
+    return "\(Int(paidActionsMinutes.rounded())) min"
+  }
+
+  var storageUsageLabel: String {
+    guard let storageGBDays else { return "Unavailable" }
+    return String(format: "%.2f GB-days", storageGBDays)
+  }
+
+  var packageUsageLabel: String {
+    guard let packageGBDays else { return "Unavailable" }
+    return String(format: "%.2f GB-days", packageGBDays)
+  }
+}
+
 struct WorkflowCatalogEntry: Identifiable, Hashable, Decodable {
   let id: Int
   let name: String
@@ -646,6 +684,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   case home
   case jobs
   case githubAccount
+  case githubBilling
   case imports
   case projects
   case localFiles
@@ -667,6 +706,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "Home"
     case .jobs: return "Jobs"
     case .githubAccount: return "GitHub Account"
+    case .githubBilling: return "GitHub Billing Reports"
     case .imports: return "Import"
     case .projects: return "Projects"
     case .localFiles: return "Local Files"
@@ -691,6 +731,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Track background operations, progress, status, retries, and logs without opening Terminal."
     case .githubAccount:
       return "Manage the connected GitHub host, account, organizations, and repository inventory from the app."
+    case .githubBilling:
+      return "Review GitHub Actions usage by project, organization-level usage, and links to GitHub billing reports."
     case .imports:
       return "Select repositories, choose the local import mode, and run background imports without dropping into Terminal."
     case .projects:
@@ -725,6 +767,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "house"
     case .jobs: return "list.bullet.rectangle.portrait"
     case .githubAccount: return "person.crop.circle"
+    case .githubBilling: return "chart.bar.xaxis"
     case .imports: return "square.and.arrow.down.on.square"
     case .projects: return "shippingbox"
     case .localFiles: return "folder.badge.gearshape"
@@ -746,6 +789,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return DashboardTheme.accent
     case .jobs: return DashboardTheme.warning
     case .githubAccount: return DashboardTheme.link
+    case .githubBilling: return DashboardTheme.warning
     case .imports: return DashboardTheme.success
     case .projects: return DashboardTheme.deepBlue
     case .localFiles: return DashboardTheme.warning
@@ -770,7 +814,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .githubAccount, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -786,7 +830,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -919,6 +963,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var orgVariables: [VariableRecord] = []
   @Published var rulesets: [RulesetRecord] = []
   @Published var branchProtectionSummary: BranchProtectionSummary?
+  @Published var githubBillingSummary: GitHubBillingSummary?
   @Published var storageInsights: [StorageInsightEntry] = []
   @Published var projectSyncEntries: [ProjectSyncEntry] = []
   @Published var portMonitorEntries: [PortMonitorEntry] = []
@@ -942,6 +987,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codespacesStatus = "Load Codespaces after selecting a repository target."
   @Published var secretsStatus = "Load secrets and variables for the selected repository or owner."
   @Published var rulesStatus = "Load branch protection and rulesets for the selected repository."
+  @Published var githubBillingStatus = "Load GitHub Actions usage and available account or organization billing reports."
   @Published var storageStatus = "Load storage insights for the current workspace."
   @Published var syncStatus = "Load project sync status to compare code and runtime worktrees."
   @Published var portsStatus = "Scan local listening ports and service endpoints."
@@ -964,6 +1010,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var isLoadingCodespaces = false
   @Published var isLoadingSecretsData = false
   @Published var isLoadingRulesData = false
+  @Published var isLoadingGitHubBilling = false
   @Published var isLoadingStorageInsights = false
   @Published var isLoadingProjectSync = false
   @Published var isLoadingPorts = false
@@ -2806,6 +2853,84 @@ final class CleanupViewModel: ObservableObject {
     let selectedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let url = URL(string: "https://\(selectedHost.isEmpty ? "github.com" : selectedHost)") else {
       appendLog("[gui] GitHub host URL is invalid.\n")
+      return
+    }
+    NSWorkspace.shared.open(url)
+  }
+
+  func loadGitHubBillingReport() {
+    guard let ghPath else {
+      githubBillingStatus = "GitHub CLI was not found."
+      return
+    }
+    guard isAuthenticated else {
+      githubBillingStatus = "Log in with GitHub CLI first, then load usage."
+      return
+    }
+
+    let owner = repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? account.trimmingCharacters(in: .whitespacesAndNewlines)
+      : repoOwner.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !owner.isEmpty else {
+      githubBillingStatus = "Choose an account or organization first."
+      return
+    }
+
+    isLoadingGitHubBilling = true
+    githubBillingStatus = "Loading Actions, storage, and package usage for \(owner)…"
+    let environment = baseEnvironment()
+    let isPersonalScope = owner == account.trimmingCharacters(in: .whitespacesAndNewlines)
+    let jobID = createJob(kind: "GitHub", title: "Billing usage report", target: owner, detail: "Loading GitHub billing usage…", initialState: .running)
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let orgPrefix = "orgs/\(owner)/settings/billing"
+      let userPrefix = "user/settings/billing"
+      var unavailable = [String]()
+
+      func load(_ suffix: String) -> [String: Any]? {
+        let orgResult = Self.runCommand(executable: ghPath, arguments: ["api", "\(orgPrefix)/\(suffix)"], environment: environment)
+        if let payload = Self.jsonObject(orgResult.output) {
+          return payload
+        }
+        if isPersonalScope {
+          let userResult = Self.runCommand(executable: ghPath, arguments: ["api", "\(userPrefix)/\(suffix)"], environment: environment)
+          if let payload = Self.jsonObject(userResult.output) {
+            return payload
+          }
+        }
+        unavailable.append(suffix)
+        return nil
+      }
+
+      let actions = load("actions")
+      let sharedStorage = load("shared-storage")
+      let packages = load("packages")
+      let summary = Self.makeGitHubBillingSummary(owner: owner, actions: actions, sharedStorage: sharedStorage, packages: packages, unavailableReports: unavailable)
+
+      DispatchQueue.main.async {
+        self.isLoadingGitHubBilling = false
+        self.githubBillingSummary = summary
+        if unavailable.isEmpty {
+          self.githubBillingStatus = "Loaded GitHub billing usage for \(owner). Amounts are GitHub usage units; open the GitHub billing report for current charges."
+          self.finishJob(id: jobID, state: .succeeded, detail: "Loaded Actions, storage, and package usage.")
+        } else {
+          self.githubBillingStatus = "Loaded available usage for \(owner). GitHub did not grant access to: \(unavailable.joined(separator: ", ")). Open the billing report or add organization billing read access."
+          self.finishJob(id: jobID, state: .succeeded, detail: "Loaded partial billing usage; unavailable: \(unavailable.joined(separator: ", ")).")
+        }
+      }
+    }
+  }
+
+  func openGitHubBillingReport() {
+    let selectedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    let owner = repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? account.trimmingCharacters(in: .whitespacesAndNewlines)
+      : repoOwner.trimmingCharacters(in: .whitespacesAndNewlines)
+    let isOrganization = viewerOrganizations.contains(owner)
+    let path = isOrganization ? "organizations/\(owner)/settings/billing/summary" : "settings/billing"
+    guard let url = URL(string: "https://\(selectedHost.isEmpty ? "github.com" : selectedHost)/\(path)") else {
+      appendLog("[gui] GitHub billing URL is invalid.\n")
       return
     }
     NSWorkspace.shared.open(url)
@@ -5419,6 +5544,45 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  private nonisolated static func jsonObject(_ text: String) -> [String: Any]? {
+    guard let data = text.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let dictionary = object as? [String: Any] else {
+      return nil
+    }
+    return dictionary
+  }
+
+  private nonisolated static func billingNumber(_ value: Any?) -> Double? {
+    if let value = value as? Double { return value }
+    if let value = value as? Int { return Double(value) }
+    if let value = value as? NSNumber { return value.doubleValue }
+    if let value = value as? String { return Double(value) }
+    return nil
+  }
+
+  private nonisolated static func makeGitHubBillingSummary(
+    owner: String,
+    actions: [String: Any]?,
+    sharedStorage: [String: Any]?,
+    packages: [String: Any]?,
+    unavailableReports: [String]
+  ) -> GitHubBillingSummary {
+    let breakdown = (actions?["minutes_used_breakdown"] as? [String: Any] ?? [:])
+      .compactMap { key, value in billingNumber(value).map { GitHubBillingBreakdownEntry(platform: key, minutes: $0) } }
+      .sorted { $0.platform.localizedCaseInsensitiveCompare($1.platform) == .orderedAscending }
+    return GitHubBillingSummary(
+      owner: owner,
+      actionsMinutes: billingNumber(actions?["total_minutes_used"]),
+      paidActionsMinutes: billingNumber(actions?["total_paid_minutes_used"]),
+      includedActionsMinutes: billingNumber(actions?["included_minutes_used"]),
+      storageGBDays: billingNumber(sharedStorage?["total_gigabytes_used"]),
+      packageGBDays: billingNumber(packages?["total_gigabytes_used"]),
+      actionBreakdown: breakdown,
+      unavailableReports: unavailableReports
+    )
+  }
+
   private nonisolated static func scanRepoHealth(
     slug: String,
     ghPath: String,
@@ -7743,6 +7907,8 @@ struct ContentView: View {
           jobsPage(for: width, usesSidebar: usesSidebar)
         case .githubAccount:
           githubAccountPage(for: width, usesSidebar: usesSidebar)
+        case .githubBilling:
+          githubBillingPage(for: width, usesSidebar: usesSidebar)
         case .imports:
           importPage(for: width, usesSidebar: usesSidebar)
         case .projects:
@@ -7968,6 +8134,30 @@ struct ContentView: View {
         secretsAndVariablesPanel
         rulesetsPanel
       }
+    }
+  }
+
+  private func githubBillingPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
+
+      WorkspaceToolbarStrip(destination: .githubBilling, menuVisible: isMenuVisible, usesSidebar: usesSidebar) {
+        isMenuVisible.toggle()
+      }
+
+      if width >= 1450 {
+        HStack(alignment: .top, spacing: 18) {
+          githubBillingOverviewPanel
+            .frame(maxWidth: 520, alignment: .topLeading)
+          repoHealthPanel
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+      } else {
+        githubBillingOverviewPanel
+        repoHealthPanel
+      }
+
+      githubBillingProjectUsagePanel
     }
   }
 
@@ -8616,7 +8806,7 @@ struct ContentView: View {
   private var quickStartPanel: some View {
     PanelCard(title: "Quick Start", subtitle: "Move into the exact page you need instead of working from one crowded dashboard.") {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-        ForEach([AppDestination.githubAccount, .projects, .jobs, .localFiles, .cleanup, .workspace, .settings]) { destination in
+        ForEach([AppDestination.githubAccount, .githubBilling, .projects, .jobs, .localFiles, .cleanup, .workspace, .settings]) { destination in
           DestinationShortcutTile(destination: destination, isSelected: selectedDestination == destination) {
             selectedDestination = destination
           }
@@ -8903,6 +9093,101 @@ struct ContentView: View {
             .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
           }
           .padding(.vertical, 4)
+        }
+      }
+    }
+  }
+
+  private var githubBillingOverviewPanel: some View {
+    PanelCard(title: "GitHub Billing Reports", subtitle: "GitHub API usage data for Actions, storage, and packages. Open GitHub for current currency charges and invoices.") {
+      FixedValueRow(label: "Billing Scope", value: model.repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? model.account : model.repoOwner)
+
+      HStack(spacing: 10) {
+        Button(model.isLoadingGitHubBilling ? "Loading..." : "Load Usage") {
+          model.loadGitHubBillingReport()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: false))
+        .disabled(model.isLoadingGitHubBilling || !model.isAuthenticated)
+
+        Button("Open GitHub Billing") {
+          model.openGitHubBillingReport()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.link, bordered: true))
+        .disabled(!model.isAuthenticated)
+      }
+
+      BannerCard(
+        title: model.githubBillingSummary == nil ? "Usage report not loaded" : "GitHub usage report loaded",
+        detail: model.githubBillingStatus,
+        kind: model.githubBillingSummary == nil ? .warning : .ready
+      )
+
+      if let summary = model.githubBillingSummary {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+          MetricTile(label: "Actions", value: summary.actionUsageLabel, tint: DashboardTheme.warning, icon: "play.rectangle")
+          MetricTile(label: "Paid Actions", value: summary.paidUsageLabel, tint: DashboardTheme.danger, icon: "creditcard")
+          MetricTile(label: "Storage", value: summary.storageUsageLabel, tint: DashboardTheme.deepBlue, icon: "externaldrive")
+          MetricTile(label: "Packages", value: summary.packageUsageLabel, tint: DashboardTheme.accent, icon: "shippingbox")
+        }
+
+        if let included = summary.includedActionsMinutes {
+          FixedValueRow(label: "Included Actions Minutes Used", value: "\(Int(included.rounded())) min")
+        }
+
+        if summary.actionBreakdown.isEmpty == false {
+          FieldLabel(text: "Actions Usage Breakdown")
+          ForEach(summary.actionBreakdown) { item in
+            FixedValueRow(label: item.platform, value: "\(Int(item.minutes.rounded())) min")
+          }
+        }
+      }
+
+      Text("Usage units are not a price quote. GitHub applies plan allowances, multipliers, and credits when calculating charges; the GitHub billing page is the source of truth for currency totals.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var githubBillingProjectUsagePanel: some View {
+    PanelCard(title: "Actions Usage by Project", subtitle: "Loads current Actions activity per selected or visible repository. This is operational usage, not an allocated invoice by repository.") {
+      HStack(spacing: 10) {
+        Button(model.isLoadingRepoHealth ? "Loading..." : "Load Selected Projects") {
+          model.loadRepoHealthForSelectedRepos()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        .disabled(model.isLoadingRepoHealth)
+
+        Button("Load Visible Projects") {
+          model.loadRepoHealthForVisibleRepos()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isLoadingRepoHealth || model.filteredRepos.isEmpty)
+      }
+
+      Text("The project report shows enabled workflows, recent run count, hosted-runner indicators, active Codespaces, and local-runner coverage. Use it to find likely cost drivers before you disable or clean up Actions.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+
+      if model.repoHealthEntries.isEmpty == false {
+        LazyVStack(alignment: .leading, spacing: 10) {
+          ForEach(model.repoHealthEntries) { entry in
+            HStack(alignment: .top, spacing: 12) {
+              VStack(alignment: .leading, spacing: 4) {
+                Text(entry.slug)
+                  .font(.system(size: 14, weight: .bold, design: .rounded))
+                  .foregroundStyle(DashboardTheme.text)
+                Text("\(entry.recentRuns) recent runs · \(entry.githubHostedIndicators) hosted-runner indicators · \(entry.activeCodespaces) active Codespaces")
+                  .font(.system(size: 12, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+              }
+              Spacer(minLength: 8)
+              PillBadge(text: "\(entry.riskLabel) \(entry.riskScore)", tint: entry.riskScore >= 50 ? DashboardTheme.warning : DashboardTheme.success)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(DashboardTheme.panelStrong))
+          }
         }
       }
     }
@@ -10882,6 +11167,16 @@ struct CSAiEMMenuBarView: View {
         }
       }
 
+      Divider()
+
+      Menu("GitHub Billing") {
+        Text(model.githubBillingSummary.map { "\($0.owner): \($0.actionUsageLabel) Actions" } ?? "Usage report not loaded")
+        Button("Load GitHub Usage") { model.loadGitHubBillingReport() }
+          .disabled(model.isLoadingGitHubBilling || !model.isAuthenticated)
+        Button("Open GitHub Billing Report") { model.openGitHubBillingReport() }
+          .disabled(!model.isAuthenticated)
+      }
+
       Menu("Workspace Roots") {
         Text("Code: \(roots.codeRoot)")
         Text("Import: \(roots.importRoot)")
@@ -10915,6 +11210,9 @@ struct CSAiEMMacApp: App {
   var body: some Scene {
     WindowGroup(appTitle) {
       ContentView(model: model)
+        .onAppear {
+          appDelegate.attach(model: model)
+        }
     }
     .commands {
       CommandGroup(replacing: .newItem) { }
@@ -10999,6 +11297,8 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     if model.runnerServices.isEmpty {
       runnersMenu.addItem(disabledItem("No runner services detected"))
     } else {
+      runnersMenu.addItem(actionItem("Stop All Active Runners", action: #selector(stopAllRunners)))
+      runnersMenu.addItem(.separator())
       for runner in model.runnerServices {
         let runnerMenu = NSMenu()
         let status = runner.isRunning ? "running" : "stopped"
@@ -11019,6 +11319,14 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     let runnersItem = NSMenuItem(title: "GitHub Action Runners", action: nil, keyEquivalent: "")
     runnersItem.submenu = runnersMenu
     menu.addItem(runnersItem)
+
+    let billingMenu = NSMenu()
+    billingMenu.addItem(disabledItem(model.githubBillingSummary.map { "\($0.owner): \($0.actionUsageLabel) Actions" } ?? "Usage report not loaded"))
+    billingMenu.addItem(actionItem("Load GitHub Usage", action: #selector(loadGitHubBilling)))
+    billingMenu.addItem(actionItem("Open GitHub Billing Report", action: #selector(openGitHubBilling)))
+    let billingItem = NSMenuItem(title: "GitHub Billing", action: nil, keyEquivalent: "")
+    billingItem.submenu = billingMenu
+    menu.addItem(billingItem)
 
     menu.addItem(.separator())
     menu.addItem(actionItem("Quit CSA-iEM", action: #selector(quitApp)))
@@ -11108,6 +11416,20 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     guard let runner = sender.representedObject as? RunnerServiceEntry else { return }
     model?.restartRunnerService(runner)
     scheduleMenuRebuild(after: 2.5)
+  }
+
+  @objc private func stopAllRunners() {
+    model?.stopAllActiveRunnerServices()
+    scheduleMenuRebuild(after: 2.5)
+  }
+
+  @objc private func loadGitHubBilling() {
+    model?.loadGitHubBillingReport()
+    scheduleMenuRebuild(after: 2.5)
+  }
+
+  @objc private func openGitHubBilling() {
+    model?.openGitHubBillingReport()
   }
 
   @objc private func quitApp() {
