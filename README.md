@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.4.5`
+Version: `0.5.9`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -10,15 +10,18 @@ Notice: `Use at your own risk.`
 
 `CSA-iEM` is now a cross-platform toolset with:
 - a production CLI backend
-- a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, `GitHub Account`, and `GitHub Billing Reports` pages
+- a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `CODEX ~ GPT PORTAL`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, `GitHub Account`, and `GitHub Billing Reports` pages
 - a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling, controlling local GitHub Actions runners, and opening GitHub billing reports
 - toolbar quick actions for opening the loaded repo or active container in VS Code, Codex, GitHub Copilot, Finder, CLI, or the project browser
 - GitHub account and repo shortcuts for login, org/repo navigation, workflow and run loading, Codespaces, secrets, rulesets, repo settings, and direct tab links for Actions, Issues, Pull Requests, Projects, Security, and Insights
 - GitHub billing reports for Actions minutes, paid minutes, storage, Packages, project-level usage signals, and direct account or organization billing links
 - Privacy-First startup checks that verify local tools and GitHub CLI login state without importing or saving GitHub tokens, API keys, account identity, repository inventory, or organization data
+- mounted external-drive controls for previewed full-workspace or selected-project backups and moves from the GUI, CLI, and macOS toolbar
+- external-drive Default workspace controls that can save a stable `DRIVE/CSA-iEM` layout without moving data, or stage and relocate all `Code`, `Import`, and `Runtime` roots after explicit confirmation
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
 - auto-confirm support for simple terminal yes/no gates while pausing on sudo/password/security prompts
+- an opt-in Administrator Terminal mode that requests `sudo` authorization in a visible Terminal without capturing or storing passwords
 - terminal installers for macOS
 - a Windows 11 admin-shell PowerShell backend with matching install/update scripts
 - compatibility wrappers for the earlier `CSA-iLEM` command names
@@ -322,6 +325,19 @@ The GUI is a SwiftUI macOS app that:
 - adds `GitHub Billing Reports` for API-backed Actions, storage, and Packages usage plus direct GitHub billing-summary navigation; currency totals remain GitHub's plan-adjusted source of truth
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
 - adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/import/runtime/runner combinations to another folder or external drive
+- adds a dedicated `CODEX ~ GPT PORTAL` that scans selected custom folders first, accepts a pasted path, Finder folder picker, or dropped folders, and discovers only project roots with Git, manifests, or generic on-disk project context before supporting single, multi, visible, and all-project targeting
+- packages each selected Codex project through preflight, isolated `_temp` staging, checksum verification, optional `.git` and generated-dependency preservation, a tested ZIP backup, and `Transfer_Note.MD` plus `Prompt_Inject.MD` handoff files
+- can preserve Finder sidecars, re-arm a copied project to the detected `origin/main` by rebuilding only the Git index, and keep the original source untouched until final verification completes
+- Preflight builds persistent source/destination file-index JSON and a virtual transfer plan under the output `_temp/Transfer-Indexes` folder before it changes a project; the on-screen table shows indexed entries, planned paths, and destination-only recovery data
+- Auto All resumes existing output folders with a targeted rsync manifest: metadata-matched files are skipped, missing or changed paths are reconciled, and destination-only files are preserved without re-copying the full tree
+- fast preflight compares relative path, type, size, date, and symlink target; the optional deep checksum audit reads metadata-matched files to detect rare silent content changes, while a new destination still needs one complete staged baseline mirror
+- supports five explicit transfer modes: Backup Only, Copy to Output, Sync and Move, Sync and Sync, and Scan & Backup (Auto Merge)
+- Sync and Move auto-resumes an existing output, verifies the reconciled result, and retires the source only after success; Sync and Sync keeps both folders and auto-heals one-sided changes without deleting either side
+- Scan & Backup creates verified source and destination recovery archives, merges missing or changed files, retains destination-only data, and never removes the source
+- two-way sync uses rsync metadata candidates, timestamps for the fast path, targeted manifests for one-sided updates, optional deep content audit, and `_temp` conflict quarantine with `Conflict_Report.MD` when both sides changed the same file
+- detects mounted external drives, shows capacity, and lets you choose one for a timestamped full-workspace or selected-project backup/move bundle
+- can make a mounted drive the saved Default workspace, prepare a full collision-aware relocation preview, move all current roots only after a separate confirmation, reveal the new workspace, or restore internal Default paths without moving files
+- macOS upgrades keep one canonical `/Applications/CSA-iEM.app`, stop the prior app before replacement, remove stale CSA-iEM/CSA-iLEM backup bundles, and refresh the single toolbar login launcher
 - adds native backup presets, previews, snapshots, restore actions, storage insights, sync status, per-project task templates, and local port monitoring
 - lets the native local project library feed cleanup and local-file targeting directly
 - treats custom-drive setups as auto-detected workspace examples instead of exposing internal preset names

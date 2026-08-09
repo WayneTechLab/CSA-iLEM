@@ -58,6 +58,8 @@ private let legacyProfileConfigDir = (configBaseDir as NSString).appendingPathCo
 private let appSupportDir = NSString(string: "~/Library/Application Support/CSA-iEM").expandingTildeInPath
 private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent("last-session.env")
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
+private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
+private let administratorTerminalModeKey = "com.waynetechlab.csa-iem.administrator-terminal-mode"
 private let contextsFile = (appSupportDir as NSString).appendingPathComponent("contexts.json")
 private let taskTemplatesFile = (appSupportDir as NSString).appendingPathComponent("task-templates.json")
 private let favoriteProjectsFile = (appSupportDir as NSString).appendingPathComponent("favorite-projects.json")
@@ -232,6 +234,177 @@ struct LocalProjectEntry: Identifiable, Hashable {
   }
 }
 
+enum CodexProjectTransferMode: String, CaseIterable, Identifiable {
+  case backupOnly
+  case copy
+  case syncAndMove
+  case syncAndSync
+  case scanAndBackup
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .backupOnly: return "Backup Only"
+    case .copy: return "Copy to Output"
+    case .syncAndMove: return "Sync and Move"
+    case .syncAndSync: return "Sync and Sync"
+    case .scanAndBackup: return "Scan & Backup (Auto Merge)"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .backupOnly:
+      return "Create a verified ZIP and handoff notes without creating or changing an output project."
+    case .copy:
+      return "Stage a new output project, verify it, and leave the source untouched."
+    case .syncAndMove:
+      return "Checksum-sync the output, verify both sides, then retire the source only after success."
+    case .syncAndSync:
+      return "Reconcile both folders by checksum and modification time; preserve conflicts for review."
+    case .scanAndBackup:
+      return "Scan the output, auto-merge missing or changed source files, and create a verified backup."
+    }
+  }
+
+  var writesDestination: Bool { self != .backupOnly }
+  var removesSource: Bool { self == .syncAndMove }
+  var performsBidirectionalSync: Bool { self == .syncAndSync }
+  var performsScanAndBackup: Bool { self == .scanAndBackup }
+  var requiresExistingDestinationMerge: Bool {
+    self == .syncAndMove || self == .syncAndSync || self == .scanAndBackup
+  }
+}
+
+struct CodexProjectEntry: Identifiable, Hashable {
+  let path: String
+  let name: String
+  let discoveredBy: String
+  let hasGit: Bool
+  let hasPackageManifest: Bool
+  let hasDevcontainer: Bool
+  let hasSystemX: Bool
+  let remoteURL: String?
+  let branch: String?
+
+  var id: String { path }
+
+  var badges: [String] {
+    var values: [String] = []
+    if hasGit { values.append("git") }
+    if hasPackageManifest { values.append("manifest") }
+    if hasDevcontainer { values.append("devcontainer") }
+    if hasSystemX { values.append("SYSTEMX") }
+    return values
+  }
+
+  var searchableText: String {
+    ([name, path, discoveredBy, remoteURL ?? "", branch ?? ""] + badges)
+      .joined(separator: " ")
+      .lowercased()
+  }
+}
+
+struct CodexProjectTransferOutcome {
+  let projectName: String
+  let destinationPath: String?
+  let backupPath: String?
+  let warnings: [String]
+  let resumedExistingDestination: Bool
+  let reconciledFileCount: Int
+  let conflictCount: Int
+}
+
+struct CodexFileIndexEntry: Codable, Hashable {
+  enum Kind: String, Codable, Hashable {
+    case directory
+    case file
+    case symbolicLink
+    case other
+  }
+
+  let relativePath: String
+  let kind: Kind
+  let byteCount: Int64
+  let modifiedAt: TimeInterval
+  let symbolicLinkDestination: String?
+
+  func isMetadataEquivalent(to other: CodexFileIndexEntry) -> Bool {
+    kind == other.kind &&
+      byteCount == other.byteCount &&
+      abs(modifiedAt - other.modifiedAt) < 0.5 &&
+      symbolicLinkDestination == other.symbolicLinkDestination
+  }
+}
+
+struct CodexFileIndexSnapshot: Codable {
+  let formatVersion: Int
+  let rootPath: String
+  let createdAt: Date
+  let entries: [CodexFileIndexEntry]
+
+  var byteCount: Int64 {
+    entries.reduce(0) { $0 + $1.byteCount }
+  }
+}
+
+struct CodexTransferPlan: Identifiable, Codable {
+  let projectName: String
+  let projectPath: String
+  let destinationPath: String?
+  let createdAt: Date
+  let sourceFileCount: Int
+  let sourceByteCount: Int64
+  let destinationFileCount: Int
+  let destinationByteCount: Int64
+  let requiresInitialMirror: Bool
+  let missingPaths: [String]
+  let metadataChangedPaths: [String]
+  let checksumChangedPaths: [String]
+  let destinationOnlyPaths: [String]
+  let typeConflictPaths: [String]
+  let metadataMatchedCount: Int
+  let fullChecksumAudit: Bool
+  let sourceIndexPath: String
+  let destinationIndexPath: String?
+  let planPath: String
+
+  var id: String { projectPath }
+
+  var plannedPaths: [String] {
+    Array(Set(missingPaths + metadataChangedPaths + checksumChangedPaths)).sorted()
+  }
+
+  var plannedByteCount: Int64 {
+    // The plan file deliberately carries byte totals only for files that need
+    // a source-to-destination transfer; directories are recreated by rsync.
+    // This value is populated while building the plan and stored in its JSON.
+    plannedEntryByteCount
+  }
+
+  let plannedEntryByteCount: Int64
+
+  var planningLabel: String {
+    if requiresInitialMirror {
+      return "Initial mirror required"
+    }
+    if plannedPaths.isEmpty {
+      return "No file copy needed"
+    }
+    return "\(plannedPaths.count) path(s) need transfer"
+  }
+
+  var summaryLine: String {
+    let planned = ByteCountFormatter.string(fromByteCount: plannedEntryByteCount, countStyle: .file)
+    if requiresInitialMirror {
+      return "New destination: \(sourceFileCount) indexed entries, \(planned) baseline copy."
+    }
+    let audit = fullChecksumAudit ? " Deep checksum audit included." : " Metadata-matched files are skipped."
+    return "\(plannedPaths.count) planned, \(destinationOnlyPaths.count) destination-only, \(metadataMatchedCount) metadata-matched. \(planned) to copy.\(audit)"
+  }
+}
+
 struct LiveContainerEntry: Identifiable, Hashable {
   let containerID: String
   let name: String
@@ -395,6 +568,23 @@ struct StartupReadinessEntry: Identifiable, Hashable {
   let detail: String
   let kind: StatusKind
   let canAutoFix: Bool
+}
+
+struct ExternalVolumeEntry: Identifiable, Hashable {
+  let path: String
+  let name: String
+  let totalCapacity: Int64
+  let availableCapacity: Int64
+
+  var id: String { path }
+
+  var capacityLabel: String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    let free = formatter.string(fromByteCount: max(0, availableCapacity))
+    let total = formatter.string(fromByteCount: max(0, totalCapacity))
+    return "\(free) free of \(total)"
+  }
 }
 
 struct WorkflowCatalogEntry: Identifiable, Hashable, Decodable {
@@ -696,6 +886,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   case githubBilling
   case imports
   case projects
+  case codexPortal
   case localFiles
   case cleanup
   case workspace
@@ -718,6 +909,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .githubBilling: return "GitHub Billing Reports"
     case .imports: return "Import"
     case .projects: return "Projects"
+    case .codexPortal: return "CODEX ~ GPT PORTAL"
     case .localFiles: return "Local Files"
     case .cleanup: return "Cleanup"
     case .workspace: return "Workspace"
@@ -746,6 +938,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Select repositories, choose the local import mode, and run background imports without dropping into Terminal."
     case .projects:
       return "Browse imported local projects on-screen, search them, and open them without dropping into Terminal."
+    case .codexPortal:
+      return "Discover Codex workspaces, preserve project data, and transfer one or many projects through a verified workflow."
     case .localFiles:
       return "Move workspace roots, export selected projects, and back up local data to another location or external drive."
     case .cleanup:
@@ -779,6 +973,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .githubBilling: return "chart.bar.xaxis"
     case .imports: return "square.and.arrow.down.on.square"
     case .projects: return "shippingbox"
+    case .codexPortal: return "terminal"
     case .localFiles: return "folder.badge.gearshape"
     case .cleanup: return "trash"
     case .workspace: return "internaldrive"
@@ -801,6 +996,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .githubBilling: return DashboardTheme.warning
     case .imports: return DashboardTheme.success
     case .projects: return DashboardTheme.deepBlue
+    case .codexPortal: return DashboardTheme.success
     case .localFiles: return DashboardTheme.warning
     case .cleanup: return DashboardTheme.warning
     case .workspace: return DashboardTheme.success
@@ -823,7 +1019,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -839,7 +1035,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -910,6 +1106,21 @@ final class CleanupViewModel: ObservableObject {
   }
   @Published var repoSearch = ""
   @Published var localProjectSearch = ""
+  @Published var codexProjectSearch = ""
+  @Published var codexScanRootsDraft = NSString(string: "~/Documents").expandingTildeInPath
+  @Published var codexScanRootEntryDraft = ""
+  @Published var isCodexScanRootDropTarget = false
+  @Published var codexOutputRootDraft = NSString(string: "~/CODEX PROJECTS").expandingTildeInPath
+  @Published var codexTransferMode: CodexProjectTransferMode = .backupOnly
+  @Published var codexCreateBackup = false
+  @Published var codexIncludeGitMetadata = true
+  @Published var codexIncludeFinderMetadata = true
+  @Published var codexIncludeDependencies = false
+  @Published var codexFullChecksumAudit = false
+  @Published var codexCreateCompatibilityLink = true
+  @Published var codexRearmGitMain = true
+  @Published var codexAutoResumeExisting = true
+  @Published var administratorTerminalMode = false
   @Published var savedViewNameDraft = ""
   @Published var contextNameDraft = ""
   @Published var taskNameDraft = ""
@@ -946,12 +1157,18 @@ final class CleanupViewModel: ObservableObject {
   @Published var legacyWorkspaceCandidates: [LegacyWorkspaceCandidate] = []
   @Published var selectedLegacyWorkspaceID = ""
   @Published var legacyWorkspaceScanStatus = "Scan for older CSA-iEM workspace roots before migrating projects."
+  @Published var recoverySourcePath = ""
+  @Published var recoverySourceStatus = "Choose an old or partially moved workspace to scan before recovering files."
+  @Published var recoveryCandidate: LegacyWorkspaceCandidate?
   @Published var appSettings = AppSettings()
 
   @Published var availableHosts: [String] = []
   @Published var availableAccounts: [String] = []
   @Published var availableRepos: [RepoCatalogEntry] = []
   @Published var localProjects: [LocalProjectEntry] = []
+  @Published var codexProjects: [CodexProjectEntry] = []
+  @Published var selectedCodexProjectPaths: Set<String> = []
+  @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
@@ -977,6 +1194,10 @@ final class CleanupViewModel: ObservableObject {
   @Published var projectSyncEntries: [ProjectSyncEntry] = []
   @Published var portMonitorEntries: [PortMonitorEntry] = []
   @Published var startupReadiness: [StartupReadinessEntry] = []
+  @Published var externalVolumes: [ExternalVolumeEntry] = []
+  @Published var selectedExternalVolumePath = ""
+  @Published var externalDefaultMoveConfirmed = false
+  @Published var externalWorkspaceSizeLabel = "Prepare Move uses the current roots to show the relocation destination and collision risk before anything changes."
   @Published var selectedRepos: Set<String> = [] {
     didSet {
       if selectedRepos != oldValue {
@@ -987,6 +1208,9 @@ final class CleanupViewModel: ObservableObject {
   @Published var repoCatalogStatus = "Load repositories for the selected GitHub account or owner."
   @Published var importStatus = "Select one or more repositories, choose the import mode, and run the import in the background."
   @Published var localProjectStatus = "Scan local imported projects for the current workspace roots."
+  @Published var codexPortalStatus = "Add a parent folder or scan the saved source roots. CSA-iEM offers only folders with project evidence."
+  @Published var codexPortalProgressText = "Ready to scan."
+  @Published var codexPortalProgress = 0.0
   @Published var liveServicesStatus = "Scan active local devcontainers and runner services for the current workspace."
   @Published var githubAccountStatus = "Refresh the connected account to load organizations and account-level details."
   @Published var localFilesStatus = "Choose a destination and move or export local files from the current workspace."
@@ -1003,6 +1227,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var portsStatus = "Scan local listening ports and service endpoints."
   @Published var taskStatus = "Create reusable per-project tasks and run them from the GUI."
   @Published var startupReadinessStatus = "Checking local tools and GitHub CLI login state."
+  @Published var externalVolumesStatus = "Scan for mounted external drives to use as a backup or move destination."
   @Published var snapshotStatus = "Create point-in-time snapshots before major local file changes."
   @Published var logText = "[gui] CSA-iEM ready.\n"
   @Published var statusTitle = "Checking GitHub CLI"
@@ -1013,6 +1238,9 @@ final class CleanupViewModel: ObservableObject {
   @Published var isLoggingOut = false
   @Published var isLoadingRepos = false
   @Published var isLoadingLocalProjects = false
+  @Published var isScanningCodexProjects = false
+  @Published var isBuildingCodexTransferPlan = false
+  @Published var isRunningCodexTransfer = false
   @Published var isLoadingLiveServices = false
   @Published var isLoadingGitHubAccountDetails = false
   @Published var isRunningLocalFileOperation = false
@@ -1223,6 +1451,27 @@ final class CleanupViewModel: ObservableObject {
     return trimmedTitle
   }
 
+  var activeOperationLabel: String? {
+    if isRunningLocalFileOperation { return "Moving or exporting local files…" }
+    if isLoadingLocalProjects { return "Scanning local folders for Git and Docker projects…" }
+    if isLoadingLiveServices { return "Checking Docker containers and runner services…" }
+    if isRunningTask { return "Running the selected project task…" }
+    if isRunning { return "Running GitHub cleanup…" }
+    if isLoadingGitHubBilling { return "Loading GitHub usage and billing reports…" }
+    if isLoadingRepoHealth { return "Loading repository health…" }
+    if isLoadingWorkflowData { return "Loading workflow and run data…" }
+    if isLoadingRepos { return "Loading repositories…" }
+    if isLoadingGitHubAccountDetails { return "Refreshing connected account…" }
+    if isLoadingStorageInsights { return "Calculating local storage usage…" }
+    if isLoadingProjectSync { return "Comparing local project worktrees…" }
+    if isLoadingPorts { return "Scanning listening ports…" }
+    return nil
+  }
+
+  var resolvedProfileRootsForDisplay: (codeRoot: String, importRoot: String, runtimeRoot: String) {
+    resolvedProfileRoots()
+  }
+
   var lastSessionSummary: String? {
     nil
   }
@@ -1248,6 +1497,38 @@ final class CleanupViewModel: ObservableObject {
       let matchesFavorite = !showFavoritesOnly || favoriteProjects.contains(project.slug)
       return matchesQuery && matchesFavorite
     }
+  }
+
+  var filteredCodexProjects: [CodexProjectEntry] {
+    let query = codexProjectSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !query.isEmpty else { return codexProjects }
+    return codexProjects.filter { $0.searchableText.contains(query) }
+  }
+
+  var selectedCodexProjects: [CodexProjectEntry] {
+    codexProjects.filter { selectedCodexProjectPaths.contains($0.path) }
+  }
+
+  var areAllVisibleCodexProjectsSelected: Bool {
+    !filteredCodexProjects.isEmpty && filteredCodexProjects.allSatisfy { selectedCodexProjectPaths.contains($0.path) }
+  }
+
+  var codexProjectSummary: String {
+    let selectedCount = selectedCodexProjectPaths.count
+    let gitCount = codexProjects.filter(\.hasGit).count
+    return "\(codexProjects.count) projects found · \(gitCount) Git worktrees · \(selectedCount) selected"
+  }
+
+  var codexTransferPlanSummary: String {
+    guard !codexTransferPlans.isEmpty else {
+      return "Run preflight to build the virtual file-transfer table."
+    }
+    let plannedPathCount = codexTransferPlans.reduce(0) { $0 + $1.plannedPaths.count }
+    let plannedByteCount = codexTransferPlans.reduce(Int64(0)) { $0 + $1.plannedByteCount }
+    let initialMirrors = codexTransferPlans.filter(\.requiresInitialMirror).count
+    let destinationOnly = codexTransferPlans.reduce(0) { $0 + $1.destinationOnlyPaths.count }
+    let prefix = initialMirrors > 0 ? "\(initialMirrors) initial mirror(s)" : "Index ready"
+    return "\(prefix) · \(plannedPathCount) path(s) planned · \(ByteCountFormatter.string(fromByteCount: plannedByteCount, countStyle: .file)) · \(destinationOnly) destination-only"
   }
 
   var localProjectSummary: String {
@@ -1497,6 +1778,8 @@ final class CleanupViewModel: ObservableObject {
     refreshAuthStatus()
     refreshLocalProjects()
     refreshStartupReadiness()
+    scanExternalVolumes()
+    scanLegacyWorkspaces()
   }
 
   private func loadPersistentState() {
@@ -1507,6 +1790,10 @@ final class CleanupViewModel: ObservableObject {
     if let loadedSettings: AppSettings = readJSON(AppSettings.self, from: settingsFile) {
       appSettings = loadedSettings
     }
+    if let savedCodexRoots: [String] = readJSON([String].self, from: codexScanRootsFile), !savedCodexRoots.isEmpty {
+      codexScanRootsDraft = savedCodexRoots.joined(separator: "\n")
+    }
+    administratorTerminalMode = UserDefaults.standard.bool(forKey: administratorTerminalModeKey)
     if appSettings.privacyFirstMode == false,
        let loadedContexts: [SavedGitHubContext] = readJSON([SavedGitHubContext].self, from: contextsFile) {
       savedContexts = loadedContexts
@@ -1532,6 +1819,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistSettings() {
     writeJSON(appSettings, to: settingsFile)
+  }
+
+  private func persistCodexScanRoots() {
+    writeJSON(parsedCodexScanRoots(), to: codexScanRootsFile)
   }
 
   private func persistContexts() {
@@ -1685,6 +1976,122 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func scanExternalVolumes() {
+    // File Provider and slow external disks can block volume metadata calls.
+    // Keep startup and the SwiftUI main thread responsive while scanning.
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let fm = FileManager.default
+      let volumesRoot = "/Volumes"
+      let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey, .volumeIsLocalKey]
+      let urls = (try? fm.contentsOfDirectory(
+        at: URL(fileURLWithPath: volumesRoot, isDirectory: true),
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsHiddenFiles]
+      )) ?? []
+
+      let volumes = urls.compactMap { url -> ExternalVolumeEntry? in
+        guard let values = try? url.resourceValues(forKeys: keys), values.volumeIsLocal == true else { return nil }
+        let path = (url.path as NSString).standardizingPath
+        let name = url.lastPathComponent
+        let itemType = (try? fm.attributesOfItem(atPath: url.path)[.type]) as? FileAttributeType
+        guard path != volumesRoot, name.isEmpty == false, itemType != .typeSymbolicLink else { return nil }
+        return ExternalVolumeEntry(
+          path: path,
+          name: name,
+          totalCapacity: Int64(values.volumeTotalCapacity ?? 0),
+          availableCapacity: Int64(values.volumeAvailableCapacity ?? 0)
+        )
+      }
+      .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.externalVolumes = volumes
+        if self.selectedExternalVolumePath.isEmpty || !volumes.contains(where: { $0.path == self.selectedExternalVolumePath }) {
+          self.selectedExternalVolumePath = volumes.first?.path ?? ""
+        }
+        self.externalVolumesStatus = volumes.isEmpty
+          ? "No mounted external drives detected. Connect a drive, then refresh, or choose any destination folder manually."
+          : "Detected \(volumes.count) mounted external drive\(volumes.count == 1 ? "" : "s")."
+      }
+    }
+  }
+
+  func selectExternalVolume(_ volume: ExternalVolumeEntry) {
+    selectedExternalVolumePath = volume.path
+    localExportDestinationDraft = volume.path
+    workspaceMoveDestinationDraft = volume.path
+    externalVolumesStatus = "Selected \(volume.name) as the backup or move destination."
+  }
+
+  func externalWorkspaceBase(for volume: ExternalVolumeEntry) -> String {
+    (volume.path as NSString).appendingPathComponent("CSA-iEM")
+  }
+
+  func setExternalVolumeAsDefault(_ volume: ExternalVolumeEntry) {
+    let base = externalWorkspaceBase(for: volume)
+    let code = (base as NSString).appendingPathComponent("Code")
+    let importRoot = (base as NSString).appendingPathComponent("Import")
+    let runtime = (base as NSString).appendingPathComponent("Runtime")
+    writeProfileConfig(profile: .public, values: [
+      "SAVED_CODE_ROOT": code,
+      "SAVED_IMPORT_ROOT": importRoot,
+      "SAVED_RUNTIME_ROOT": runtime
+    ])
+    selectedProfile = .public
+    useCurrentRoot = true
+    selectedExternalVolumePath = volume.path
+    workspaceMoveDestinationDraft = base
+    localExportDestinationDraft = volume.path
+    syncWorkspaceDraftsFromResolvedRoots()
+    refreshLocalProjects()
+    externalVolumesStatus = "\(volume.name) is now the saved Default workspace. Existing local files were not moved."
+  }
+
+  func prepareExternalDefaultMove(_ volume: ExternalVolumeEntry) {
+    selectedExternalVolumePath = volume.path
+    workspaceMoveDestinationDraft = externalWorkspaceBase(for: volume)
+    localExportDestinationDraft = volume.path
+    externalDefaultMoveConfirmed = false
+    previewWorkspaceMove(.workspace)
+    externalVolumesStatus = "Preview ready. Confirm the move below before relocating all current workspace roots to \(volume.name)."
+  }
+
+  func moveWorkspaceToExternalDefault(_ volume: ExternalVolumeEntry) {
+    guard externalDefaultMoveConfirmed else {
+      externalVolumesStatus = "Confirm that you reviewed the preview before moving all local workspace roots."
+      return
+    }
+    selectedExternalVolumePath = volume.path
+    workspaceMoveDestinationDraft = externalWorkspaceBase(for: volume)
+    relocateWorkspace(.workspace)
+  }
+
+  func restoreInternalDefaultWorkspace() {
+    writeProfileConfig(profile: .public, values: [
+      "SAVED_CODE_ROOT": publicDefaultCodeRoot,
+      "SAVED_IMPORT_ROOT": publicDefaultImportRoot,
+      "SAVED_RUNTIME_ROOT": publicDefaultRuntimeRoot
+    ])
+    selectedProfile = .public
+    useCurrentRoot = true
+    externalDefaultMoveConfirmed = false
+    syncWorkspaceDraftsFromResolvedRoots()
+    refreshLocalProjects()
+    externalVolumesStatus = "Restored the Default workspace paths under \(publicDefaultRoot). Files remain where they are until you copy or move them."
+  }
+
+  func revealExternalWorkspace(_ volume: ExternalVolumeEntry) {
+    let base = externalWorkspaceBase(for: volume)
+    try? FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+    revealPath(base)
+  }
+
+
+  func revealExternalVolume(_ volume: ExternalVolumeEntry) {
+    revealPath(volume.path)
+  }
+
   func scanLegacyWorkspaces() {
     let roots = resolvedProfileRoots()
     let currentRoots: Set<String> = [
@@ -1692,14 +2099,27 @@ final class CleanupViewModel: ObservableObject {
       normalizeWorkspacePath(roots.importRoot),
       normalizeWorkspacePath(roots.runtimeRoot)
     ]
-    let candidates = Self.scanLegacyWorkspaceCandidates(excluding: currentRoots)
-    legacyWorkspaceCandidates = candidates
-    if selectedLegacyWorkspaceID.isEmpty || !candidates.contains(where: { $0.id == selectedLegacyWorkspaceID }) {
-      selectedLegacyWorkspaceID = candidates.first?.id ?? ""
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let candidates = Self.scanLegacyWorkspaceCandidates(excluding: currentRoots)
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.legacyWorkspaceCandidates = candidates
+        if self.selectedLegacyWorkspaceID.isEmpty || !candidates.contains(where: { $0.id == self.selectedLegacyWorkspaceID }) {
+          self.selectedLegacyWorkspaceID = candidates.first?.id ?? ""
+        }
+        self.legacyWorkspaceScanStatus = candidates.isEmpty
+          ? "No older workspace roots were found."
+          : "Found \(candidates.count) older workspace roots ready for review."
+
+        if self.recoveryCandidate == nil, let firstCandidate = candidates.first {
+          self.recoveryCandidate = firstCandidate
+          self.recoverySourcePath = firstCandidate.runtimeRoot
+          self.recoverySourceStatus = "Auto-detected \(firstCandidate.label). Review the source and active roots, then recover missing files."
+        } else if candidates.isEmpty, self.recoveryCandidate == nil {
+          self.recoverySourceStatus = "No known old roots were detected. Choose a source folder to scan manually."
+        }
+      }
     }
-    legacyWorkspaceScanStatus = candidates.isEmpty
-      ? "No older workspace roots were found."
-      : "Found \(candidates.count) older workspace roots ready for review."
   }
 
   func migrateSelectedLegacyWorkspace() {
@@ -1738,6 +2158,83 @@ final class CleanupViewModel: ObservableObject {
         DispatchQueue.main.async {
           self.legacyWorkspaceScanStatus = error.localizedDescription
           self.appendLog("[gui] Old workspace migration failed: \(error.localizedDescription)\n")
+          self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
+        }
+      }
+    }
+  }
+
+  func chooseRecoverySource() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Scan Folder"
+    panel.message = "Choose the old, backup, or partially moved CSA-iEM workspace."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    recoverySourcePath = url.path
+    scanRecoverySource()
+  }
+
+  func scanRecoverySource() {
+    let source = normalizeWorkspacePath(recoverySourcePath)
+    guard !source.isEmpty, FileManager.default.fileExists(atPath: source) else {
+      recoveryCandidate = nil
+      recoverySourceStatus = "Choose an existing source folder before scanning."
+      return
+    }
+
+    let codeRoot = FileManager.default.fileExists(atPath: (source as NSString).appendingPathComponent("Code"))
+      ? (source as NSString).appendingPathComponent("Code") : source
+    let importRoot = (source as NSString).appendingPathComponent("Import")
+    let runtimeRoot = FileManager.default.fileExists(atPath: (source as NSString).appendingPathComponent("Runtime"))
+      ? (source as NSString).appendingPathComponent("Runtime") : source
+    let codeRepos = (codeRoot as NSString).appendingPathComponent("Repos")
+    let runtimeRepos = (runtimeRoot as NSString).appendingPathComponent("Repos")
+    let runners = (runtimeRoot as NSString).appendingPathComponent("Runners")
+    let candidate = LegacyWorkspaceCandidate(
+      id: "recovery|\(source)",
+      label: "Recovery source: \((source as NSString).lastPathComponent)",
+      codeRoot: codeRoot,
+      importRoot: importRoot,
+      runtimeRoot: runtimeRoot,
+      projectCount: Self.countOwnerRepoChildren(under: codeRepos) + (runtimeRepos == codeRepos ? 0 : Self.countOwnerRepoChildren(under: runtimeRepos)),
+      runnerCount: Self.countOwnerRepoChildren(under: runners)
+    )
+    recoveryCandidate = candidate
+    recoverySourceStatus = "Recovery scan ready. \(candidate.summary) will be merged into the active workspace roots."
+  }
+
+  func recoverSelectedSource() {
+    guard let candidate = recoveryCandidate else {
+      recoverySourceStatus = "Scan a recovery source before starting."
+      return
+    }
+    let roots = resolvedProfileRoots()
+    let mode: LocalFileTransferMode = .copyBackup
+    let environment = baseEnvironment()
+    let jobID = createJob(kind: "Recovery", title: "Recover local workspace", target: candidate.label, detail: "Merging recoverable files into current roots…", initialState: .running)
+    isRunningLocalFileOperation = true
+    recoverySourceStatus = "Recovery in progress. Existing destination files are preserved."
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      do {
+        let summary = try Self.migrateLegacyWorkspace(candidate: candidate, destinationRoots: roots, mode: mode, overwrite: false, environment: environment)
+        DispatchQueue.main.async {
+          self.isRunningLocalFileOperation = false
+          self.recoverySourceStatus = summary
+          self.localFilesStatus = summary
+          self.appendLog("[gui] \(summary)\n")
+          self.finishJob(id: jobID, state: .succeeded, detail: summary)
+          self.refreshLocalProjects()
+          self.refreshLiveServices()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          self.isRunningLocalFileOperation = false
+          self.recoverySourceStatus = "Recovery stopped: \(error.localizedDescription)"
+          self.appendLog("[gui] Recovery failed: \(error.localizedDescription)\n")
           self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
         }
       }
@@ -2747,17 +3244,27 @@ final class CleanupViewModel: ObservableObject {
 
     let commandParts = [shellQuote(cliPath)] + arguments.map(shellQuote)
     let autoConfirm = appSettings.autoConfirmTerminalGates ? "1" : "0"
-    return [
+    let cliCommand = commandParts.joined(separator: " ")
+    var commands = [
       "export PATH=\(shellQuote(defaultSearchPaths.joined(separator: ":")))",
       "export CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES=\(shellQuote(autoConfirm))",
-      "export CSA_IEM_PAUSE_ON_SECURITY_GATE=1",
-      commandParts.joined(separator: " "),
+      "export CSA_IEM_PAUSE_ON_SECURITY_GATE=1"
+    ]
+    if administratorTerminalMode {
+      commands.append("echo 'CSA-iEM administrator mode: macOS will request authorization in this Terminal window.'")
+      commands.append("if ! sudo -v; then echo 'Administrator authorization was cancelled or denied.'; read -r -p 'Press Enter to close this window...' _; exit 1; fi")
+      commands.append("sudo -E \(cliCommand)")
+    } else {
+      commands.append(cliCommand)
+    }
+    commands.append(contentsOf: [
       "EXIT_CODE=$?",
       "printf '\\n'",
       "if [ $EXIT_CODE -eq 0 ]; then echo '\(exitLabel) finished.'; else echo \"\(exitLabel) exited with code $EXIT_CODE.\"; fi",
       "echo",
       "read -r -p 'Press Enter or y to close this window...' _"
-    ].joined(separator: "; ")
+    ])
+    return commands.joined(separator: "; ")
   }
 
   func openCLIInTerminal() {
@@ -2794,6 +3301,455 @@ final class CleanupViewModel: ObservableObject {
       return
     }
     openTerminalCommand(command)
+  }
+
+  func chooseCodexScanRoot() {
+    let firstRoot = parsedCodexScanRoots().first ?? NSString(string: "~").expandingTildeInPath
+    guard let selectedPath = chooseDirectory(startingAt: firstRoot) else { return }
+    guard appendCodexScanRoot(selectedPath) else {
+      codexPortalStatus = "The selected custom search folder is not readable. Choose a local or mounted folder that Finder can open."
+      return
+    }
+    codexPortalStatus = "Added the selected folder as a custom project-search root. Only folders with project evidence will be offered as projects."
+  }
+
+  func addCodexScanRootDraft() {
+    let rawPath = codexScanRootEntryDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawPath.isEmpty else {
+      codexPortalStatus = "Enter a custom folder path before adding it to the project search."
+      return
+    }
+    guard appendCodexScanRoot(rawPath) else {
+      codexPortalStatus = "The custom search folder is not readable. Check the path or choose a mounted folder that Finder can open."
+      return
+    }
+    codexScanRootEntryDraft = ""
+    codexPortalStatus = "Added the custom folder path. Scan Projects checks only folders with Git, manifests, or enough project context."
+  }
+
+  func receiveCodexScanRootDrop(_ providers: [NSItemProvider]) -> Bool {
+    let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+    guard !fileProviders.isEmpty else {
+      codexPortalStatus = "Drop one or more folders, not individual files, to add custom project-search roots."
+      return false
+    }
+
+    for provider in fileProviders {
+      provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] item, _ in
+        let fileURL: URL?
+        if let data = item as? Data {
+          fileURL = URL(dataRepresentation: data, relativeTo: nil)
+        } else if let url = item as? URL {
+          fileURL = url
+        } else if let url = item as? NSURL {
+          fileURL = url as URL
+        } else {
+          fileURL = nil
+        }
+        guard let fileURL, fileURL.isFileURL else { return }
+        DispatchQueue.main.async {
+          guard let self else { return }
+          if self.appendCodexScanRoot(fileURL.path) {
+            self.codexPortalStatus = "Added dropped folder \(fileURL.lastPathComponent) as a custom project-search root. Only folders with project evidence will be offered as projects."
+          } else {
+            self.codexPortalStatus = "\(fileURL.lastPathComponent) is not a readable folder, so it was not added to the project search."
+          }
+        }
+      }
+    }
+    return true
+  }
+
+  @discardableResult
+  private func appendCodexScanRoot(_ rawPath: String) -> Bool {
+    let path = normalizeWorkspacePath(rawPath)
+    var isDirectory: ObjCBool = false
+    guard !path.isEmpty,
+          FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+          isDirectory.boolValue else {
+      return false
+    }
+    var roots = parsedCodexScanRoots()
+    guard !roots.contains(path) else { return true }
+    roots.append(path)
+    codexScanRootsDraft = roots.joined(separator: "\n")
+    persistCodexScanRoots()
+    return true
+  }
+
+  func addCommonCodexScanRoots() {
+    var roots = parsedCodexScanRoots()
+    for root in Self.commonCodexProjectScanRoots(environment: baseEnvironment()) where !roots.contains(root) {
+      roots.append(root)
+    }
+    codexScanRootsDraft = roots.joined(separator: "\n")
+    persistCodexScanRoots()
+    codexPortalStatus = "Added readable Documents, development, Codex worktree, and mounted-drive project folders. Scan Projects uses folder context even when Codex no longer has a linked project record."
+  }
+
+  func chooseCodexOutputRoot() {
+    guard let selectedPath = chooseDirectory(startingAt: codexOutputRootDraft) else { return }
+    codexOutputRootDraft = selectedPath
+  }
+
+  func toggleCodexProject(_ project: CodexProjectEntry) {
+    if selectedCodexProjectPaths.contains(project.path) {
+      selectedCodexProjectPaths.remove(project.path)
+    } else {
+      selectedCodexProjectPaths.insert(project.path)
+    }
+    codexTransferPlans.removeAll()
+  }
+
+  func setVisibleCodexProjectsSelected(_ enabled: Bool) {
+    for project in filteredCodexProjects {
+      if enabled {
+        selectedCodexProjectPaths.insert(project.path)
+      } else {
+        selectedCodexProjectPaths.remove(project.path)
+      }
+    }
+    codexTransferPlans.removeAll()
+  }
+
+  func selectAllCodexProjects() {
+    selectedCodexProjectPaths = Set(codexProjects.map(\.path))
+    codexTransferPlans.removeAll()
+  }
+
+  func armCodexAutoAll() {
+    guard !codexProjects.isEmpty else {
+      codexPortalStatus = "Scan for Codex projects before arming Auto All."
+      return
+    }
+    selectAllCodexProjects()
+    codexAutoResumeExisting = true
+    if codexTransferMode != .backupOnly && !codexTransferMode.performsScanAndBackup {
+      codexCreateBackup = false
+    }
+    codexPortalProgressText = "Auto All armed for \(codexProjects.count) project(s)."
+    codexPortalStatus = "Auto All will build an index for every selected project, skip metadata-matched content, and transfer only missing or changed paths. Optional full ZIP archives are off for fast repeat runs."
+  }
+
+  func clearCodexProjectSelection() {
+    selectedCodexProjectPaths.removeAll()
+    codexTransferPlans.removeAll()
+  }
+
+  func openCodexProject(_ project: CodexProjectEntry, inApplication appName: String) {
+    openPathInApplication(project.path, appName: appName, label: project.name)
+  }
+
+  func revealCodexProject(_ project: CodexProjectEntry) {
+    launchDetached(executable: "/usr/bin/open", arguments: ["-R", project.path])
+  }
+
+  func openCodexOutputRoot() {
+    let path = normalizeWorkspacePath(codexOutputRootDraft)
+    guard FileManager.default.fileExists(atPath: path) else {
+      codexPortalStatus = "The output folder does not exist yet. Run Preflight or choose an existing folder."
+      return
+    }
+    launchDetached(executable: "/usr/bin/open", arguments: [path])
+  }
+
+  func revealCodexTransferIndexes() {
+    let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let indexDirectory = ((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("Transfer-Indexes")
+    guard FileManager.default.fileExists(atPath: indexDirectory) else {
+      codexPortalStatus = "No transfer index has been saved yet. Run Preflight first."
+      return
+    }
+    launchDetached(executable: "/usr/bin/open", arguments: [indexDirectory])
+  }
+
+  func openAdministratorTerminalCheck() {
+    let command = [
+      "echo 'CSA-iEM administrator Terminal check'",
+      "if sudo -v; then echo 'Administrator authorization is ready. CSA-iEM did not store the password.'; else echo 'Authorization cancelled or denied.'; fi",
+      "read -r -p 'Press Enter to close this window...' _"
+    ].joined(separator: "; ")
+    openTerminalCommand(command)
+  }
+
+  func scanCodexProjects() {
+    guard !isScanningCodexProjects, !isBuildingCodexTransferPlan, !isRunningCodexTransfer else { return }
+    let roots = parsedCodexScanRoots()
+    persistCodexScanRoots()
+    let commonRoots = Self.commonCodexProjectScanRoots(environment: baseEnvironment())
+    isScanningCodexProjects = true
+    codexPortalProgress = 0
+    codexPortalProgressText = roots.isEmpty
+      ? "Reading local Codex history because no source folder was selected..."
+      : "Scanning \(roots.count) selected source root(s) from on-disk project context..."
+    codexPortalStatus = "Project discovery is running. Selected folders are scanned first and do not depend on a linked Codex project record."
+    let environment = baseEnvironment()
+
+    processQueue.async { [weak self] in
+      var projects = Self.discoverCodexProjects(scanRoots: roots, environment: environment)
+      var usedCommonFolders = false
+      if projects.isEmpty {
+        let fallbackRoots = commonRoots.filter { !roots.contains($0) }
+        if !fallbackRoots.isEmpty {
+          usedCommonFolders = true
+          projects = Self.discoverCodexProjects(scanRoots: fallbackRoots, environment: environment)
+        }
+      }
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.codexProjects = projects
+        self.selectedCodexProjectPaths = self.selectedCodexProjectPaths.intersection(Set(projects.map(\.path)))
+        self.codexTransferPlans.removeAll()
+        self.isScanningCodexProjects = false
+        self.codexPortalProgress = projects.isEmpty ? 0 : 1
+        self.codexPortalProgressText = projects.isEmpty ? "Scan finished with no project matches." : "Scan complete: \(projects.count) projects found."
+        self.codexPortalStatus = projects.isEmpty
+          ? "No project folders were recognized. Add a parent folder or use Scan Common Folders; the scanner recognizes Git, manifests, source folders, editor settings, Docker/config files, and existing transfer notes."
+          : usedCommonFolders
+            ? "No selected-root match was found, so discovery scanned common local and mounted-drive folders using on-disk project context. Choose one, many, visible, or all projects."
+            : "Discovery used the selected folders' on-disk project context. Choose one, many, visible, or all projects."
+      }
+    }
+  }
+
+  func preflightCodexTransfer() {
+    guard !isBuildingCodexTransferPlan, !isRunningCodexTransfer, !isScanningCodexProjects else { return }
+    let projects = selectedCodexProjects
+    guard !projects.isEmpty else {
+      codexPortalStatus = "Select at least one discovered project before preflight."
+      return
+    }
+
+    let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    do {
+      try Self.preflightCodexTransfer(
+        projects: projects,
+        outputRoot: outputRoot,
+        mode: codexTransferMode,
+        resumeExisting: codexTransferMode.writesDestination && (codexAutoResumeExisting || codexTransferMode.requiresExistingDestinationMerge)
+      )
+      if codexRearmGitMain && !codexIncludeGitMetadata && codexTransferMode.writesDestination,
+         projects.contains(where: { ($0.remoteURL ?? "").isEmpty }) {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm needs a detected remote for every selected project."])
+      }
+    } catch {
+      codexPortalStatus = "Preflight failed: \(error.localizedDescription)"
+      codexPortalProgressText = "Resolve the preflight issue before running."
+      return
+    }
+
+    let mode = codexTransferMode
+    let includeGit = codexIncludeGitMetadata
+    let includeFinderMetadata = codexIncludeFinderMetadata
+    let includeDependencies = codexIncludeDependencies
+    let fullChecksumAudit = codexFullChecksumAudit
+    let environment = baseEnvironment()
+    isBuildingCodexTransferPlan = true
+    codexTransferPlans.removeAll()
+    codexPortalProgress = 0
+    codexPortalProgressText = "Building source and destination file indexes..."
+    codexPortalStatus = "Preflight passed. CSA-iEM is creating a virtual file table before it transfers anything."
+
+    processQueue.async { [weak self] in
+      var plans: [CodexTransferPlan] = []
+      var failure: Error?
+
+      for (index, project) in projects.enumerated() {
+        let progressHandler: (String, Int, Int64) -> Void = { phase, fileCount, byteCount in
+          DispatchQueue.main.async {
+            guard let self, self.isBuildingCodexTransferPlan else { return }
+            self.codexPortalProgress = (Double(index) + 0.5) / Double(max(projects.count, 1))
+            self.codexPortalProgressText = "Preflight \(index + 1) of \(projects.count): \(phase) \(fileCount) entries (\(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)))."
+          }
+        }
+        do {
+          let plan = try Self.buildCodexTransferPlan(
+            project: project,
+            outputRoot: outputRoot,
+            mode: mode,
+            includeGit: includeGit,
+            includeFinderMetadata: includeFinderMetadata,
+            includeDependencies: includeDependencies,
+            fullChecksumAudit: fullChecksumAudit,
+            environment: environment,
+            progress: progressHandler
+          )
+          plans.append(plan)
+        } catch {
+          failure = error
+          break
+        }
+      }
+
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.isBuildingCodexTransferPlan = false
+        if let failure {
+          self.codexPortalProgress = 0
+          self.codexPortalProgressText = "Resolve the preflight issue before running."
+          self.codexPortalStatus = "Preflight index failed: \(failure.localizedDescription)"
+          return
+        }
+        self.codexTransferPlans = plans
+        self.codexPortalProgress = 1
+        self.codexPortalProgressText = "Preflight complete: \(plans.count) project index table(s) saved under the output _temp folder."
+        self.codexPortalStatus = "Preflight passed for \(projects.count) project(s). \(self.codexTransferPlanSummary)"
+      }
+    }
+  }
+
+  func runCodexTransfer() {
+    guard !isRunningCodexTransfer, !isScanningCodexProjects, !isBuildingCodexTransferPlan else { return }
+    let projects = selectedCodexProjects
+    guard !projects.isEmpty else {
+      codexPortalStatus = "Select at least one discovered project before running."
+      return
+    }
+
+    let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    do {
+      try Self.preflightCodexTransfer(
+        projects: projects,
+        outputRoot: outputRoot,
+        mode: codexTransferMode,
+        resumeExisting: codexTransferMode.writesDestination && (codexAutoResumeExisting || codexTransferMode.requiresExistingDestinationMerge)
+      )
+    } catch {
+      codexPortalStatus = "Preflight failed: \(error.localizedDescription)"
+      return
+    }
+
+    let mode = codexTransferMode
+    let createBackup = codexCreateBackup || mode == .backupOnly || mode.performsScanAndBackup
+    let includeGit = codexIncludeGitMetadata
+    let includeFinderMetadata = codexIncludeFinderMetadata
+    let includeDependencies = codexIncludeDependencies
+    let fullChecksumAudit = codexFullChecksumAudit
+    let compatibilityLink = codexCreateCompatibilityLink
+    let rearmGitMain = codexRearmGitMain && !includeGit && mode.writesDestination
+    let autoResumeExisting = mode.writesDestination && (codexAutoResumeExisting || mode.requiresExistingDestinationMerge)
+    if rearmGitMain, projects.contains(where: { ($0.remoteURL ?? "").isEmpty }) {
+      codexPortalStatus = "Preflight failed: Git main re-arm needs a detected remote for every selected project."
+      return
+    }
+    let environment = baseEnvironment()
+    let jobID = createJob(
+      kind: "Codex",
+      title: "\(mode.label) Codex projects",
+      target: "\(projects.count) project(s)",
+      detail: "Preflight passed. Building current file indexes before targeted transfer.",
+      initialState: .running
+    )
+    isRunningCodexTransfer = true
+    codexPortalProgress = 0
+    codexPortalProgressText = "Building the current index for the first project..."
+    codexPortalStatus = "CSA-iEM will refresh each selected file table immediately before execution, then transfer only planned paths. Sources are never removed before final verification succeeds."
+
+    processQueue.async { [weak self] in
+      var outcomes: [CodexProjectTransferOutcome] = []
+      var failure: Error?
+
+      for (index, project) in projects.enumerated() {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.codexPortalProgress = Double(index) / Double(max(projects.count, 1))
+          self.codexPortalProgressText = "\(index + 1) of \(projects.count): indexing \(project.name)"
+          self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+        }
+
+        do {
+          let progressHandler: (String, Int, Int64) -> Void = { phase, fileCount, byteCount in
+            DispatchQueue.main.async {
+              guard let self else { return }
+              self.codexPortalProgress = (Double(index) + 0.25) / Double(max(projects.count, 1))
+              self.codexPortalProgressText = "\(index + 1) of \(projects.count): \(phase) \(fileCount) entries (\(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)))"
+              self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+            }
+          }
+          let plan = try Self.buildCodexTransferPlan(
+            project: project,
+            outputRoot: outputRoot,
+            mode: mode,
+            includeGit: includeGit,
+            includeFinderMetadata: includeFinderMetadata,
+            includeDependencies: includeDependencies,
+            fullChecksumAudit: fullChecksumAudit,
+            environment: environment,
+            progress: progressHandler
+          )
+          DispatchQueue.main.async {
+            guard let self else { return }
+            self.codexTransferPlans.removeAll { $0.projectPath == project.path }
+            self.codexTransferPlans.append(plan)
+            self.codexPortalProgress = (Double(index) + 0.5) / Double(max(projects.count, 1))
+            self.codexPortalProgressText = "\(index + 1) of \(projects.count): \(plan.planningLabel) for \(project.name)"
+            self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+          }
+          DispatchQueue.main.async {
+            guard let self else { return }
+            self.codexPortalProgressText = "\(index + 1) of \(projects.count): transferring \(plan.plannedPaths.count) planned path(s) for \(project.name)"
+            self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+          }
+          let outcome = try Self.performCodexTransfer(
+            project: project,
+            outputRoot: outputRoot,
+            mode: mode,
+            createBackup: createBackup,
+            includeGit: includeGit,
+            includeFinderMetadata: includeFinderMetadata,
+            includeDependencies: includeDependencies,
+            createCompatibilityLink: compatibilityLink,
+            rearmGitMain: rearmGitMain,
+            autoResumeExisting: autoResumeExisting,
+            transferPlan: plan,
+            environment: environment
+          )
+          outcomes.append(outcome)
+        } catch {
+          failure = error
+          break
+        }
+      }
+
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.isRunningCodexTransfer = false
+        if let failure {
+          self.codexPortalProgressText = "Stopped after \(outcomes.count) completed project(s)."
+          self.codexPortalStatus = "Transfer stopped safely: \(failure.localizedDescription)"
+          self.updateJob(id: jobID, state: .failed, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
+          self.appendLog("[codex] \(self.codexPortalStatus)\n")
+        } else {
+          let warningCount = outcomes.reduce(0) { $0 + $1.warnings.count }
+          let resumedCount = outcomes.filter(\.resumedExistingDestination).count
+          let reconciledCount = outcomes.reduce(0) { $0 + $1.reconciledFileCount }
+          let conflictCount = outcomes.reduce(0) { $0 + $1.conflictCount }
+          self.codexPortalProgress = 1
+          self.codexPortalProgressText = "Completed \(outcomes.count) of \(projects.count) project(s)."
+          let resumeSummary = resumedCount > 0
+            ? " Auto-resumed \(resumedCount) existing destination(s); \(reconciledCount) missing or changed file(s) were reconciled."
+            : ""
+          let conflictSummary = conflictCount > 0
+            ? " \(conflictCount) conflict(s) were preserved in a review folder."
+            : ""
+          self.codexPortalStatus = warningCount == 0
+            ? "Verified \(mode.label.lowercased()) completed for \(outcomes.count) project(s).\(resumeSummary)\(conflictSummary)"
+            : "Completed with \(warningCount) preservation warning(s). Review the job log before cleanup.\(resumeSummary)\(conflictSummary)"
+          self.updateJob(id: jobID, state: .succeeded, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
+          self.appendLog("[codex] \(self.codexPortalStatus)\n")
+        }
+      }
+    }
+  }
+
+  private func parsedCodexScanRoots() -> [String] {
+    var seen: Set<String> = []
+    return codexScanRootsDraft
+      .components(separatedBy: .newlines)
+      .flatMap { $0.components(separatedBy: ";") }
+      .map { normalizeWorkspacePath($0) }
+      .filter { !$0.isEmpty && seen.insert($0).inserted }
   }
 
   func cancelRun() {
@@ -3255,6 +4211,7 @@ final class CleanupViewModel: ObservableObject {
     appSettings.defaultGitHubHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host.trimmingCharacters(in: .whitespacesAndNewlines)
     appSettings.firstRunComplete = true
     persistSettings()
+    UserDefaults.standard.set(administratorTerminalMode, forKey: administratorTerminalModeKey)
     settingsStatus = "Settings saved."
   }
 
@@ -5009,6 +5966,48 @@ final class CleanupViewModel: ObservableObject {
     return results
   }
 
+  private nonisolated static func discoveredProjectDirectories(in roots: [String]) -> [(owner: String, repo: String, path: String, hasDevcontainer: Bool)] {
+    let fm = FileManager.default
+    let ignoredNames: Set<String> = [".git", "node_modules", ".build", "Pods", "DerivedData", "Library", "Caches", "tmp"]
+    var results: [(owner: String, repo: String, path: String, hasDevcontainer: Bool)] = []
+    var seenPaths = Set<String>()
+
+    for root in roots {
+      let normalizedRoot = NSString(string: root).standardizingPath
+      guard fm.fileExists(atPath: normalizedRoot) else { continue }
+      guard let enumerator = fm.enumerator(
+        at: URL(fileURLWithPath: normalizedRoot, isDirectory: true),
+        includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+      ) else { continue }
+
+      for case let url as URL in enumerator {
+        let path = url.path
+        let name = url.lastPathComponent
+        if ignoredNames.contains(name) || name.hasPrefix(".") {
+          enumerator.skipDescendants()
+          continue
+        }
+
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+
+        let gitPath = url.appendingPathComponent(".git").path
+        let devcontainerPath = url.appendingPathComponent(".devcontainer/devcontainer.json").path
+        let dockerComposePath = url.appendingPathComponent("docker-compose.yml").path
+        let composePath = url.appendingPathComponent("compose.yml").path
+        guard fm.fileExists(atPath: gitPath) || fm.fileExists(atPath: devcontainerPath) || fm.fileExists(atPath: dockerComposePath) || fm.fileExists(atPath: composePath) else { continue }
+        guard seenPaths.insert(NSString(string: path).standardizingPath).inserted else { continue }
+
+        let repo = name
+        let owner = url.deletingLastPathComponent().lastPathComponent.isEmpty ? "local" : url.deletingLastPathComponent().lastPathComponent
+        results.append((owner, repo, path, fm.fileExists(atPath: devcontainerPath)))
+        enumerator.skipDescendants()
+      }
+    }
+    return results
+  }
+
   private nonisolated static func scanLocalProjects(
     workspaceLabel: String,
     codeRoot: String,
@@ -5084,10 +6083,32 @@ final class CleanupViewModel: ObservableObject {
       }
     }
 
+    // Keep the CSA layout authoritative, then discover ordinary local checkouts and Docker projects.
+    // This covers existing Documents/Sync/backup folders without forcing users to reorganize them.
+    if merged.isEmpty {
+      let codeParent = (codeRoot as NSString).deletingLastPathComponent
+      let runtimeParent = (runtimeRoot as NSString).deletingLastPathComponent
+      let documentsRoot = NSString(string: "~/Documents").expandingTildeInPath
+      let discoveryRoots = Array(Set([codeParent, runtimeParent, documentsRoot])).filter { !$0.isEmpty }
+      for item in discoveredProjectDirectories(in: discoveryRoots) {
+        let slug = "\(item.owner)/\(item.repo)"
+        merged[slug] = LocalProjectEntry(
+          slug: slug,
+          owner: item.owner,
+          repo: item.repo,
+          codePath: item.path,
+          runtimePath: nil,
+          hasDevcontainer: item.hasDevcontainer,
+          hasGeneratedStarter: false,
+          hasRunner: false
+        )
+      }
+    }
+
     let projects = merged.values.sorted { $0.slug.localizedCaseInsensitiveCompare($1.slug) == .orderedAscending }
     let status = projects.isEmpty
-      ? "No imported local projects were found under the current \(workspaceLabel.lowercased()) workspace."
-      : "Loaded \(projects.count) imported local projects from the current \(workspaceLabel.lowercased()) workspace."
+      ? "No local Git or Docker projects were found. Check macOS Files and Folders access, then refresh."
+      : "Loaded \(projects.count) local projects from the current workspace and nearby sync folders."
     return (projects, status)
   }
 
@@ -5243,8 +6264,22 @@ final class CleanupViewModel: ObservableObject {
     }
     stdinPipe.fileHandleForWriting.closeFile()
 
+    // Drain command output while the process is running. Waiting first can
+    // deadlock rsync and other verbose tools when their pipe buffer fills.
+    let outputLock = NSLock()
+    var capturedData = Data()
+    let outputReader = DispatchWorkItem {
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      outputLock.lock()
+      capturedData = data
+      outputLock.unlock()
+    }
+    DispatchQueue.global(qos: .utility).async(execute: outputReader)
     process.waitUntilExit()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    outputReader.wait()
+    outputLock.lock()
+    let data = capturedData
+    outputLock.unlock()
     let output = String(data: data, encoding: .utf8) ?? ""
     return CommandResult(status: process.terminationStatus, output: output)
   }
@@ -6214,7 +7249,7 @@ final class CleanupViewModel: ObservableObject {
 
     do {
       for operation in operations {
-        let stagePath = operation.destination + ".csa-iem-stage-\(transactionID)"
+        let stagePath = try stagingPath(for: operation.destination, transactionID: transactionID)
         try? fm.removeItem(atPath: stagePath)
         try transferItem(from: operation.source, to: stagePath, mode: .copyBackup, overwrite: true, environment: environment)
         stagePathsByDestination[operation.destination] = stagePath
@@ -6242,9 +7277,6 @@ final class CleanupViewModel: ObservableObject {
         if fm.fileExists(atPath: backupPath) {
           try? fm.moveItem(atPath: backupPath, toPath: destination)
         }
-      }
-      for stagePath in stagePathsByDestination.values {
-        try? fm.removeItem(atPath: stagePath)
       }
       throw error
     }
@@ -6431,6 +7463,1639 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  private nonisolated static func commonCodexProjectScanRoots(environment: [String: String]) -> [String] {
+    let fm = FileManager.default
+    let home = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? environment["HOME"]!
+      : NSHomeDirectory()
+    var candidates = [
+      (home as NSString).appendingPathComponent("Documents"),
+      (home as NSString).appendingPathComponent("Desktop"),
+      (home as NSString).appendingPathComponent("Developer"),
+      (home as NSString).appendingPathComponent("Development"),
+      (home as NSString).appendingPathComponent("Projects"),
+      (home as NSString).appendingPathComponent("Code"),
+      (home as NSString).appendingPathComponent("CODEX PROJECTS"),
+      (home as NSString).appendingPathComponent(".codex/worktrees"),
+      (home as NSString).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Documents")
+    ]
+
+    if let volumeNames = try? fm.contentsOfDirectory(atPath: "/Volumes") {
+      for volumeName in volumeNames where !volumeName.hasPrefix(".") {
+        let volumeRoot = ("/Volumes" as NSString).appendingPathComponent(volumeName)
+        candidates.append((volumeRoot as NSString).appendingPathComponent("CODEX PROJECTS"))
+        candidates.append((volumeRoot as NSString).appendingPathComponent("Development"))
+        candidates.append((volumeRoot as NSString).appendingPathComponent("Projects"))
+      }
+    }
+
+    var seen: Set<String> = []
+    return candidates
+      .map { NSString(string: $0).standardizingPath }
+      .filter { path in
+        var isDirectory: ObjCBool = false
+        return fm.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue && seen.insert(path).inserted
+      }
+  }
+
+  private nonisolated static func codexProjectEvidence(at path: String, fileManager fm: FileManager) -> [String] {
+    guard let contents = try? fm.contentsOfDirectory(atPath: path), !contents.isEmpty else {
+      return []
+    }
+    let names = Set(contents)
+    let lowercaseNames = Set(contents.map { $0.lowercased() })
+    let manifestNames: Set<String> = [
+      "package.json", "package.swift", "cargo.toml", "pyproject.toml", "requirements.txt",
+      "gemfile", "go.mod", "firebase.json", "composer.json", "pom.xml", "build.gradle",
+      "build.gradle.kts", "mix.exs", "pubspec.yaml", "deno.json", "deno.jsonc"
+    ]
+    let codeFolderNames: Set<String> = [
+      "src", "app", "lib", "server", "client", "functions", "ios", "android", "packages",
+      "apps", "tests", "test", "scripts", "public", "web", "api"
+    ]
+    let sourceExtensions: Set<String> = [
+      "c", "cc", "cpp", "cs", "css", "go", "html", "java", "js", "jsx", "kt", "kts",
+      "m", "mm", "php", "py", "rb", "rs", "scala", "sh", "sql", "swift", "ts", "tsx",
+      "vue", "yaml", "yml"
+    ]
+    let hasGit = names.contains(".git")
+    let hasManifest = !manifestNames.intersection(lowercaseNames).isEmpty
+    let hasManagedWorkspace = names.contains(".devcontainer") || names.contains(".SYSTEMX")
+    let hasWorkspaceConfig = names.contains(".vscode") || names.contains(".cursor") || names.contains(".idea") ||
+      names.contains(".github") || names.contains("Dockerfile") || names.contains("docker-compose.yml") ||
+      names.contains("docker-compose.yaml") || names.contains("Makefile") || lowercaseNames.contains(where: {
+        $0.hasPrefix("vite.config.") || $0.hasPrefix("next.config.") || $0.hasPrefix("webpack.config.") ||
+          $0.hasPrefix("tsconfig") || $0.hasPrefix("eslint.config")
+      })
+    let hasCodeFolder = !codeFolderNames.intersection(lowercaseNames).isEmpty
+    let hasProjectDocs = lowercaseNames.contains("readme") || lowercaseNames.contains("readme.md") ||
+      names.contains("Transfer_Note.MD") || names.contains("Prompt_Inject.MD")
+    let hasNestedManifest = contents.contains { name in
+      guard codeFolderNames.contains(name.lowercased()) else { return false }
+      let nestedPath = (path as NSString).appendingPathComponent(name)
+      return manifestNames.contains { manifestName in
+        fm.fileExists(atPath: (nestedPath as NSString).appendingPathComponent(manifestName))
+      }
+    }
+    let sourceFileCount = contents.reduce(into: 0) { count, name in
+      guard !name.hasPrefix(".") else { return }
+      let extensionName = (name as NSString).pathExtension.lowercased()
+      if sourceExtensions.contains(extensionName) {
+        count += 1
+      }
+    }
+
+    var evidence: [String] = []
+    if hasGit { evidence.append("Git") }
+    if hasManifest { evidence.append("manifest") }
+    if hasManagedWorkspace { evidence.append("managed workspace") }
+    if hasGit || hasManifest || hasManagedWorkspace {
+      return evidence
+    }
+
+    let contextSignals = [hasWorkspaceConfig, hasCodeFolder, hasProjectDocs, hasNestedManifest, sourceFileCount > 0]
+      .filter { $0 }
+      .count
+    if (hasCodeFolder && contextSignals >= 2) || hasNestedManifest ||
+      (sourceFileCount >= 2 && (hasWorkspaceConfig || hasProjectDocs)) ||
+      ((names.contains("Transfer_Note.MD") || names.contains("Prompt_Inject.MD")) && (hasCodeFolder || sourceFileCount > 0)) {
+      evidence.append("folder context")
+    }
+    return evidence
+  }
+
+  private nonisolated static func discoverCodexProjects(
+    scanRoots: [String],
+    environment: [String: String]
+  ) -> [CodexProjectEntry] {
+    let fm = FileManager.default
+    let skippedNames: Set<String> = [
+      ".git", ".Trash", ".cache", ".npm", ".pnpm-store", ".yarn", ".swiftpm",
+      "node_modules", "Pods", "DerivedData", "dist", "build", ".build", ".next", ".turbo",
+      ".terraform", ".gradle", "coverage", "_temp", "backup"
+    ]
+    let scanDeadline = Date().addingTimeInterval(45)
+    var scannedDirectories = 0
+    var discovered: [String: String] = [:]
+
+    func addCandidate(_ path: String, source: String) {
+      var isDirectory: ObjCBool = false
+      let normalized = NSString(string: path).standardizingPath
+      guard fm.fileExists(atPath: normalized, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+      let evidence = codexProjectEvidence(at: normalized, fileManager: fm)
+      guard !evidence.isEmpty else { return }
+      let discoverySource = evidence.contains("folder context") ? "\(source), folder context" : source
+      if let existing = discovered[normalized], !existing.contains(discoverySource) {
+        discovered[normalized] = existing + ", " + discoverySource
+      } else if discovered[normalized] == nil {
+        discovered[normalized] = discoverySource
+      }
+    }
+
+    // Selected folders are the fast, deterministic path. Their results are
+    // scoped to those folders, so parsing session history first only wastes
+    // time and can block on large or cloud-backed JSONL files. History is a
+    // fallback when no folder has been selected.
+    if scanRoots.isEmpty {
+      let codexSessionsRoot = NSString(string: "~/.codex/sessions").expandingTildeInPath
+      if let enumerator = fm.enumerator(
+        at: URL(fileURLWithPath: codexSessionsRoot, isDirectory: true),
+        includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
+        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+      ) {
+        var sessionFiles: [(url: URL, date: Date)] = []
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+          let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
+          guard values?.isRegularFile == true, (values?.fileSize ?? 0) <= 10_000_000 else { continue }
+          sessionFiles.append((url, values?.contentModificationDate ?? .distantPast))
+        }
+
+        let pattern = #"\"cwd\"\s*:\s*\"((?:\\.|[^\"\\])*)\""#
+        let regex = try? NSRegularExpression(pattern: pattern)
+        var totalBytes = 0
+        for item in sessionFiles.sorted(by: { $0.date > $1.date }).prefix(200) {
+          guard Date() < scanDeadline else { break }
+          guard totalBytes < 50_000_000,
+                let data = try? Data(contentsOf: item.url, options: .mappedIfSafe),
+                let contents = String(data: data, encoding: .utf8) else { continue }
+          totalBytes += data.count
+          let range = NSRange(contents.startIndex..<contents.endIndex, in: contents)
+          regex?.enumerateMatches(in: contents, range: range) { match, _, _ in
+            guard let match, let valueRange = Range(match.range(at: 1), in: contents) else { return }
+            let encoded = "\"" + String(contents[valueRange]) + "\""
+            guard let encodedData = encoded.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(String.self, from: encodedData) else { return }
+            addCandidate(decoded, source: "Codex history")
+          }
+        }
+      }
+    }
+
+    for root in scanRoots {
+      guard Date() < scanDeadline, scannedDirectories < 50_000 else { break }
+      let normalizedRoot = NSString(string: root).standardizingPath
+      addCandidate(normalizedRoot, source: "scan root")
+      let rootIsProject = !codexProjectEvidence(at: normalizedRoot, fileManager: fm).isEmpty
+      // A selected project root is already an actionable result. Avoid
+      // recursively walking its templates and generated trees; container
+      // roots still recurse so multiple projects can be discovered.
+      if rootIsProject {
+        continue
+      }
+      let rootDepth = URL(fileURLWithPath: normalizedRoot).pathComponents.count
+      guard let enumerator = fm.enumerator(
+        at: URL(fileURLWithPath: normalizedRoot, isDirectory: true),
+        includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+        options: [.skipsPackageDescendants]
+      ) else { continue }
+
+      for case let url as URL in enumerator {
+        if Date() >= scanDeadline || scannedDirectories >= 50_000 {
+          enumerator.skipDescendants()
+          break
+        }
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values?.isDirectory == true else { continue }
+        scannedDirectories += 1
+        let depth = url.pathComponents.count - rootDepth
+        if values?.isSymbolicLink == true || depth >= 7 || skippedNames.contains(url.lastPathComponent) {
+          enumerator.skipDescendants()
+          continue
+        }
+        let evidence = codexProjectEvidence(at: url.path, fileManager: fm)
+        if !evidence.isEmpty {
+          addCandidate(url.path, source: "folder scan")
+          enumerator.skipDescendants()
+        }
+      }
+    }
+
+    if !scanRoots.isEmpty {
+      let normalizedRoots = scanRoots.map { NSString(string: $0).standardizingPath }
+      let projectRoots = normalizedRoots.filter { root in
+        !codexProjectEvidence(at: root, fileManager: fm).isEmpty
+      }
+      discovered = discovered.filter { path, _ in
+        if projectRoots.contains(path) {
+          return true
+        }
+        if projectRoots.contains(where: { path.hasPrefix($0 + "/") }) {
+          return false
+        }
+        return normalizedRoots.contains { root in
+          path == root || path.hasPrefix(root + "/")
+        }
+      }
+    }
+
+    return discovered.map { path, source in
+      let metadata = readCodexGitMetadata(projectPath: path)
+      return CodexProjectEntry(
+        path: path,
+        name: (path as NSString).lastPathComponent,
+        discoveredBy: source,
+        hasGit: metadata.hasGit,
+        hasPackageManifest: ["package.json", "Package.swift", "Cargo.toml", "pyproject.toml", "requirements.txt", "Gemfile", "go.mod"]
+          .contains { fm.fileExists(atPath: (path as NSString).appendingPathComponent($0)) },
+        hasDevcontainer: fm.fileExists(atPath: (path as NSString).appendingPathComponent(".devcontainer")),
+        hasSystemX: fm.fileExists(atPath: (path as NSString).appendingPathComponent(".SYSTEMX")),
+        remoteURL: metadata.remoteURL,
+        branch: metadata.branch
+      )
+    }
+    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+  }
+
+  private nonisolated static func readCodexGitMetadata(projectPath: String) -> (hasGit: Bool, remoteURL: String?, branch: String?) {
+    let fm = FileManager.default
+    let dotGitPath = (projectPath as NSString).appendingPathComponent(".git")
+    var isDirectory: ObjCBool = false
+    guard fm.fileExists(atPath: dotGitPath, isDirectory: &isDirectory) else {
+      return (false, nil, nil)
+    }
+
+    var gitDirectory = dotGitPath
+    if !isDirectory.boolValue,
+       let pointer = try? String(contentsOfFile: dotGitPath, encoding: .utf8),
+       let gitdirLine = pointer.split(whereSeparator: \.isNewline).first(where: { $0.lowercased().hasPrefix("gitdir:") }) {
+      let rawPath = gitdirLine.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+      gitDirectory = rawPath.hasPrefix("/")
+        ? rawPath
+        : ((projectPath as NSString).appendingPathComponent(rawPath) as NSString).standardizingPath
+    }
+
+    var configPath: String?
+    var probe = gitDirectory
+    for _ in 0..<5 {
+      let candidate = (probe as NSString).appendingPathComponent("config")
+      if fm.fileExists(atPath: candidate) {
+        configPath = candidate
+        break
+      }
+      let parent = (probe as NSString).deletingLastPathComponent
+      if parent == probe { break }
+      probe = parent
+    }
+
+    var remoteURL: String?
+    if let configPath, let config = try? String(contentsOfFile: configPath, encoding: .utf8) {
+      var inOrigin = false
+      for rawLine in config.split(whereSeparator: \.isNewline) {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.hasPrefix("[") {
+          inOrigin = line.lowercased() == "[remote \"origin\"]"
+        } else if inOrigin, line.lowercased().hasPrefix("url") {
+          let pieces = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+          if pieces.count == 2, !pieces[1].isEmpty {
+            remoteURL = pieces[1]
+            break
+          }
+        }
+      }
+    }
+
+    let headPath = (gitDirectory as NSString).appendingPathComponent("HEAD")
+    let head = (try? String(contentsOfFile: headPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let branch = head?.hasPrefix("ref: refs/heads/") == true
+      ? String(head!.dropFirst("ref: refs/heads/".count))
+      : nil
+    return (true, remoteURL, branch)
+  }
+
+  private nonisolated static func preflightCodexTransfer(
+    projects: [CodexProjectEntry],
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    resumeExisting: Bool
+  ) throws {
+    let fm = FileManager.default
+    guard !outputRoot.isEmpty else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Choose an output folder."])
+    }
+    try fm.createDirectory(atPath: outputRoot, withIntermediateDirectories: true, attributes: nil)
+
+    let testPath = (outputRoot as NSString).appendingPathComponent(".csa-iem-write-test-\(UUID().uuidString)")
+    guard fm.createFile(atPath: testPath, contents: Data("write test".utf8)) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The output folder is not writable: \(outputRoot)"])
+    }
+    try? fm.removeItem(atPath: testPath)
+
+    var plannedDestinations: Set<String> = []
+    for project in projects {
+      let source = NSString(string: project.path).standardizingPath
+      guard fm.fileExists(atPath: source) else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Project source is missing: \(source)"])
+      }
+      if outputRoot == source || outputRoot.hasPrefix(source + "/") {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Output cannot be inside project source: \(source)"])
+      }
+      if mode.writesDestination {
+        let destination = (outputRoot as NSString).appendingPathComponent(project.name)
+        guard plannedDestinations.insert(destination).inserted else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "More than one selected project would use the destination \(destination). Transfer those projects separately or rename one first."])
+        }
+        if destination == source {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "\(project.name) is already in the selected output folder. Use Backup Only to create a preservation package."])
+        }
+        if fm.fileExists(atPath: destination), destination != source, !resumeExisting {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination already exists: \(destination). Choose another output folder or use Backup Only."])
+        }
+        if resumeExisting, fm.fileExists(atPath: destination) {
+          var isDirectory: ObjCBool = false
+          guard fm.fileExists(atPath: destination, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Auto-resume destination is not a folder: \(destination)"])
+          }
+          if (try? fm.destinationOfSymbolicLink(atPath: destination)) != nil {
+            throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Auto-resume will not merge through a symbolic-link destination: \(destination)"])
+          }
+        }
+      }
+    }
+  }
+
+  private nonisolated static func codexRsyncExclusions(
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool
+  ) -> [String] {
+    var exclusions: [String] = []
+    if !includeFinderMetadata {
+      exclusions.append(contentsOf: ["--exclude=.DS_Store", "--exclude=._*"])
+    }
+    if !includeDependencies {
+      exclusions.append(contentsOf: ["--exclude=node_modules/", "--exclude=vendor/", "--exclude=.venv/", "--exclude=Pods/"])
+    }
+    if !includeGit {
+      exclusions.append("--exclude=.git/")
+    }
+    return exclusions
+  }
+
+  private nonisolated static func shouldIndexCodexPath(
+    _ relativePath: String,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool
+  ) -> Bool {
+    let components = relativePath.split(separator: "/").map(String.init)
+    guard !components.isEmpty else { return false }
+    let name = components.last ?? ""
+    if !includeGit && components.contains(".git") { return false }
+    if !includeDependencies,
+       components.contains(where: { ["node_modules", "vendor", ".venv", "Pods"].contains($0) }) {
+      return false
+    }
+    if !includeFinderMetadata && (name == ".DS_Store" || name.hasPrefix("._")) { return false }
+    return true
+  }
+
+  private nonisolated static func isCodexManagedHandoffPath(_ relativePath: String) -> Bool {
+    relativePath == "Transfer_Note.MD" || relativePath == "Prompt_Inject.MD"
+  }
+
+  private nonisolated static func codexIndexDirectory(outputRoot: String, projectName: String) throws -> String {
+    let safeName = projectName
+      .replacingOccurrences(of: "/", with: "-")
+      .replacingOccurrences(of: ":", with: "-")
+    let directory = (((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("Transfer-Indexes") as NSString)
+      .appendingPathComponent(safeName)
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: nil)
+    return directory
+  }
+
+  private nonisolated static func writeCodexIndexArtifact<T: Encodable>(_ value: T, to path: String) throws {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(value)
+    try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+  }
+
+  private nonisolated static func buildCodexFileIndex(
+    root: String,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    progress: ((Int, Int64) -> Void)? = nil
+  ) throws -> CodexFileIndexSnapshot {
+    let fm = FileManager.default
+    let normalizedRoot = NSString(string: root).standardizingPath
+    var isDirectory: ObjCBool = false
+    guard fm.fileExists(atPath: normalizedRoot, isDirectory: &isDirectory), isDirectory.boolValue else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Project root is missing or is not a folder: \(normalizedRoot)"])
+    }
+
+    let resourceKeys: Set<URLResourceKey> = [
+      .isDirectoryKey,
+      .isRegularFileKey,
+      .isSymbolicLinkKey,
+      .fileSizeKey,
+      .contentModificationDateKey
+    ]
+    guard let enumerator = fm.enumerator(atPath: normalizedRoot) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "CSA-iEM could not enumerate the project folder: \(normalizedRoot)"])
+    }
+
+    var entries: [CodexFileIndexEntry] = []
+    var byteCount: Int64 = 0
+    for case let relativePath as String in enumerator {
+      guard !relativePath.isEmpty else { continue }
+      let absolutePath = (normalizedRoot as NSString).appendingPathComponent(relativePath)
+      let url = URL(fileURLWithPath: absolutePath)
+
+      let values = try? url.resourceValues(forKeys: resourceKeys)
+      let isSymbolicLink = values?.isSymbolicLink == true
+      if isSymbolicLink {
+        guard shouldIndexCodexPath(
+          relativePath,
+          includeGit: includeGit,
+          includeFinderMetadata: includeFinderMetadata,
+          includeDependencies: includeDependencies
+        ) else {
+          enumerator.skipDescendants()
+          continue
+        }
+        entries.append(
+          CodexFileIndexEntry(
+            relativePath: relativePath,
+            kind: .symbolicLink,
+            byteCount: 0,
+            modifiedAt: values?.contentModificationDate?.timeIntervalSince1970 ?? 0,
+            symbolicLinkDestination: try? fm.destinationOfSymbolicLink(atPath: absolutePath)
+          )
+        )
+        if entries.count % 250 == 0 {
+          progress?(entries.count, byteCount)
+        }
+        continue
+      }
+
+      if values?.isDirectory == true {
+        if !shouldIndexCodexPath(
+          relativePath,
+          includeGit: includeGit,
+          includeFinderMetadata: includeFinderMetadata,
+          includeDependencies: includeDependencies
+        ) {
+          enumerator.skipDescendants()
+        } else {
+          entries.append(
+            CodexFileIndexEntry(
+              relativePath: relativePath,
+              kind: .directory,
+              byteCount: 0,
+              modifiedAt: values?.contentModificationDate?.timeIntervalSince1970 ?? 0,
+              symbolicLinkDestination: nil
+            )
+          )
+          if entries.count % 250 == 0 {
+            progress?(entries.count, byteCount)
+          }
+        }
+        continue
+      }
+      guard shouldIndexCodexPath(
+        relativePath,
+        includeGit: includeGit,
+        includeFinderMetadata: includeFinderMetadata,
+        includeDependencies: includeDependencies
+      ) else {
+        continue
+      }
+
+      let kind: CodexFileIndexEntry.Kind = values?.isRegularFile == true ? .file : .other
+      let fileSize = Int64(values?.fileSize ?? 0)
+      entries.append(
+        CodexFileIndexEntry(
+          relativePath: relativePath,
+          kind: kind,
+          byteCount: fileSize,
+          modifiedAt: values?.contentModificationDate?.timeIntervalSince1970 ?? 0,
+          symbolicLinkDestination: nil
+        )
+      )
+      byteCount += fileSize
+      if entries.count % 250 == 0 {
+        progress?(entries.count, byteCount)
+      }
+    }
+    progress?(entries.count, byteCount)
+    return CodexFileIndexSnapshot(
+      formatVersion: 1,
+      rootPath: normalizedRoot,
+      createdAt: Date(),
+      entries: entries.sorted { $0.relativePath < $1.relativePath }
+    )
+  }
+
+  private nonisolated static func writeCodexPathList(
+    _ paths: [String],
+    outputRoot: String,
+    projectName: String,
+    label: String
+  ) throws -> String {
+    let normalizedPaths = Array(Set(paths)).sorted()
+    guard normalizedPaths.allSatisfy({ path in
+      !path.isEmpty && !path.contains("\n") && !path.hasPrefix("/") && path != ".." && !path.hasPrefix("../")
+    }) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "A planned project path cannot be represented safely in the targeted rsync manifest."])
+    }
+    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: projectName)
+    let manifestDirectory = (indexDirectory as NSString).appendingPathComponent("Manifests")
+    try FileManager.default.createDirectory(atPath: manifestDirectory, withIntermediateDirectories: true, attributes: nil)
+    let safeLabel = label.replacingOccurrences(of: "/", with: "-")
+    let path = (manifestDirectory as NSString).appendingPathComponent("\(safeLabel)-\(UUID().uuidString).txt")
+    let contents = normalizedPaths.joined(separator: "\n") + (normalizedPaths.isEmpty ? "" : "\n")
+    try contents.write(toFile: path, atomically: true, encoding: .utf8)
+    return path
+  }
+
+  private nonisolated static func buildCodexTransferPlan(
+    project: CodexProjectEntry,
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    fullChecksumAudit: Bool,
+    environment: [String: String],
+    progress: ((String, Int, Int64) -> Void)? = nil
+  ) throws -> CodexTransferPlan {
+    let fm = FileManager.default
+    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name)
+    progress?("Indexing source", 0, 0)
+    let sourceIndex = try buildCodexFileIndex(
+      root: project.path,
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies
+    ) { count, bytes in
+      progress?("Indexing source", count, bytes)
+    }
+    let sourceIndexPath = (indexDirectory as NSString).appendingPathComponent("source-index.json")
+    try writeCodexIndexArtifact(sourceIndex, to: sourceIndexPath)
+
+    let destinationPath = mode.writesDestination
+      ? (outputRoot as NSString).appendingPathComponent(project.name)
+      : nil
+    let destinationExists = destinationPath.map { fm.fileExists(atPath: $0) } ?? false
+    var destinationIndex: CodexFileIndexSnapshot?
+    var destinationIndexPath: String?
+    if let destinationPath, destinationExists {
+      progress?("Indexing destination", 0, 0)
+      let index = try buildCodexFileIndex(
+        root: destinationPath,
+        includeGit: includeGit,
+        includeFinderMetadata: includeFinderMetadata,
+        includeDependencies: includeDependencies
+      ) { count, bytes in
+        progress?("Indexing destination", count, bytes)
+      }
+      let path = (indexDirectory as NSString).appendingPathComponent("destination-index.json")
+      try writeCodexIndexArtifact(index, to: path)
+      destinationIndex = index
+      destinationIndexPath = path
+    }
+
+    let sourceEntries = sourceIndex.entries.filter { !isCodexManagedHandoffPath($0.relativePath) }
+    let sourceEntriesByPath = Dictionary(uniqueKeysWithValues: sourceEntries.map { ($0.relativePath, $0) })
+    let destinationEntries = destinationIndex?.entries.filter { !isCodexManagedHandoffPath($0.relativePath) } ?? []
+    let destinationEntriesByPath = Dictionary(uniqueKeysWithValues: destinationEntries.map { ($0.relativePath, $0) })
+    var missingPaths: [String] = []
+    var metadataChangedPaths: [String] = []
+    var checksumChangedPaths: [String] = []
+    var destinationOnlyPaths: [String] = []
+    var typeConflictPaths: [String] = []
+    var metadataMatchedPaths: [String] = []
+    var checksumAuditPaths: [String] = []
+
+    if destinationPath != nil && !destinationExists {
+      missingPaths = sourceEntries.map(\.relativePath)
+    } else if destinationPath != nil {
+      for entry in sourceEntries {
+        guard let destinationEntry = destinationEntriesByPath[entry.relativePath] else {
+          missingPaths.append(entry.relativePath)
+          continue
+        }
+        guard entry.kind == destinationEntry.kind else {
+          typeConflictPaths.append(entry.relativePath)
+          continue
+        }
+        if entry.kind == .directory {
+          metadataMatchedPaths.append(entry.relativePath)
+          continue
+        }
+        if entry.isMetadataEquivalent(to: destinationEntry) {
+          metadataMatchedPaths.append(entry.relativePath)
+          checksumAuditPaths.append(entry.relativePath)
+        } else {
+          metadataChangedPaths.append(entry.relativePath)
+        }
+      }
+      destinationOnlyPaths = destinationEntries
+        .map(\.relativePath)
+        .filter { sourceEntriesByPath[$0] == nil }
+        .sorted()
+
+      if fullChecksumAudit, let destinationPath, !checksumAuditPaths.isEmpty {
+        progress?("Checksum-auditing metadata matches", checksumAuditPaths.count, sourceIndex.byteCount)
+        let exclusions = codexRsyncExclusions(
+          includeGit: includeGit,
+          includeFinderMetadata: includeFinderMetadata,
+          includeDependencies: includeDependencies
+        )
+        checksumChangedPaths = Array(
+          try rsyncChangedPaths(
+            source: project.path,
+            destination: destinationPath,
+            exclusions: exclusions,
+            protectedPaths: [],
+            environment: environment,
+            useChecksums: true,
+            filePaths: checksumAuditPaths,
+            manifestOutputRoot: outputRoot,
+            manifestProjectName: project.name,
+            manifestLabel: "deep-checksum"
+          )
+        ).sorted()
+      }
+    }
+
+    let plannedPaths = Array(Set(missingPaths + metadataChangedPaths + checksumChangedPaths))
+    let plannedEntryByteCount = plannedPaths.reduce(Int64(0)) { total, path in
+      total + (sourceEntriesByPath[path]?.byteCount ?? 0)
+    }
+    let planPath = (indexDirectory as NSString).appendingPathComponent("transfer-plan.json")
+    let plan = CodexTransferPlan(
+      projectName: project.name,
+      projectPath: project.path,
+      destinationPath: destinationPath,
+      createdAt: Date(),
+      sourceFileCount: sourceEntries.count,
+      sourceByteCount: sourceEntries.reduce(0) { $0 + $1.byteCount },
+      destinationFileCount: destinationEntries.count,
+      destinationByteCount: destinationEntries.reduce(0) { $0 + $1.byteCount },
+      requiresInitialMirror: destinationPath != nil && !destinationExists,
+      missingPaths: missingPaths.sorted(),
+      metadataChangedPaths: metadataChangedPaths.sorted(),
+      checksumChangedPaths: checksumChangedPaths.sorted(),
+      destinationOnlyPaths: destinationOnlyPaths,
+      typeConflictPaths: typeConflictPaths.sorted(),
+      metadataMatchedCount: metadataMatchedPaths.count,
+      fullChecksumAudit: fullChecksumAudit,
+      sourceIndexPath: sourceIndexPath,
+      destinationIndexPath: destinationIndexPath,
+      planPath: planPath,
+      plannedEntryByteCount: plannedEntryByteCount
+    )
+    try writeCodexIndexArtifact(plan, to: planPath)
+    return plan
+  }
+
+  private nonisolated static func performCodexTransfer(
+    project: CodexProjectEntry,
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    createBackup: Bool,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    createCompatibilityLink: Bool,
+    rearmGitMain: Bool,
+    autoResumeExisting: Bool,
+    transferPlan: CodexTransferPlan,
+    environment: [String: String]
+  ) throws -> CodexProjectTransferOutcome {
+    let fm = FileManager.default
+    let stamp = timestampStamp()
+    let safeName = project.name.replacingOccurrences(of: "/", with: "-")
+    let transactionRoot = ((outputRoot as NSString)
+      .appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("CSA-iEM-Codex-\(safeName)-\(UUID().uuidString)")
+    let stagedProject = (transactionRoot as NSString).appendingPathComponent(safeName)
+    let backupRoot = ((outputRoot as NSString)
+      .appendingPathComponent("backup") as NSString)
+      .appendingPathComponent("\(safeName)-\(stamp)")
+    var warnings: [String] = []
+
+    try fm.createDirectory(atPath: stagedProject, withIntermediateDirectories: true, attributes: nil)
+    let exclusions = codexRsyncExclusions(
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies
+    )
+
+    let destination = mode.writesDestination
+      ? (outputRoot as NSString).appendingPathComponent(project.name)
+      : nil
+    let destinationPath = mode.writesDestination
+      ? (outputRoot as NSString).appendingPathComponent(project.name)
+      : nil
+    if mode.performsBidirectionalSync,
+       let destinationPath,
+       fm.fileExists(atPath: destinationPath),
+       autoResumeExisting {
+      try? fm.removeItem(atPath: transactionRoot)
+      return try performCodexBidirectionalSync(
+        project: project,
+        destination: destinationPath,
+        createBackup: createBackup,
+        includeGit: includeGit,
+        includeFinderMetadata: includeFinderMetadata,
+        includeDependencies: includeDependencies,
+        createCompatibilityLink: createCompatibilityLink,
+        rearmGitMain: rearmGitMain,
+        transferPlan: transferPlan,
+        exclusions: exclusions,
+        environment: environment
+      )
+    }
+    if autoResumeExisting, let destination, fm.fileExists(atPath: destination) {
+      try? fm.removeItem(atPath: transactionRoot)
+      return try performCodexResumeTransfer(
+        project: project,
+        destination: destination,
+        mode: mode,
+        createBackup: createBackup,
+        includeGit: includeGit,
+        includeFinderMetadata: includeFinderMetadata,
+        includeDependencies: includeDependencies,
+        createCompatibilityLink: createCompatibilityLink,
+        rearmGitMain: rearmGitMain,
+        transferPlan: transferPlan,
+        exclusions: exclusions,
+        environment: environment
+      )
+    }
+
+    // External APFS volumes with ownership disabled cannot faithfully apply
+    // source uid/gid/mode metadata. Preserve file contents and Git data while
+    // avoiding metadata stalls on iCloud-backed source trees.
+    var copyArguments = ["-a", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+    copyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
+    copyArguments.append(stagedProject + "/")
+    var copyEnvironment = environment
+    copyEnvironment["COPYFILE_DISABLE"] = "1"
+    let copyResult = runCommand(executable: "/usr/bin/rsync", arguments: copyArguments, environment: copyEnvironment)
+    guard copyResult.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(copyResult.status), userInfo: [NSLocalizedDescriptionKey: "Staging failed for \(project.name): \(redactSensitiveText(copyResult.output))"])
+    }
+
+    let transferNote = codexTransferNote(
+      project: project,
+      destination: destinationPath,
+      backupRoot: createBackup ? backupRoot : nil,
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      rearmGitMain: rearmGitMain,
+      mode: mode
+    )
+    let promptInject = codexPromptInject(
+      project: project,
+      destination: destinationPath,
+      rearmGitMain: rearmGitMain
+    )
+    try transferNote.write(toFile: (stagedProject as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+    try promptInject.write(toFile: (stagedProject as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+
+    var verifyArguments = ["-rcn", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+    verifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
+    verifyArguments.append(stagedProject + "/")
+    let verifyResult = runCommand(executable: "/usr/bin/rsync", arguments: verifyArguments, environment: copyEnvironment)
+    let verifyOutput = verifyResult.output
+      .split(whereSeparator: \.isNewline)
+      .map(String.init)
+      .filter { !$0.hasSuffix("Transfer_Note.MD") && !$0.hasSuffix("Prompt_Inject.MD") }
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard verifyResult.status == 0, verifyOutput.isEmpty else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Checksum verification failed for \(project.name). Staging was retained at \(transactionRoot)."])
+    }
+
+    if createBackup {
+      try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+      try transferNote.write(toFile: (backupRoot as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+      try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+      let zipPath = (backupRoot as NSString).appendingPathComponent("\(safeName)-source.zip")
+      let zipResult = runCommand(
+        executable: "/usr/bin/ditto",
+        arguments: ["-c", "-k", "--keepParent", stagedProject, zipPath],
+        environment: copyEnvironment
+      )
+      guard zipResult.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(zipResult.status), userInfo: [NSLocalizedDescriptionKey: "ZIP backup failed for \(project.name): \(redactSensitiveText(zipResult.output))"])
+      }
+      let zipVerify = runCommand(executable: "/usr/bin/unzip", arguments: ["-tq", zipPath], environment: environment)
+      guard zipVerify.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(zipVerify.status), userInfo: [NSLocalizedDescriptionKey: "ZIP verification failed for \(project.name)."])
+      }
+
+      if includeGit && project.hasGit {
+        let gitArchive = (backupRoot as NSString).appendingPathComponent("git-metadata.tar")
+        let gitArchiveResult = runCommand(
+          executable: "/bin/zsh",
+          arguments: ["-lc", "cd \(shellQuote(project.path)) && /usr/bin/tar -cpf \(shellQuote(gitArchive)) .git"],
+          environment: copyEnvironment
+        )
+        if gitArchiveResult.status != 0 {
+          warnings.append("Raw .git archive could not be created; the verified source ZIP remains available.")
+        }
+      }
+    }
+
+    if mode.writesDestination {
+      let destination = (outputRoot as NSString).appendingPathComponent(project.name)
+      guard !fm.fileExists(atPath: destination) else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination appeared during transfer: \(destination)"])
+      }
+      try fm.moveItem(atPath: stagedProject, toPath: destination)
+
+      if rearmGitMain {
+        guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
+        }
+        try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
+      }
+
+      var finalVerifyArguments = ["-rcn", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+      finalVerifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
+      finalVerifyArguments.append(destination + "/")
+      let finalVerify = runCommand(executable: "/usr/bin/rsync", arguments: finalVerifyArguments, environment: copyEnvironment)
+      let finalVerifyOutput = finalVerify.output
+        .split(whereSeparator: \.isNewline)
+        .map(String.init)
+        .filter { !$0.hasSuffix("Transfer_Note.MD") && !$0.hasSuffix("Prompt_Inject.MD") }
+        .joined(separator: "\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      guard finalVerify.status == 0, finalVerifyOutput.isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Final verification failed for \(project.name). The source was not removed."])
+      }
+
+      if mode.removesSource {
+        let parkedSource = project.path + ".csa-iem-source-\(stamp)"
+        try fm.moveItem(atPath: project.path, toPath: parkedSource)
+        if createCompatibilityLink {
+          do {
+            try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
+          } catch {
+            try? fm.moveItem(atPath: parkedSource, toPath: project.path)
+            throw error
+          }
+        }
+        do {
+          try fm.removeItem(atPath: parkedSource)
+        } catch {
+          warnings.append("The verified destination is active, but the parked source remains at \(parkedSource).")
+        }
+      }
+    }
+
+    try? fm.removeItem(atPath: transactionRoot)
+    return CodexProjectTransferOutcome(
+      projectName: project.name,
+      destinationPath: destinationPath,
+      backupPath: createBackup ? backupRoot : nil,
+      warnings: warnings,
+      resumedExistingDestination: false,
+      reconciledFileCount: transferPlan.plannedPaths.count,
+      conflictCount: 0
+    )
+  }
+
+  private nonisolated static func performCodexBidirectionalSync(
+    project: CodexProjectEntry,
+    destination: String,
+    createBackup: Bool,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    createCompatibilityLink: Bool,
+    rearmGitMain: Bool,
+    transferPlan: CodexTransferPlan,
+    exclusions: [String],
+    environment: [String: String]
+  ) throws -> CodexProjectTransferOutcome {
+    let fm = FileManager.default
+    let stamp = timestampStamp()
+    let safeName = project.name.replacingOccurrences(of: "/", with: "-")
+    let outputRoot = (destination as NSString).deletingLastPathComponent
+    let backupRoot = ((outputRoot as NSString).appendingPathComponent("backup") as NSString)
+      .appendingPathComponent("\(safeName)-\(stamp)")
+    let conflictRoot = ((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("CSA-iEM-conflicts-\(safeName)-\(stamp)")
+    var warnings: [String] = []
+    guard transferPlan.projectPath == project.path, transferPlan.destinationPath == destination else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer plan no longer matches \(project.name). Run Preflight again before synchronizing both folders."])
+    }
+
+    let sourceCandidates = try rsyncChangedPaths(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: [] as Set<String>,
+      environment: environment
+    )
+    let destinationCandidates = try rsyncChangedPaths(
+      source: destination,
+      destination: project.path,
+      exclusions: exclusions,
+      protectedPaths: [] as Set<String>,
+      environment: environment
+    )
+    let candidates = sourceCandidates.union(destinationCandidates)
+
+    var sourceWins: Set<String> = []
+    var destinationWins: Set<String> = []
+    var conflicts: Set<String> = []
+
+    for relativePath in candidates.sorted() {
+      let sourcePath = (project.path as NSString).appendingPathComponent(relativePath)
+      let destinationPath = (destination as NSString).appendingPathComponent(relativePath)
+      var sourceIsDirectory: ObjCBool = false
+      var destinationIsDirectory: ObjCBool = false
+      let sourceExists = fm.fileExists(atPath: sourcePath, isDirectory: &sourceIsDirectory)
+      let destinationExists = fm.fileExists(atPath: destinationPath, isDirectory: &destinationIsDirectory)
+
+      if sourceExists && !destinationExists {
+        sourceWins.insert(relativePath)
+        continue
+      }
+      if destinationExists && !sourceExists {
+        destinationWins.insert(relativePath)
+        continue
+      }
+      guard sourceExists && destinationExists else { continue }
+
+      if sourceIsDirectory.boolValue || destinationIsDirectory.boolValue {
+        if sourceIsDirectory.boolValue && destinationIsDirectory.boolValue {
+          continue
+        }
+        conflicts.insert(relativePath)
+        continue
+      }
+
+      let sourceAttributes = try? fm.attributesOfItem(atPath: sourcePath)
+      let destinationAttributes = try? fm.attributesOfItem(atPath: destinationPath)
+      let sourceSize = (sourceAttributes?[.size] as? NSNumber)?.int64Value ?? -1
+      let destinationSize = (destinationAttributes?[.size] as? NSNumber)?.int64Value ?? -1
+      let sourceDate = sourceAttributes?[.modificationDate] as? Date ?? .distantPast
+      let destinationDate = destinationAttributes?[.modificationDate] as? Date ?? .distantPast
+
+      if sourceSize == destinationSize,
+         abs(sourceDate.timeIntervalSince(destinationDate)) < 0.5,
+         codexFilesEqual(sourcePath, destinationPath, environment: environment) {
+        continue
+      }
+      if sourceDate.timeIntervalSince(destinationDate) > 1 {
+        sourceWins.insert(relativePath)
+      } else if destinationDate.timeIntervalSince(sourceDate) > 1 {
+        destinationWins.insert(relativePath)
+      } else if sourceSize == destinationSize,
+                codexFilesEqual(sourcePath, destinationPath, environment: environment) {
+        continue
+      } else {
+        conflicts.insert(relativePath)
+      }
+    }
+
+    if createBackup {
+      try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+      try createVerifiedCodexZip(
+        source: project.path,
+        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-sync.zip"),
+        environment: environment,
+        label: "source backup for \(project.name)"
+      )
+      try createVerifiedCodexZip(
+        source: destination,
+        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-sync.zip"),
+        environment: environment,
+        label: "destination backup for \(project.name)"
+      )
+    }
+
+    let sourceProtected = destinationWins.union(conflicts)
+    let destinationProtected = sourceWins.union(conflicts)
+    try applyRsyncMerge(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: sourceProtected,
+      environment: environment,
+      label: "source-to-destination",
+      transferPaths: sourceWins,
+      manifestOutputRoot: outputRoot,
+      manifestProjectName: project.name
+    )
+    try applyRsyncMerge(
+      source: destination,
+      destination: project.path,
+      exclusions: exclusions,
+      protectedPaths: destinationProtected,
+      environment: environment,
+      label: "destination-to-source",
+      transferPaths: destinationWins,
+      manifestOutputRoot: outputRoot,
+      manifestProjectName: project.name
+    )
+
+    // A deep audit is opt-in because it reads every metadata-matched file on
+    // both sides. The default index path is fast; the audit path detects the
+    // rare same-size, same-timestamp content mutation before it is accepted.
+    let exactDifferences = transferPlan.fullChecksumAudit
+      ? try rsyncChangedPaths(
+        source: project.path,
+        destination: destination,
+        exclusions: exclusions,
+        protectedPaths: conflicts,
+        environment: environment,
+        useChecksums: true
+      )
+      : Set<String>()
+    conflicts.formUnion(exactDifferences)
+
+    if !conflicts.isEmpty {
+      for relativePath in conflicts.sorted() {
+        let sourcePath = (project.path as NSString).appendingPathComponent(relativePath)
+        let destinationPath = (destination as NSString).appendingPathComponent(relativePath)
+        try copyConflictSide(
+          sourcePath: sourcePath,
+          conflictRoot: conflictRoot,
+          side: "source",
+          relativePath: relativePath
+        )
+        try copyConflictSide(
+          sourcePath: destinationPath,
+          conflictRoot: conflictRoot,
+          side: "destination",
+          relativePath: relativePath
+        )
+      }
+      let report = """
+      # CSA-iEM Sync Conflict Report
+
+      Generated by CSA-iEM \(appVersion) on \(Date().formatted(date: .numeric, time: .standard)).
+
+      Neither side was overwritten for the paths below. The source and destination copies are under this report's `source/` and `destination/` folders.
+
+      - Project: \(project.name)
+      - Source: \(project.path)
+      - Destination: \(destination)
+      - Conflict count: \(conflicts.count)
+
+      ## Conflicts
+
+      \(conflicts.sorted().map { "- `\($0)`" }.joined(separator: "\n"))
+      """
+      try fm.createDirectory(atPath: conflictRoot, withIntermediateDirectories: true, attributes: nil)
+      try report.write(
+        toFile: (conflictRoot as NSString).appendingPathComponent("Conflict_Report.MD"),
+        atomically: true,
+        encoding: .utf8
+      )
+      warnings.append("\(conflicts.count) conflict(s) were preserved at \(conflictRoot).")
+    }
+
+    let forwardVerify = try rsyncChangedPaths(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: conflicts,
+      environment: environment
+    )
+    let reverseVerify = try rsyncChangedPaths(
+      source: destination,
+      destination: project.path,
+      exclusions: exclusions,
+      protectedPaths: conflicts,
+      environment: environment
+    )
+    guard forwardVerify.isEmpty && reverseVerify.isEmpty else {
+      throw NSError(
+        domain: appTitle,
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Sync verification found unresolved non-conflict differences for \(project.name). Both folders were retained."]
+      )
+    }
+
+    if rearmGitMain {
+      guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
+      }
+      try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
+    }
+
+    let transferNote = codexTransferNote(
+      project: project,
+      destination: destination,
+      backupRoot: createBackup ? backupRoot : nil,
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      rearmGitMain: rearmGitMain,
+      mode: .syncAndSync
+    )
+    let promptInject = codexPromptInject(project: project, destination: destination, rearmGitMain: rearmGitMain)
+    try transferNote.write(toFile: (destination as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+    try promptInject.write(toFile: (destination as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+    if createBackup {
+      try transferNote.write(toFile: (backupRoot as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+      try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+    }
+
+    return CodexProjectTransferOutcome(
+      projectName: project.name,
+      destinationPath: destination,
+      backupPath: createBackup ? backupRoot : nil,
+      warnings: warnings,
+      resumedExistingDestination: true,
+      reconciledFileCount: sourceWins.count + destinationWins.count,
+      conflictCount: conflicts.count
+    )
+  }
+
+  private nonisolated static func rsyncChangedPaths(
+    source: String,
+    destination: String,
+    exclusions: [String],
+    protectedPaths: Set<String>,
+    environment: [String: String],
+    useChecksums: Bool = false,
+    filePaths: [String]? = nil,
+    manifestOutputRoot: String? = nil,
+    manifestProjectName: String? = nil,
+    manifestLabel: String = "scan"
+  ) throws -> Set<String> {
+    var arguments = [
+      useChecksums ? "-acn" : "-an",
+      "--no-owner",
+      "--no-group",
+      "--no-perms",
+      "--timeout=120",
+      "--rsync-path=/usr/bin/rsync",
+      "--out-format=%n"
+    ] + exclusions
+    arguments.append(contentsOf: protectedPaths.sorted().map { "--exclude=/\($0)" })
+    if let filePaths {
+      guard !filePaths.isEmpty else { return [] }
+      guard let manifestOutputRoot, let manifestProjectName else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "A targeted rsync scan needs an output folder for its path manifest."])
+      }
+      let manifest = try writeCodexPathList(
+        filePaths,
+        outputRoot: manifestOutputRoot,
+        projectName: manifestProjectName,
+        label: manifestLabel
+      )
+      arguments.append("--files-from=\(manifest)")
+    }
+    arguments.append(source.hasSuffix("/") ? source : source + "/")
+    arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
+    var commandEnvironment = environment
+    commandEnvironment["COPYFILE_DISABLE"] = "1"
+    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    guard result.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Rsync scan failed between \(source) and \(destination): \(redactSensitiveText(result.output))"])
+    }
+
+    var paths: Set<String> = []
+    for rawLine in result.output.split(whereSeparator: \.isNewline) {
+      var line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !line.isEmpty,
+            line != ".",
+            line != "./",
+            !line.hasPrefix("sending incremental file list"),
+            !line.hasPrefix("receiving incremental file list"),
+            !line.hasPrefix("delta-transmission"),
+            !line.hasPrefix("sent "),
+            !line.hasPrefix("received "),
+            !line.hasPrefix("total size is ") else { continue }
+      while line.hasPrefix("./") {
+        line.removeFirst(2)
+      }
+      while line.hasSuffix("/") {
+        line.removeLast()
+      }
+      guard !line.isEmpty, !line.hasPrefix("/"), line != "..", !line.hasPrefix("../") else { continue }
+      paths.insert(line)
+    }
+    return paths
+  }
+
+  private nonisolated static func applyTargetedCodexRsync(
+    source: String,
+    destination: String,
+    plannedPaths: [String],
+    exclusions: [String],
+    environment: [String: String],
+    outputRoot: String,
+    projectName: String,
+    label: String
+  ) throws -> Int {
+    guard !plannedPaths.isEmpty else { return 0 }
+    let manifest = try writeCodexPathList(
+      plannedPaths,
+      outputRoot: outputRoot,
+      projectName: projectName,
+      label: label
+    )
+    var arguments = [
+      "-a",
+      "--no-owner",
+      "--no-group",
+      "--no-perms",
+      "--timeout=120",
+      "--rsync-path=/usr/bin/rsync",
+      "--partial",
+      "--stats",
+      "--files-from=\(manifest)"
+    ] + exclusions
+    arguments.append(source.hasSuffix("/") ? source : source + "/")
+    arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
+    var commandEnvironment = environment
+    commandEnvironment["COPYFILE_DISABLE"] = "1"
+    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    guard result.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Targeted rsync failed during \(label): \(redactSensitiveText(result.output))"])
+    }
+    return rsyncTransferredFileCount(result.output)
+  }
+
+  private nonisolated static func applyRsyncMerge(
+    source: String,
+    destination: String,
+    exclusions: [String],
+    protectedPaths: Set<String>,
+    environment: [String: String],
+    label: String,
+    transferPaths: Set<String>? = nil,
+    manifestOutputRoot: String? = nil,
+    manifestProjectName: String? = nil
+  ) throws {
+    if let transferPaths, transferPaths.isEmpty {
+      return
+    }
+    var arguments = [
+      "-ac",
+      "--no-owner",
+      "--no-group",
+      "--no-perms",
+      "--timeout=120",
+      "--rsync-path=/usr/bin/rsync",
+      "--partial"
+    ] + exclusions
+    arguments.append(contentsOf: protectedPaths.sorted().map { "--exclude=/\($0)" })
+    if let transferPaths {
+      guard let manifestOutputRoot, let manifestProjectName else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "A targeted sync needs an output folder for its path manifest."])
+      }
+      let manifest = try writeCodexPathList(
+        Array(transferPaths),
+        outputRoot: manifestOutputRoot,
+        projectName: manifestProjectName,
+        label: label
+      )
+      arguments.append("--files-from=\(manifest)")
+    }
+    arguments.append(source.hasSuffix("/") ? source : source + "/")
+    arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
+    var commandEnvironment = environment
+    commandEnvironment["COPYFILE_DISABLE"] = "1"
+    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    guard result.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Sync failed during \(label): \(redactSensitiveText(result.output))"])
+    }
+  }
+
+  private nonisolated static func codexFilesEqual(
+    _ lhs: String,
+    _ rhs: String,
+    environment: [String: String]
+  ) -> Bool {
+    runCommand(executable: "/usr/bin/cmp", arguments: ["-s", lhs, rhs], environment: environment).status == 0
+  }
+
+  private nonisolated static func copyConflictSide(
+    sourcePath: String,
+    conflictRoot: String,
+    side: String,
+    relativePath: String
+  ) throws {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: sourcePath) else { return }
+    let destinationPath = ((conflictRoot as NSString).appendingPathComponent(side) as NSString)
+      .appendingPathComponent(relativePath)
+    let parent = (destinationPath as NSString).deletingLastPathComponent
+    try fm.createDirectory(atPath: parent, withIntermediateDirectories: true, attributes: nil)
+    try fm.copyItem(atPath: sourcePath, toPath: destinationPath)
+  }
+
+  private nonisolated static func createVerifiedCodexZip(
+    source: String,
+    zipPath: String,
+    environment: [String: String],
+    label: String
+  ) throws {
+    let parent = (zipPath as NSString).deletingLastPathComponent
+    try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true, attributes: nil)
+    var commandEnvironment = environment
+    commandEnvironment["COPYFILE_DISABLE"] = "1"
+    let zipResult = runCommand(
+      executable: "/usr/bin/ditto",
+      arguments: ["-c", "-k", "--keepParent", source, zipPath],
+      environment: commandEnvironment
+    )
+    guard zipResult.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(zipResult.status), userInfo: [NSLocalizedDescriptionKey: "ZIP creation failed for \(label): \(redactSensitiveText(zipResult.output))"])
+    }
+    let verify = runCommand(executable: "/usr/bin/unzip", arguments: ["-tq", zipPath], environment: environment)
+    guard verify.status == 0 else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "ZIP verification failed for \(label)."])
+    }
+  }
+
+  private nonisolated static func performCodexResumeTransfer(
+    project: CodexProjectEntry,
+    destination: String,
+    mode: CodexProjectTransferMode,
+    createBackup: Bool,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    createCompatibilityLink: Bool,
+    rearmGitMain: Bool,
+    transferPlan: CodexTransferPlan,
+    exclusions: [String],
+    environment: [String: String]
+  ) throws -> CodexProjectTransferOutcome {
+    let fm = FileManager.default
+    let stamp = timestampStamp()
+    let safeName = project.name.replacingOccurrences(of: "/", with: "-")
+    let backupDirectory = ((destination as NSString).deletingLastPathComponent as NSString)
+      .appendingPathComponent("backup")
+    let backupRoot = (backupDirectory as NSString).appendingPathComponent("\(safeName)-\(stamp)")
+    var warnings: [String] = []
+    let outputRoot = (destination as NSString).deletingLastPathComponent
+    guard transferPlan.projectPath == project.path, transferPlan.destinationPath == destination else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer plan no longer matches \(project.name). Run Preflight again before modifying an existing destination."])
+    }
+    guard transferPlan.typeConflictPaths.isEmpty else {
+      throw NSError(
+        domain: appTitle,
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "The file table found \(transferPlan.typeConflictPaths.count) file-versus-folder conflict(s). CSA-iEM preserved both sides and did not overwrite them. Review the saved plan at \(transferPlan.planPath)."]
+      )
+    }
+    if createBackup {
+      // Capture both sides before reconciliation so an interrupted merge can
+      // always roll back to the exact pre-run state.
+      try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+      try createVerifiedCodexZip(
+        source: project.path,
+        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-merge.zip"),
+        environment: environment,
+        label: "source backup for \(project.name)"
+      )
+      try createVerifiedCodexZip(
+        source: destination,
+        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-merge.zip"),
+        environment: environment,
+        label: "destination backup for \(project.name)"
+      )
+    }
+    // Existing destinations use the preflight file table as an rsync manifest.
+    // That means the repeat path copies only missing, metadata-changed, or
+    // deep-audit-failed entries rather than re-sending the entire project.
+    let reconciledFileCount = try applyTargetedCodexRsync(
+      source: project.path,
+      destination: destination,
+      plannedPaths: transferPlan.plannedPaths,
+      exclusions: exclusions,
+      environment: environment,
+      outputRoot: outputRoot,
+      projectName: project.name,
+      label: "resume-copy"
+    )
+    let targetedDifferences = try rsyncChangedPaths(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: [],
+      environment: environment,
+      useChecksums: true,
+      filePaths: transferPlan.plannedPaths,
+      manifestOutputRoot: outputRoot,
+      manifestProjectName: project.name,
+      manifestLabel: "resume-verify"
+    )
+    guard targetedDifferences.isEmpty else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Targeted checksum verification found \(targetedDifferences.count) unresolved path(s) for \(project.name). The destination was retained for a later resume."])
+    }
+
+    if rearmGitMain {
+      guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
+      }
+      try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
+    }
+
+    let transferNote = codexTransferNote(
+      project: project,
+      destination: destination,
+      backupRoot: createBackup ? backupRoot : nil,
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      rearmGitMain: rearmGitMain,
+      mode: mode
+    )
+    let promptInject = codexPromptInject(project: project, destination: destination, rearmGitMain: rearmGitMain)
+    try transferNote.write(toFile: (destination as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+    try promptInject.write(toFile: (destination as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+
+    if createBackup {
+      try transferNote.write(toFile: (backupRoot as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
+      try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
+    }
+
+    if mode.removesSource {
+      // A destructive move still pays for one full checksum comparison. This
+      // is deliberately stricter than a copy/sync because the source cannot
+      // be retired based on metadata alone.
+      let fullDifferences = try rsyncChangedPaths(
+        source: project.path,
+        destination: destination,
+        exclusions: exclusions,
+        protectedPaths: [],
+        environment: environment,
+        useChecksums: true
+      )
+      guard fullDifferences.isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Full checksum verification found \(fullDifferences.count) unresolved path(s) for \(project.name). The source was not removed."])
+      }
+    }
+
+    if mode.removesSource {
+      let parkedSource = project.path + ".csa-iem-source-\(stamp)"
+      try fm.moveItem(atPath: project.path, toPath: parkedSource)
+      if createCompatibilityLink {
+        do {
+          try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
+        } catch {
+          try? fm.moveItem(atPath: parkedSource, toPath: project.path)
+          throw error
+        }
+      }
+      do {
+        try fm.removeItem(atPath: parkedSource)
+      } catch {
+        warnings.append("The verified resumed destination is active, but the parked source remains at \(parkedSource).")
+      }
+    }
+
+    return CodexProjectTransferOutcome(
+      projectName: project.name,
+      destinationPath: destination,
+      backupPath: createBackup ? backupRoot : nil,
+      warnings: warnings,
+      resumedExistingDestination: true,
+      reconciledFileCount: reconciledFileCount,
+      conflictCount: 0
+    )
+  }
+
+  private nonisolated static func rsyncTransferredFileCount(_ output: String) -> Int {
+    let markers = [
+      "Number of regular files transferred:",
+      "Number of files transferred:"
+    ]
+    for marker in markers {
+      for line in output.split(whereSeparator: \.isNewline) {
+        let text = String(line)
+        guard let range = text.range(of: marker) else { continue }
+        let value = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        if let count = Int(value) {
+          return count
+        }
+      }
+    }
+    return 0
+  }
+
+  private nonisolated static func codexTransferNote(
+    project: CodexProjectEntry,
+    destination: String?,
+    backupRoot: String?,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    rearmGitMain: Bool,
+    mode: CodexProjectTransferMode
+  ) -> String {
+    """
+    # Transfer Note
+
+    Generated by CSA-iEM \(appVersion) on \(Date().formatted(date: .numeric, time: .standard)).
+
+    - Project: \(project.name)
+    - Original path: \(project.path)
+    - Destination: \(destination ?? "Backup package only")
+    - Backup folder: \(backupRoot ?? "Disabled")
+    - Mode: \(mode.label)
+    - Git metadata included: \(includeGit ? "Yes" : "No")
+    - Finder metadata included: \(includeFinderMetadata ? "Yes" : "No")
+    - Git main branch re-armed after copy: \(rearmGitMain ? "Yes; origin/main fetched and index rebuilt without working-tree overwrite" : "No")
+    - Dependency trees included: \(includeDependencies ? "Yes" : "No; restore from lockfiles")
+    - Git remote: \(project.remoteURL ?? "Not detected")
+    - Git branch: \(project.branch ?? "Not detected")
+
+    ## Verification
+
+    CSA-iEM saves a source and destination file table under the output folder's `_temp/Transfer-Indexes` directory before execution. Repeat transfers use the table to send only missing, metadata-changed, or deep-audit-failed paths, then checksum-verify those planned paths. Metadata comparison checks relative path, type, size, date, and symlink target; the optional deep checksum audit reads every metadata-matched file to detect rare silent content changes. New destinations are staged and fully verified before publication. Verified ZIP archives are created when backup is enabled. Sync and Move always runs a full checksum comparison before it can retire the source. When Git metadata is excluded, the destination can be re-armed from its detected remote without checking out or overwriting the copied working tree.
+
+    ## Reconnect
+
+    Open the destination folder as a project in Codex, VS Code, or your preferred editor. CSA-iEM does not edit undocumented Codex application databases. The compatibility link option preserves the previous filesystem path after a move.
+
+    ## Dependencies
+
+    Reinstall generated dependencies from project lockfiles. Typical commands include `npm ci`, the repository's documented build command, and a nested install for folders such as `functions` when that folder has its own lockfile.
+    """
+  }
+
+  private nonisolated static func codexPromptInject(project: CodexProjectEntry, destination: String?, rearmGitMain: Bool) -> String {
+    let gitReconnectNote = rearmGitMain
+      ? "    Git was re-armed from `origin/main`; only the index was rebuilt. Confirm the working tree before making changes."
+      : ""
+    return """
+    # Codex Project Reconnect Prompt
+
+    Review this transferred project before changing files.
+
+    1. Confirm the active workspace root is `\(destination ?? project.path)`.
+    2. Read `Transfer_Note.MD` and inspect `git status`, the current branch, and configured remotes.
+    3. Verify lockfiles and reinstall generated dependency folders when they were excluded.
+    4. Run the project's existing tests and build commands.
+    5. Do not delete backup artifacts until the transferred project has been opened and validated.
+    \(gitReconnectNote)
+
+    Project identity: \(project.name)
+    Original path: \(project.path)
+    Git remote: \(project.remoteURL ?? "Not detected")
+    """
+  }
+
+  private nonisolated static func rearmGitMainAtDestination(
+    destination: String,
+    remoteURL: String,
+    environment: [String: String]
+  ) throws {
+    let git = "/usr/bin/git"
+    let initResult = runCommand(executable: git, arguments: ["-C", destination, "init", "-b", "main"], environment: environment)
+    guard initResult.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(initResult.status), userInfo: [NSLocalizedDescriptionKey: "Could not initialize Git main in \(destination): \(redactSensitiveText(initResult.output))"])
+    }
+
+    let setURL = runCommand(executable: git, arguments: ["-C", destination, "remote", "set-url", "origin", remoteURL], environment: environment)
+    if setURL.status != 0 {
+      let addRemote = runCommand(executable: git, arguments: ["-C", destination, "remote", "add", "origin", remoteURL], environment: environment)
+      guard addRemote.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(addRemote.status), userInfo: [NSLocalizedDescriptionKey: "Could not configure the Git origin for \(destination): \(redactSensitiveText(addRemote.output))"])
+      }
+    }
+
+    let fetch = runCommand(executable: git, arguments: ["-C", destination, "fetch", "--no-tags", "origin", "main"], environment: environment)
+    guard fetch.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(fetch.status), userInfo: [NSLocalizedDescriptionKey: "Git origin/main fetch failed for \(destination): \(redactSensitiveText(fetch.output))"])
+    }
+
+    let branch = runCommand(executable: git, arguments: ["-C", destination, "branch", "--force", "main", "FETCH_HEAD"], environment: environment)
+    guard branch.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(branch.status), userInfo: [NSLocalizedDescriptionKey: "Could not point Git main at FETCH_HEAD for \(destination): \(redactSensitiveText(branch.output))"])
+    }
+
+    let head = runCommand(executable: git, arguments: ["-C", destination, "symbolic-ref", "HEAD", "refs/heads/main"], environment: environment)
+    guard head.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(head.status), userInfo: [NSLocalizedDescriptionKey: "Could not activate Git main for \(destination): \(redactSensitiveText(head.output))"])
+    }
+
+    // Rebuild only the index from the fetched branch. A mixed reset does not
+    // checkout or overwrite the copied working tree.
+    let index = runCommand(executable: git, arguments: ["-C", destination, "reset", "--mixed", "main"], environment: environment)
+    guard index.status == 0 else {
+      throw NSError(domain: appTitle, code: Int(index.status), userInfo: [NSLocalizedDescriptionKey: "Could not rebuild the Git index for \(destination) without changing copied files: \(redactSensitiveText(index.output))"])
+    }
+
+    for (key, value) in [("branch.main.remote", "origin"), ("branch.main.merge", "refs/heads/main")] {
+      let config = runCommand(executable: git, arguments: ["-C", destination, "config", key, value], environment: environment)
+      guard config.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(config.status), userInfo: [NSLocalizedDescriptionKey: "Could not save Git main tracking configuration for \(destination): \(redactSensitiveText(config.output))"])
+      }
+    }
+  }
+
   private nonisolated static func performTransactionalTransfers(
     operations: [LocalTransferOperation],
     mode: LocalFileTransferMode,
@@ -6470,7 +9135,7 @@ final class CleanupViewModel: ObservableObject {
 
     do {
       for operation in normalizedOperations {
-        let stagePath = operation.destination + ".csa-iem-stage-\(transactionID)"
+        let stagePath = try stagingPath(for: operation.destination, transactionID: transactionID)
         try? fm.removeItem(atPath: stagePath)
         try transferItem(
           from: operation.source,
@@ -6504,9 +9169,6 @@ final class CleanupViewModel: ObservableObject {
         if fm.fileExists(atPath: backupPath) {
           try? fm.moveItem(atPath: backupPath, toPath: destination)
         }
-      }
-      for stagePath in stagePathsByDestination.values {
-        try? fm.removeItem(atPath: stagePath)
       }
       throw error
     }
@@ -6569,6 +9231,17 @@ final class CleanupViewModel: ObservableObject {
     if mode == .move {
       try fm.removeItem(atPath: normalizedSource)
     }
+  }
+
+  private nonisolated static func stagingPath(for destination: String, transactionID: String) throws -> String {
+    let fm = FileManager.default
+    let normalizedDestination = NSString(string: destination).standardizingPath
+    let destinationParent = (normalizedDestination as NSString).deletingLastPathComponent
+    let stagingRoot = ((destinationParent as NSString)
+      .appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("CSA-iEM-staging-\(transactionID)")
+    try fm.createDirectory(atPath: stagingRoot, withIntermediateDirectories: true, attributes: nil)
+    return (stagingRoot as NSString).appendingPathComponent((normalizedDestination as NSString).lastPathComponent)
   }
 
   private nonisolated static func timestampStamp() -> String {
@@ -7810,7 +10483,7 @@ struct LaunchWarningSheet: View {
             .disabled(!(acceptedRisk && acceptedPurpose))
           }
 
-          Text("Acceptance is required every time the app is opened.")
+            Text("Your acceptance is saved locally and can be reset from Settings when needed.")
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundStyle(DashboardTheme.subtle)
         }
@@ -7952,6 +10625,15 @@ struct ContentView: View {
         .ignoresSafeArea()
 
         VStack(spacing: 12) {
+          if let activeOperationLabel = model.activeOperationLabel {
+            ActivityStrip(
+              title: activeOperationLabel,
+              detail: model.isRunningLocalFileOperation ? "The app is working in the background. Keep this window open to follow the operation." : "The app is checking local or connected services. You can continue browsing other pages.",
+              isIndeterminate: true
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+          }
+
           Group {
             if showSidebarMenu {
               HStack(alignment: .top, spacing: 18) {
@@ -7995,7 +10677,7 @@ struct ContentView: View {
     .onAppear {
       let shouldShowWarning = !model.appSettings.firstRunComplete
       showLaunchWarning = shouldShowWarning
-      showStartupReadiness = !shouldShowWarning
+      showStartupReadiness = false
       acceptedRisk = !shouldShowWarning
       acceptedPurpose = !shouldShowWarning
     }
@@ -8017,6 +10699,7 @@ struct ContentView: View {
     }
     .sheet(isPresented: $showStartupReadiness) {
       StartupReadinessSheet(model: model) {
+        model.markLaunchWarningAccepted()
         showStartupReadiness = false
       }
       .interactiveDismissDisabled(true)
@@ -8040,6 +10723,8 @@ struct ContentView: View {
           importPage(for: width, usesSidebar: usesSidebar)
         case .projects:
           projectsPage(for: width, usesSidebar: usesSidebar)
+        case .codexPortal:
+          codexPortalPage(for: width, usesSidebar: usesSidebar)
         case .localFiles:
           localFilesPage(for: width, usesSidebar: usesSidebar)
         case .cleanup:
@@ -8169,6 +10854,441 @@ struct ContentView: View {
           portMonitorPanel
         }
       }
+    }
+  }
+
+  private func codexPortalPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
+
+      WorkspaceToolbarStrip(
+        destination: .codexPortal,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      if width >= 1450 {
+        HStack(alignment: .top, spacing: 18) {
+          codexDiscoveryPanel
+            .frame(maxWidth: 560, alignment: .topLeading)
+          codexProjectSelectionPanel
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+          codexTransferPanel
+            .frame(maxWidth: 520, alignment: .topLeading)
+        }
+      } else {
+        codexDiscoveryPanel
+        codexProjectSelectionPanel
+        codexTransferPanel
+      }
+    }
+  }
+
+  private var codexDiscoveryPanel: some View {
+    PanelCard(
+      title: "Project Discovery",
+      subtitle: "Search selected parent folders. Ordinary Documents folders are ignored unless they contain real project evidence."
+    ) {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Scan Source Folders")
+        TextEditor(text: $model.codexScanRootsDraft)
+          .font(.system(size: 13, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.text)
+          .scrollContentBackground(.hidden)
+          .padding(10)
+          .frame(minHeight: 90, maxHeight: 140)
+          .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(DashboardTheme.field)
+              .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .stroke(DashboardTheme.border, lineWidth: 1)
+              )
+          )
+
+        HStack(spacing: 10) {
+          TextField("Paste a custom parent-folder path", text: $model.codexScanRootEntryDraft)
+            .textFieldStyle(.plain)
+            .foregroundStyle(DashboardTheme.text)
+            .dashboardFieldStyle()
+            .onSubmit {
+              model.addCodexScanRootDraft()
+            }
+
+          Button {
+            model.addCodexScanRootDraft()
+          } label: {
+            Label("Add Path", systemImage: "folder.badge.plus")
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+          .disabled(model.codexScanRootEntryDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isScanningCodexProjects || model.isBuildingCodexTransferPlan || model.isRunningCodexTransfer)
+        }
+
+        Label("Drop Folder", systemImage: "arrow.down.doc")
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(model.isCodexScanRootDropTarget ? DashboardTheme.success : DashboardTheme.muted)
+          .frame(maxWidth: .infinity, minHeight: 38)
+          .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(model.isCodexScanRootDropTarget ? DashboardTheme.success.opacity(0.12) : DashboardTheme.field)
+              .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .stroke(model.isCodexScanRootDropTarget ? DashboardTheme.success : DashboardTheme.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+              )
+          )
+          .onDrop(of: [UTType.fileURL], isTargeted: $model.isCodexScanRootDropTarget) { providers in
+            model.receiveCodexScanRootDrop(providers)
+          }
+          .disabled(model.isScanningCodexProjects || model.isBuildingCodexTransferPlan || model.isRunningCodexTransfer)
+      }
+
+      HStack(spacing: 10) {
+        Button {
+          model.chooseCodexScanRoot()
+        } label: {
+          Label("Add Folder", systemImage: "folder.badge.plus")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button {
+          model.addCommonCodexScanRoots()
+        } label: {
+          Label("Common Folders", systemImage: "folder.badge.gearshape")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isScanningCodexProjects || model.isBuildingCodexTransferPlan || model.isRunningCodexTransfer)
+
+        Button {
+          model.scanCodexProjects()
+        } label: {
+          Label(model.isScanningCodexProjects ? "Scanning" : "Scan Projects", systemImage: "magnifyingglass")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.isScanningCodexProjects || model.isBuildingCodexTransferPlan || model.isRunningCodexTransfer)
+      }
+
+      if model.isScanningCodexProjects {
+        ProgressView()
+          .progressViewStyle(.linear)
+          .tint(DashboardTheme.link)
+          .frame(maxWidth: .infinity)
+      }
+
+      BannerCard(
+        title: model.codexProjectSummary,
+        detail: model.codexPortalStatus,
+        kind: model.codexProjects.isEmpty ? .warning : .ready
+      )
+
+      Text("Discovery reads local paths only. It offers a folder only when it sees Git, a manifest, or enough source, editor, Docker/config, or transfer-note context, so ordinary Documents folders are not treated as projects. An unlinked Codex project can still be found without uploading history, Git metadata, account data, prompts, or credentials.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var codexProjectSelectionPanel: some View {
+    PanelCard(
+      title: "Found Projects",
+      subtitle: "Target one project, a filtered set, or every discovered workspace."
+    ) {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Search Projects")
+        TextField("Project name, path, remote, branch, or marker", text: $model.codexProjectSearch)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button(model.areAllVisibleCodexProjectsSelected ? "Clear Visible" : "Select Visible") {
+          model.setVisibleCodexProjectsSelected(!model.areAllVisibleCodexProjectsSelected)
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.filteredCodexProjects.isEmpty)
+
+        Button("Select All") {
+          model.selectAllCodexProjects()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        .disabled(model.codexProjects.isEmpty)
+
+        Button {
+          model.armCodexAutoAll()
+        } label: {
+          Label("Auto All", systemImage: "bolt.horizontal.circle")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+        .disabled(model.codexProjects.isEmpty || model.isRunningCodexTransfer)
+
+        Button("Clear") {
+          model.clearCodexProjectSelection()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accentPink, bordered: true))
+        .disabled(model.selectedCodexProjectPaths.isEmpty)
+      }
+
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 10) {
+          if model.filteredCodexProjects.isEmpty {
+            Text(model.codexProjects.isEmpty ? "Scan to load Codex projects." : "No discovered projects match the current search.")
+              .font(.system(size: 13, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          } else {
+            ForEach(model.filteredCodexProjects) { project in
+              VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .top, spacing: 10) {
+                  Button {
+                    model.toggleCodexProject(project)
+                  } label: {
+                    Image(systemName: model.selectedCodexProjectPaths.contains(project.path) ? "checkmark.square.fill" : "square")
+                      .font(.system(size: 18, weight: .semibold))
+                      .foregroundStyle(model.selectedCodexProjectPaths.contains(project.path) ? DashboardTheme.success : DashboardTheme.muted)
+                  }
+                  .buttonStyle(.plain)
+                  .help(model.selectedCodexProjectPaths.contains(project.path) ? "Remove from transfer" : "Add to transfer")
+
+                  VStack(alignment: .leading, spacing: 5) {
+                    Text(project.name)
+                      .font(.system(size: 14, weight: .bold, design: .rounded))
+                      .foregroundStyle(DashboardTheme.text)
+                    Text(project.path)
+                      .font(.system(size: 11, weight: .medium, design: .monospaced))
+                      .foregroundStyle(DashboardTheme.muted)
+                      .textSelection(.enabled)
+                    Text([project.discoveredBy, project.branch, project.remoteURL].compactMap { $0 }.joined(separator: " · "))
+                      .font(.system(size: 11, weight: .medium, design: .rounded))
+                      .foregroundStyle(DashboardTheme.muted)
+                      .lineLimit(2)
+                  }
+                  Spacer(minLength: 8)
+                }
+
+                HStack(spacing: 8) {
+                  ForEach(project.badges, id: \.self) { badge in
+                    PillBadge(text: badge, tint: DashboardTheme.deepBlue)
+                  }
+                  Spacer(minLength: 8)
+                  Button {
+                    model.revealCodexProject(project)
+                  } label: {
+                    Image(systemName: "folder")
+                  }
+                  .buttonStyle(.plain)
+                  .help("Reveal in Finder")
+                  Button {
+                    model.openCodexProject(project, inApplication: "Codex")
+                  } label: {
+                    Image(systemName: "terminal")
+                  }
+                  .buttonStyle(.plain)
+                  .help("Open in Codex")
+                  Button {
+                    model.openCodexProject(project, inApplication: "Visual Studio Code")
+                  } label: {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                  }
+                  .buttonStyle(.plain)
+                  .help("Open in Visual Studio Code")
+                }
+              }
+              .padding(12)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .fill(DashboardTheme.panelStrong)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                      .stroke(model.selectedCodexProjectPaths.contains(project.path) ? DashboardTheme.success.opacity(0.65) : DashboardTheme.border, lineWidth: 1)
+                  )
+              )
+            }
+          }
+        }
+      }
+      .frame(minHeight: 260, idealHeight: 520, maxHeight: 680)
+    }
+  }
+
+  private var codexTransferPanel: some View {
+    PanelCard(
+      title: "Preflight & Transfer",
+      subtitle: "Scan, stage, reconcile, verify, and back up selected projects with a mode-specific source policy."
+    ) {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Output Folder")
+        TextField("Choose an output folder", text: $model.codexOutputRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button {
+          model.chooseCodexOutputRoot()
+        } label: {
+          Label("Choose", systemImage: "folder")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button {
+          model.openCodexOutputRoot()
+        } label: {
+          Label("Open", systemImage: "arrow.up.forward.app")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      Picker("Transfer Mode", selection: $model.codexTransferMode) {
+        ForEach(CodexProjectTransferMode.allCases) { mode in
+          Text(mode.label).tag(mode)
+        }
+      }
+      .pickerStyle(.menu)
+
+      Text(model.codexTransferMode.subtitle)
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+
+      Toggle("Create verified ZIP backup", isOn: $model.codexCreateBackup)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(model.codexTransferMode == .backupOnly || model.codexTransferMode.performsScanAndBackup)
+
+      Toggle("Preserve .git metadata", isOn: $model.codexIncludeGitMetadata)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.deepBlue)
+
+      Toggle("Preserve Finder metadata (.DS_Store and ._* files)", isOn: $model.codexIncludeFinderMetadata)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.deepBlue)
+
+      Toggle("Include generated dependency folders", isOn: $model.codexIncludeDependencies)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+
+      Toggle("Deep checksum audit metadata-matched files", isOn: $model.codexFullChecksumAudit)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+
+      Text("Fast preflight compares path, type, size, date, and symlink target. Turn on the deep audit when you need to detect a rare same-size, same-date content mutation; it reads every metadata-matched file before execution.")
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+
+      Toggle("Auto-resume existing destination files", isOn: $model.codexAutoResumeExisting)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(!model.codexTransferMode.writesDestination || model.codexTransferMode.requiresExistingDestinationMerge)
+
+      Toggle("Re-arm Git main from the detected remote after copy", isOn: $model.codexRearmGitMain)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(model.codexIncludeGitMetadata || !model.codexTransferMode.writesDestination)
+
+      Toggle("Keep old path as compatibility link after move", isOn: $model.codexCreateCompatibilityLink)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.accent)
+        .disabled(!model.codexTransferMode.removesSource)
+
+      BannerCard(
+        title: model.codexTransferPlans.isEmpty ? "\(model.selectedCodexProjectPaths.count) project(s) selected" : model.codexTransferPlanSummary,
+        detail: model.codexPortalProgressText,
+        kind: (model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan) ? .running : (model.selectedCodexProjectPaths.isEmpty ? .warning : .ready)
+      )
+
+      if model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan {
+        ProgressView(value: model.codexPortalProgress, total: 1)
+          .progressViewStyle(.linear)
+          .tint(DashboardTheme.success)
+          .frame(maxWidth: .infinity)
+      }
+
+      if !model.codexTransferPlans.isEmpty {
+        Divider()
+
+        HStack(spacing: 8) {
+          Text("Virtual File Table")
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+          Spacer(minLength: 8)
+          Button {
+            model.revealCodexTransferIndexes()
+          } label: {
+            Image(systemName: "folder.badge.gearshape")
+          }
+          .buttonStyle(.plain)
+          .help("Open saved transfer indexes in Finder")
+        }
+
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+          GridRow {
+            Text("Project")
+            Text("Indexed")
+            Text("Transfer")
+            Text("Keep")
+          }
+          .font(.system(size: 10, weight: .bold, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+
+          ForEach(Array(model.codexTransferPlans.prefix(5))) { plan in
+            GridRow {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(plan.projectName)
+                  .lineLimit(1)
+                Text(plan.requiresInitialMirror ? "Initial baseline" : plan.fullChecksumAudit ? "Deep audit" : "Fast index")
+                  .font(.system(size: 10, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+              }
+              Text("\(plan.sourceFileCount)")
+              Text("\(plan.plannedPaths.count)")
+              Text("\(plan.destinationOnlyPaths.count)")
+            }
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+          }
+        }
+
+        if model.codexTransferPlans.count > 5 {
+          Text("Showing 5 of \(model.codexTransferPlans.count) indexed projects. The saved JSON table contains every indexed path.")
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+        }
+
+        if model.codexTransferPlans.contains(where: { !$0.typeConflictPaths.isEmpty }) {
+          Text("File-versus-folder conflicts were found. Those paths are preserved and must be resolved before a targeted transfer can run.")
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(DashboardTheme.warning)
+        }
+      }
+
+      HStack(spacing: 10) {
+        Button {
+          model.preflightCodexTransfer()
+        } label: {
+          Label(model.isBuildingCodexTransferPlan ? "Indexing" : "Preflight", systemImage: "checkmark.shield")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan)
+
+        Button {
+          model.runCodexTransfer()
+        } label: {
+          Label(model.isRunningCodexTransfer ? "Running" : "Run", systemImage: "play.fill")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan)
+      }
+
+      BannerCard(
+        title: "Transfer safety",
+        detail: "Preflight saves source, destination, and plan JSON under the output folder's _temp/Transfer-Indexes directory. Repeat transfers use only the planned paths; initial mirrors and optional ZIP archives still read full project content. Sync and Move always performs a full checksum verification before it can retire a source.",
+        kind: .ready
+      )
     }
   }
 
@@ -8308,6 +11428,8 @@ struct ContentView: View {
           HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 18) {
               rootsPanel
+              externalDrivesPanel
+              recoveryModePanel
               legacyWorkspaceMigrationPanel
               localFilesRelocationPanel
               backupPresetsPanel
@@ -8323,6 +11445,8 @@ struct ContentView: View {
           }
         } else {
           rootsPanel
+          externalDrivesPanel
+          recoveryModePanel
           legacyWorkspaceMigrationPanel
           localFilesRelocationPanel
           backupPresetsPanel
@@ -9089,6 +12213,26 @@ struct ContentView: View {
         .tint(DashboardTheme.success)
         .foregroundStyle(DashboardTheme.text)
 
+      Toggle("Administrator Terminal mode (sudo)", isOn: $model.administratorTerminalMode)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+        .foregroundStyle(DashboardTheme.text)
+
+      if model.administratorTerminalMode {
+        BannerCard(
+          title: "Administrator Terminal is opt-in",
+          detail: "CLI launchers will open a visible Terminal, run sudo -v, and wait for your macOS authorization. CSA-iEM never reads, types, stores, or logs the administrator password.",
+          kind: .warning
+        )
+
+        Button {
+          model.openAdministratorTerminalCheck()
+        } label: {
+          Label("Test Administrator Terminal", systemImage: "lock.shield")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      }
+
       Toggle("Privacy-First Mode (do not save GitHub identity or contexts)", isOn: $model.appSettings.privacyFirstMode)
         .toggleStyle(.switch)
         .tint(DashboardTheme.success)
@@ -9829,6 +12973,14 @@ struct ContentView: View {
         kind: model.isRunningLocalFileOperation ? .running : .ready
       )
 
+      if model.isRunningLocalFileOperation {
+        ProgressView()
+          .progressViewStyle(.linear)
+          .tint(DashboardTheme.link)
+          .frame(maxWidth: .infinity)
+          .accessibilityLabel("Moving and verifying workspace files")
+      }
+
       HStack(spacing: 10) {
         Button("Choose Destination") {
           model.chooseWorkspaceMoveDestinationFolder()
@@ -9938,6 +13090,140 @@ struct ContentView: View {
     }
   }
 
+  private var recoveryModePanel: some View {
+    PanelCard(title: "Recovery Mode", subtitle: "Resume an interrupted move by scanning an old, backup, or partially moved folder and merging missing files into the active workspace.") {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Recovery Source")
+        TextField("Choose an old workspace or backup folder", text: $model.recoverySourcePath)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button("Choose Source") {
+          model.chooseRecoverySource()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Scan Source") {
+          model.scanRecoverySource()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button("Recover Missing Files") {
+          model.recoverSelectedSource()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.recoveryCandidate == nil || model.isRunningLocalFileOperation)
+      }
+
+      BannerCard(
+        title: model.recoveryCandidate?.summary ?? "No recovery source scanned",
+        detail: model.recoverySourceStatus,
+        kind: model.recoveryCandidate == nil ? .warning : .ready
+      )
+
+      if let candidate = model.recoveryCandidate {
+        FixedValueRow(label: "Source", value: candidate.label)
+        FixedValueRow(label: "Active Code Root", value: model.resolvedProfileRootsForDisplay.codeRoot)
+        FixedValueRow(label: "Active Runtime Root", value: model.resolvedProfileRootsForDisplay.runtimeRoot)
+      }
+
+      Text("Recovery always uses Copy Backup behavior: it fills missing files and preserves existing destination files. It does not delete the source, making it safe to run again after a failed or interrupted move.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var externalDrivesPanel: some View {
+    PanelCard(title: "External Drives", subtitle: "Use a mounted drive for a backup, selected projects, or as the permanent Default workspace location.") {
+      HStack(spacing: 10) {
+        Button("Refresh Drives") {
+          model.scanExternalVolumes()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button("Choose Folder") {
+          model.chooseLocalExportDestinationFolder()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      Text(model.externalVolumesStatus)
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+
+      Text(model.externalWorkspaceSizeLabel)
+        .font(.system(size: 12, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+
+      if model.externalVolumes.isEmpty == false {
+        ForEach(model.externalVolumes) { volume in
+          HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "externaldrive.fill")
+              .foregroundStyle(DashboardTheme.warning)
+              .frame(width: 24)
+            VStack(alignment: .leading, spacing: 4) {
+              Text(volume.name)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(DashboardTheme.text)
+              Text("\(volume.path) · \(volume.capacityLabel)")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+                .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button("Use") { model.selectExternalVolume(volume) }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+            Button("Use As Default") { model.setExternalVolumeAsDefault(volume) }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+            Button("Reveal") { model.revealExternalVolume(volume) }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+          }
+          .padding(12)
+          .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(DashboardTheme.panelStrong))
+        }
+      }
+
+      if let selected = model.externalVolumes.first(where: { $0.path == model.selectedExternalVolumePath }) {
+        Divider()
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Make \(selected.name) The New Default")
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+          FixedValueRow(label: "New Default Base", value: model.externalWorkspaceBase(for: selected))
+          Text("Use As Default changes only the saved paths. Prepare Move creates a collision-aware preview. Move All copies every root to the new drive, verifies the staged destination, removes old roots only after success, and then saves the new Default paths.")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineSpacing(2)
+          HStack(spacing: 10) {
+            Button("Prepare Move") { model.prepareExternalDefaultMove(selected) }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            Button("Open New Workspace") { model.revealExternalWorkspace(selected) }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+          }
+          Toggle("I reviewed the move preview and want to move all current workspace files", isOn: $model.externalDefaultMoveConfirmed)
+            .toggleStyle(.switch)
+            .tint(DashboardTheme.danger)
+            .foregroundStyle(DashboardTheme.text)
+          Button("Move All And Make Default") { model.moveWorkspaceToExternalDefault(selected) }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: false))
+            .disabled(model.isRunningLocalFileOperation || !model.externalDefaultMoveConfirmed)
+        }
+      }
+
+      Button("Restore Internal Default Paths") { model.restoreInternalDefaultWorkspace() }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+
+      Text("Use Full Workspace for all local CSA-iEM files. Use Selected Projects after selecting projects in the Local Project Library. Copy Backup keeps originals. The permanent move requires a prepared preview and a separate confirmation. Restoring internal paths never moves or deletes files.")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
   private var localFilesExportPanel: some View {
     PanelCard(title: "Backup & Export", subtitle: "Copy or move selected projects or workspace content into a structured export bundle for another drive, archive, or handoff.") {
       VStack(alignment: .leading, spacing: 6) {
@@ -10011,6 +13297,14 @@ struct ContentView: View {
         detail: model.localFilesStatus,
         kind: model.isRunningLocalFileOperation ? .running : .ready
       )
+
+      if model.isRunningLocalFileOperation {
+        ProgressView()
+          .progressViewStyle(.linear)
+          .tint(DashboardTheme.link)
+          .frame(maxWidth: .infinity)
+          .accessibilityLabel("Exporting and verifying local files")
+      }
 
       Text("Selected-project exports preserve a concrete structure under `Code/Repos`, `Runtime/Repos`, and `Runtime/Runners`. Use `Copy Backup` for safe archives and `Move` when you want to relocate items out of the current workspace.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -10731,6 +14025,14 @@ struct ContentView: View {
         .disabled(model.filteredLocalProjects.isEmpty)
       }
 
+      if model.isLoadingLocalProjects {
+        ProgressView()
+          .progressViewStyle(.linear)
+          .tint(DashboardTheme.link)
+          .frame(maxWidth: .infinity)
+          .accessibilityLabel("Scanning local projects")
+      }
+
       Toggle("Favorites only", isOn: $model.showFavoritesOnly)
         .toggleStyle(.switch)
         .tint(DashboardTheme.warning)
@@ -11183,6 +14485,48 @@ struct ContentView: View {
   }
 }
 
+private struct ActivityStrip: View {
+  let title: String
+  let detail: String
+  let isIndeterminate: Bool
+
+  var body: some View {
+    HStack(spacing: 12) {
+      ProgressView()
+        .controlSize(.small)
+        .tint(DashboardTheme.link)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.system(size: 13, weight: .bold, design: .rounded))
+          .foregroundStyle(DashboardTheme.text)
+        Text(detail)
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+          .lineLimit(1)
+      }
+
+      Spacer(minLength: 8)
+
+      Text("In progress")
+        .font(.system(size: 11, weight: .bold, design: .rounded))
+        .foregroundStyle(DashboardTheme.link)
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(DashboardTheme.panelStrong)
+        .overlay(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(DashboardTheme.link.opacity(0.45), lineWidth: 1)
+        )
+    )
+    .animation(.easeInOut(duration: 0.2), value: title)
+  }
+}
+
 struct CSAiEMMenuBarView: View {
   @ObservedObject var model: CleanupViewModel
 
@@ -11314,6 +14658,24 @@ struct CSAiEMMenuBarView: View {
           .disabled(!model.isAuthenticated)
       }
 
+      Menu("External Drives") {
+        Button("Refresh Mounted Drives") { model.scanExternalVolumes() }
+        if model.externalVolumes.isEmpty {
+          Text("No external drives detected")
+        } else {
+          ForEach(model.externalVolumes) { volume in
+            Menu("\(volume.name) · \(volume.capacityLabel)") {
+              Text(volume.path)
+              Button("Use for Backup or Move") { model.selectExternalVolume(volume) }
+              Button("Use As Default Workspace") { model.setExternalVolumeAsDefault(volume) }
+              Button("Prepare Move All To Default") { model.prepareExternalDefaultMove(volume) }
+              Button("Open New Workspace") { model.revealExternalWorkspace(volume) }
+              Button("Reveal Drive") { model.revealExternalVolume(volume) }
+            }
+          }
+        }
+      }
+
       Menu("Workspace Roots") {
         Text("Code: \(roots.codeRoot)")
         Text("Import: \(roots.importRoot)")
@@ -11323,6 +14685,8 @@ struct CSAiEMMenuBarView: View {
         Button("Reveal Import Root") { model.revealImportRoot() }
         Button("Reveal Runtime Root") { model.revealRuntimeRoot() }
       }
+
+      Button("Restore Internal Default Paths") { model.restoreInternalDefaultWorkspace() }
 
       HStack(spacing: 8) {
         Button("Open App") {
@@ -11465,6 +14829,30 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     billingItem.submenu = billingMenu
     menu.addItem(billingItem)
 
+    let drivesMenu = NSMenu()
+    drivesMenu.addItem(actionItem("Refresh Mounted Drives", action: #selector(refreshExternalDrives)))
+    if model.externalVolumes.isEmpty {
+      drivesMenu.addItem(disabledItem("No external drives detected"))
+    } else {
+      for volume in model.externalVolumes {
+        let volumeMenu = NSMenu()
+        volumeMenu.addItem(disabledItem(volume.path))
+        volumeMenu.addItem(disabledItem(volume.capacityLabel))
+        volumeMenu.addItem(volumeActionItem("Use for Backup or Move", action: #selector(selectExternalDrive(_:)), volume: volume))
+        volumeMenu.addItem(volumeActionItem("Use As Default Workspace", action: #selector(setExternalDriveAsDefault(_:)), volume: volume))
+        volumeMenu.addItem(volumeActionItem("Prepare Move All To Default", action: #selector(prepareExternalDefaultMove(_:)), volume: volume))
+        volumeMenu.addItem(volumeActionItem("Open New Workspace", action: #selector(revealExternalWorkspace(_:)), volume: volume))
+        volumeMenu.addItem(volumeActionItem("Reveal Drive", action: #selector(revealExternalDrive(_:)), volume: volume))
+        let item = NSMenuItem(title: volume.name, action: nil, keyEquivalent: "")
+        item.submenu = volumeMenu
+        drivesMenu.addItem(item)
+      }
+    }
+    let drivesItem = NSMenuItem(title: "External Drives", action: nil, keyEquivalent: "")
+    drivesItem.submenu = drivesMenu
+    menu.addItem(drivesItem)
+    menu.addItem(actionItem("Restore Internal Default Paths", action: #selector(restoreInternalDefaultPaths)))
+
     menu.addItem(.separator())
     menu.addItem(actionItem("Quit CSA-iEM", action: #selector(quitApp)))
     statusItem.menu = menu
@@ -11491,6 +14879,12 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
   private func runnerActionItem(_ title: String, action: Selector, runner: RunnerServiceEntry) -> NSMenuItem {
     let item = actionItem(title, action: action)
     item.representedObject = runner
+    return item
+  }
+
+  private func volumeActionItem(_ title: String, action: Selector, volume: ExternalVolumeEntry) -> NSMenuItem {
+    let item = actionItem(title, action: action)
+    item.representedObject = volume
     return item
   }
 
@@ -11567,6 +14961,42 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func openGitHubBilling() {
     model?.openGitHubBillingReport()
+  }
+
+  @objc private func refreshExternalDrives() {
+    model?.scanExternalVolumes()
+    rebuildStatusMenu()
+  }
+
+  @objc private func selectExternalDrive(_ sender: NSMenuItem) {
+    guard let volume = sender.representedObject as? ExternalVolumeEntry else { return }
+    model?.selectExternalVolume(volume)
+  }
+
+  @objc private func setExternalDriveAsDefault(_ sender: NSMenuItem) {
+    guard let volume = sender.representedObject as? ExternalVolumeEntry else { return }
+    model?.setExternalVolumeAsDefault(volume)
+    scheduleMenuRebuild()
+  }
+
+  @objc private func prepareExternalDefaultMove(_ sender: NSMenuItem) {
+    guard let volume = sender.representedObject as? ExternalVolumeEntry else { return }
+    model?.prepareExternalDefaultMove(volume)
+  }
+
+  @objc private func revealExternalWorkspace(_ sender: NSMenuItem) {
+    guard let volume = sender.representedObject as? ExternalVolumeEntry else { return }
+    model?.revealExternalWorkspace(volume)
+  }
+
+  @objc private func restoreInternalDefaultPaths() {
+    model?.restoreInternalDefaultWorkspace()
+    scheduleMenuRebuild()
+  }
+
+  @objc private func revealExternalDrive(_ sender: NSMenuItem) {
+    guard let volume = sender.representedObject as? ExternalVolumeEntry else { return }
+    model?.revealExternalVolume(volume)
   }
 
   @objc private func quitApp() {

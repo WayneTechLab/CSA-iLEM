@@ -116,6 +116,11 @@ CLI_SINGLE_ROOT=""
 CLI_CODE_ROOT=""
 CLI_IMPORT_ROOT=""
 CLI_RUNTIME_ROOT=""
+LOCAL_TRANSFER_DEST=""
+LOCAL_TRANSFER_MODE="backup"
+LOCAL_TRANSFER_PROJECTS=()
+LIST_EXTERNAL_DRIVES=0
+EXTERNAL_DEFAULT_ACTION=""
 IMPORTED_PROJECT_SLUGS=()
 IMPORTED_PROJECT_CODE_DIRS=()
 IMPORTED_PROJECT_RUNTIME_DIRS=()
@@ -951,6 +956,10 @@ Usage:
   $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
+  $(basename "$0") --list-external-drives
+  $(basename "$0") --external-drive /Volumes/DRIVE --backup-all --use-current-root
+  $(basename "$0") --external-drive /Volumes/DRIVE --move-project OWNER/REPO --yes --use-current-root
+  $(basename "$0") --external-drive /Volumes/DRIVE --move-all-to-external-default --yes --use-current-root
   $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode codespace --import-full-auto
   $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --import-mode repo-plus --import-full-auto --import-cleanup-preview
   $(basename "$0") --profile default --host github.com --account USER --repo OWNER/REPO --cleanup-full-auto
@@ -1017,6 +1026,17 @@ Direct import flags:
   --runtime-root PATH
   --auto-mode
 
+Local external-drive flags:
+  --list-external-drives
+  --external-drive PATH
+  --backup-all
+  --move-all
+  --backup-project OWNER/REPO       Repeat for more than one project
+  --move-project OWNER/REPO         Repeat for more than one project; requires --yes
+  --set-external-default            Save DRIVE/CSA-iEM as the Default workspace without moving files
+  --move-all-to-external-default    Move Code, Import, and Runtime to DRIVE/CSA-iEM; requires --yes
+  --restore-internal-default        Restore ~/CSA-iEM paths without moving files
+
 Built-in default roots:
   Default code: $PUBLIC_DEFAULT_CODE_ROOT
   Default import: $PUBLIC_DEFAULT_IMPORT_ROOT
@@ -1057,6 +1077,123 @@ Documents:
   Privacy: $APP_PRIVACY_FILE
   Disclaimer: $APP_DISCLAIMER_FILE
 EOF
+}
+
+list_external_drives() {
+  local volume
+  if [[ ! -d /Volumes ]] || [[ -z "$(find /Volumes -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]]; then
+    echo "No mounted external drives detected under /Volumes."
+    return 0
+  fi
+  echo "Mounted external drives:"
+  while IFS= read -r volume; do
+    df -h "$volume" | awk 'NR==2 {printf "  %s - %s free of %s\n", $NF, $4, $2}'
+  done < <(find /Volumes -mindepth 1 -maxdepth 1 -type d -print | sort)
+}
+
+copy_local_tree() {
+  local source="$1"
+  local destination="$2"
+  mkdir -p "$(dirname "$destination")"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "$source/" "$destination/"
+  else
+    ditto "$source" "$destination"
+  fi
+}
+
+run_external_drive_transfer() {
+  local stamp bundle source destination project
+  local -a sources=()
+  [[ -n "$LOCAL_TRANSFER_DEST" ]] || { err "--external-drive PATH is required."; exit 1; }
+  [[ -d "$LOCAL_TRANSFER_DEST" ]] || { err "External drive path was not found: $LOCAL_TRANSFER_DEST"; exit 1; }
+  [[ "$LOCAL_TRANSFER_MODE" == "move" && "$ASSUME_YES" -ne 1 ]] && { err "Moves require --yes after you review the destination."; exit 1; }
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  bundle="$LOCAL_TRANSFER_DEST/CSA-iEM-Backup-$stamp"
+  mkdir -p "$bundle"
+
+  if [[ "${#LOCAL_TRANSFER_PROJECTS[@]}" -eq 0 ]]; then
+    sources=("$CODE_ROOT:Code" "$IMPORT_ROOT:Import" "$RUNTIME_ROOT:Runtime")
+  else
+    for project in "${LOCAL_TRANSFER_PROJECTS[@]}"; do
+      [[ "$project" == */* ]] || { err "Project must use OWNER/REPO: $project"; exit 1; }
+      for source in "$CODE_REPOS_DIR/$project:Code/Repos/$project" "$IMPORT_REPOS_DIR/$project:Import/Repos/$project" "$RUNTIME_REPOS_DIR/$project:Runtime/Repos/$project" "$RUNNERS_DIR/$project:Runtime/Runners/$project"; do
+        [[ -d "${source%%:*}" ]] && sources+=("$source")
+      done
+    done
+  fi
+
+  [[ "${#sources[@]}" -gt 0 ]] || { err "No local workspace files matched the requested transfer."; exit 1; }
+  echo "External-drive $LOCAL_TRANSFER_MODE destination: $bundle"
+  for source in "${sources[@]}"; do
+    destination="$bundle/${source#*:}"
+    source="${source%%:*}"
+    echo "  $source -> $destination"
+    copy_local_tree "$source" "$destination"
+    if [[ "$LOCAL_TRANSFER_MODE" == "move" ]]; then
+      rm -rf -- "$source"
+    fi
+  done
+  echo "External-drive $LOCAL_TRANSFER_MODE completed: $bundle"
+}
+
+run_external_default_workspace() {
+  local base stage stamp source destination
+  if [[ "$EXTERNAL_DEFAULT_ACTION" == "restore" ]]; then
+    SAVED_DEFAULT_ROOT=""
+    SAVED_CODE_ROOT="$PUBLIC_DEFAULT_CODE_ROOT"
+    SAVED_IMPORT_ROOT="$PUBLIC_DEFAULT_IMPORT_ROOT"
+    SAVED_RUNTIME_ROOT="$PUBLIC_DEFAULT_RUNTIME_ROOT"
+    save_profile_config
+    echo "Restored Default workspace paths under $PUBLIC_DEFAULT_ROOT. No files were moved."
+    return 0
+  fi
+
+  [[ -n "$LOCAL_TRANSFER_DEST" ]] || { err "--external-drive PATH is required."; exit 1; }
+  [[ -d "$LOCAL_TRANSFER_DEST" ]] || { err "External drive path was not found: $LOCAL_TRANSFER_DEST"; exit 1; }
+
+  base="$LOCAL_TRANSFER_DEST/CSA-iEM"
+  if [[ "$EXTERNAL_DEFAULT_ACTION" == "set" ]]; then
+    SAVED_DEFAULT_ROOT="$base"
+    SAVED_CODE_ROOT="$base/Code"
+    SAVED_IMPORT_ROOT="$base/Import"
+    SAVED_RUNTIME_ROOT="$base/Runtime"
+    save_profile_config
+    echo "Saved external Default workspace: $base"
+    echo "No files were moved. Use --move-all-to-external-default --yes to relocate current roots."
+    return 0
+  fi
+
+  [[ "$ASSUME_YES" -eq 1 ]] || { err "Moving all workspace files requires --yes."; exit 1; }
+  for source in "$CODE_ROOT" "$IMPORT_ROOT" "$RUNTIME_ROOT"; do
+    [[ -d "$source" ]] || { err "Workspace source was not found: $source"; exit 1; }
+    [[ "$base" != "$source" && "$base" != "$source"/* ]] || { err "External destination cannot be inside the current workspace: $base"; exit 1; }
+  done
+  for destination in "$base/Code" "$base/Import" "$base/Runtime"; do
+    [[ ! -e "$destination" ]] || { err "Destination already exists: $destination. Choose an empty drive location."; exit 1; }
+  done
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  stage="$base/.csa-iem-stage-$stamp"
+  mkdir -p "$stage"
+  echo "Staging complete workspace move to $base"
+  copy_local_tree "$CODE_ROOT" "$stage/Code"
+  copy_local_tree "$IMPORT_ROOT" "$stage/Import"
+  copy_local_tree "$RUNTIME_ROOT" "$stage/Runtime"
+  mkdir -p "$base"
+  mv "$stage/Code" "$base/Code"
+  mv "$stage/Import" "$base/Import"
+  mv "$stage/Runtime" "$base/Runtime"
+  rmdir "$stage" 2>/dev/null || true
+
+  rm -rf -- "$CODE_ROOT" "$IMPORT_ROOT" "$RUNTIME_ROOT"
+  SAVED_DEFAULT_ROOT="$base"
+  SAVED_CODE_ROOT="$base/Code"
+  SAVED_IMPORT_ROOT="$base/Import"
+  SAVED_RUNTIME_ROOT="$base/Runtime"
+  save_profile_config
+  echo "Moved all workspace roots and saved external Default workspace: $base"
 }
 
 ensure_macos() {
@@ -5700,6 +5837,63 @@ parse_cli_args() {
       --browse-devcontainers)
         ENTRY_MODE="devcontainers"
         ;;
+      --list-external-drives)
+        LIST_EXTERNAL_DRIVES=1
+        ENTRY_MODE="external"
+        ;;
+      --external-drive)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--external-drive requires a mounted drive path."
+          exit 1
+        fi
+        LOCAL_TRANSFER_DEST="$1"
+        ENTRY_MODE="external"
+        ;;
+      --external-drive=*)
+        LOCAL_TRANSFER_DEST="${1#*=}"
+        ENTRY_MODE="external"
+        ;;
+      --backup-all)
+        LOCAL_TRANSFER_MODE="backup"
+        ENTRY_MODE="external"
+        ;;
+      --move-all)
+        LOCAL_TRANSFER_MODE="move"
+        ENTRY_MODE="external"
+        ;;
+      --backup-project)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--backup-project requires OWNER/REPO."
+          exit 1
+        fi
+        LOCAL_TRANSFER_MODE="backup"
+        LOCAL_TRANSFER_PROJECTS+=("$1")
+        ENTRY_MODE="external"
+        ;;
+      --move-project)
+        shift
+        if [[ "$#" -eq 0 ]]; then
+          err "--move-project requires OWNER/REPO."
+          exit 1
+        fi
+        LOCAL_TRANSFER_MODE="move"
+        LOCAL_TRANSFER_PROJECTS+=("$1")
+        ENTRY_MODE="external"
+        ;;
+      --set-external-default)
+        EXTERNAL_DEFAULT_ACTION="set"
+        ENTRY_MODE="external"
+        ;;
+      --move-all-to-external-default)
+        EXTERNAL_DEFAULT_ACTION="move"
+        ENTRY_MODE="external"
+        ;;
+      --restore-internal-default)
+        EXTERNAL_DEFAULT_ACTION="restore"
+        ENTRY_MODE="external"
+        ;;
       --use-current-root)
         AUTO_USE_CURRENT_ROOT=1
         ;;
@@ -5782,6 +5976,13 @@ parse_cli_args() {
     [[ -z "$PROFILE_NAME" ]] && PROFILE_NAME="default"
     AUTO_USE_CURRENT_ROOT=1
   fi
+
+  if [[ "$ENTRY_MODE" == "external" ]]; then
+    DIRECT_CLEANUP_MODE=0
+    DIRECT_IMPORT_MODE=0
+    PROFILE_NAME="default"
+    AUTO_USE_CURRENT_ROOT=1
+  fi
 }
 
 main() {
@@ -5798,6 +5999,11 @@ main() {
   printf 'Provided by %s | %s | %s\n' "$APP_VENDOR" "$APP_VENDOR_URL" "$APP_RISK_NOTICE"
   print_line
   echo
+
+  if [[ "$LIST_EXTERNAL_DRIVES" -eq 1 ]]; then
+    list_external_drives
+    exit 0
+  fi
 
   show_preflight_scan
   select_profile
@@ -5825,7 +6031,13 @@ main() {
     choose_root
   fi
 
-  if [[ "$ENTRY_MODE" == "browse" ]]; then
+  if [[ "$ENTRY_MODE" == "external" ]]; then
+    if [[ -n "$EXTERNAL_DEFAULT_ACTION" ]]; then
+      run_external_default_workspace
+    else
+      run_external_drive_transfer
+    fi
+  elif [[ "$ENTRY_MODE" == "browse" ]]; then
     browse_local_resources
   elif [[ "$ENTRY_MODE" == "projects" ]]; then
     browse_imported_projects_quick

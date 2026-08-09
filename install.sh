@@ -247,6 +247,31 @@ default_app_install_dir() {
   fi
 }
 
+remove_stale_gui_app_bundles() {
+  local canonical_app="$1"
+  local app_dir=""
+  local candidate=""
+
+  for app_dir in /Applications "$HOME/Applications"; do
+    [[ -d "$app_dir" ]] || continue
+    for candidate in \
+      "$app_dir"/CSA-iEM.app.backup-* \
+      "$app_dir"/CSA-iLEM.app.backup-* \
+      "$app_dir"/CSA-iEM.app.* \
+      "$app_dir"/CSA-iLEM.app.* \
+      "$app_dir"/CSA-iEM-*.app \
+      "$app_dir"/CSA-iLEM-*.app \
+      "$app_dir"/CSA-iEM\ *.app \
+      "$app_dir"/CSA-iLEM\ *.app \
+      "$app_dir"/CSA-iLEM.app; do
+      [[ -e "$candidate" ]] || continue
+      [[ "$candidate" == "$canonical_app" ]] && continue
+      rm -rf -- "$candidate"
+      info "Removed stale CSA-iEM app bundle: $candidate"
+    done
+  done
+}
+
 install_login_toolbar_agent() {
   local app_path="$1"
   local launch_agents_dir="$HOME/Library/LaunchAgents"
@@ -314,8 +339,14 @@ install_gui_app_bundle() {
   app_install_dir="$(default_app_install_dir)"
   mkdir -p "$app_install_dir"
   target_app="$app_install_dir/$APP_NAME.app"
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   rm -rf "$target_app"
-  cp -R "$built_app" "$target_app"
+  ditto --norsrc "$built_app" "$target_app"
+  xattr -rc "$target_app" >/dev/null 2>&1 || true
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --verify --deep --strict "$target_app" >/dev/null 2>&1 || warn "Installed GUI bundle signature verification failed: $target_app"
+  fi
+  remove_stale_gui_app_bundles "$target_app"
   install_login_toolbar_agent "$target_app"
 
   info "Installed native app: $target_app"

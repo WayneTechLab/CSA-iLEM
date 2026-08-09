@@ -44,6 +44,13 @@ $State = [ordered]@{
     CodeRoot = ""
     ImportRoot = ""
     RuntimeRoot = ""
+    ExternalDrive = ""
+    ListExternalDrives = $false
+    SetExternalDefault = $false
+    MoveAllToExternalDefault = $false
+    RestoreInternalDefault = $false
+    RecoveryMode = $false
+    RecoverySource = ""
     RunFilter = ""
     RunId = ""
 }
@@ -478,6 +485,169 @@ function Save-WorkspaceChoice {
         GitHubHost = $GitHubHost
         Account = $Account
     }
+}
+
+function Get-ExternalWorkspaceDrives {
+    return @(
+        Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue |
+            Where-Object { $_.DriveType -in @(2, 3) -and $_.DeviceID -ne "C:" } |
+            Sort-Object DeviceID |
+            ForEach-Object {
+                [pscustomobject]@{
+                    Path = "$($_.DeviceID)\\"
+                    Label = if ($_.VolumeName) { $_.VolumeName } else { $_.DeviceID }
+                    FreeBytes = [int64]$_.FreeSpace
+                    TotalBytes = [int64]$_.Size
+                }
+            }
+    )
+}
+
+function Show-ExternalWorkspaceDrives {
+    $Drives = Get-ExternalWorkspaceDrives
+    if ($Drives.Count -eq 0) {
+        Write-Host "No removable or non-system data drives were detected."
+        return
+    }
+    Write-Host "External/data drives:"
+    foreach ($Drive in $Drives) {
+        $Free = [math]::Round($Drive.FreeBytes / 1GB, 2)
+        $Total = [math]::Round($Drive.TotalBytes / 1GB, 2)
+        Write-Host "  $($Drive.Path) $($Drive.Label) - $Free GB free of $Total GB"
+    }
+}
+
+function Set-ExternalDefaultWorkspace {
+    param([string]$DrivePath)
+    if (-not $DrivePath -or -not (Test-Path $DrivePath)) { throw "External drive path was not found: $DrivePath" }
+    $Base = Join-Path $DrivePath "CSA-iEM"
+    $Settings = Load-Settings
+    Save-WorkspaceChoice -CodeRoot (Join-Path $Base "Code") -ImportRoot (Join-Path $Base "Import") -RuntimeRoot (Join-Path $Base "Runtime") -GitHubHost $Settings.GitHubHost -Account $Settings.Account
+    Write-Host "Saved external Default workspace: $Base"
+    Write-Host "No files were moved. Use --move-all-to-external-default --yes after reviewing the destination."
+}
+
+function Move-AllToExternalDefaultWorkspace {
+    param([string]$DrivePath)
+    if (-not $State.Yes) { throw "Moving all workspace files requires --yes." }
+    if (-not $DrivePath -or -not (Test-Path $DrivePath)) { throw "External drive path was not found: $DrivePath" }
+    $Roots = Resolve-Roots
+    $Base = Join-Path $DrivePath "CSA-iEM"
+    $Destinations = @((Join-Path $Base "Code"), (Join-Path $Base "Import"), (Join-Path $Base "Runtime"))
+    foreach ($Destination in $Destinations) {
+        if (Test-Path $Destination) { throw "Destination already exists: $Destination. Choose an empty drive location." }
+    }
+    $Stage = Join-Path $Base (".csa-iem-stage-" + (Get-Timestamp))
+    New-Item -ItemType Directory -Path $Stage -Force | Out-Null
+    $Sources = @($Roots.CodeRoot, $Roots.ImportRoot, $Roots.RuntimeRoot)
+    $Names = @("Code", "Import", "Runtime")
+    for ($Index = 0; $Index -lt $Sources.Count; $Index++) {
+        Copy-Item -Path $Sources[$Index] -Destination (Join-Path $Stage $Names[$Index]) -Recurse -Force
+    }
+    for ($Index = 0; $Index -lt $Destinations.Count; $Index++) {
+        Move-Item -Path (Join-Path $Stage $Names[$Index]) -Destination $Destinations[$Index]
+    }
+    Remove-Item -Path $Stage -Force -ErrorAction SilentlyContinue
+    foreach ($Source in $Sources) { Remove-Item -Path $Source -Recurse -Force }
+    $Settings = Load-Settings
+    Save-WorkspaceChoice -CodeRoot $Destinations[0] -ImportRoot $Destinations[1] -RuntimeRoot $Destinations[2] -GitHubHost $Settings.GitHubHost -Account $Settings.Account
+    Write-Host "Moved all workspace roots and saved external Default workspace: $Base"
+}
+
+function Get-RecoveryCandidates {
+    param([hashtable]$Roots)
+
+    $Current = @($Roots.CodeRoot, $Roots.ImportRoot, $Roots.RuntimeRoot) | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd("\") }
+    $Home = [Environment]::GetFolderPath("UserProfile")
+    $Candidates = @(
+        (Join-Path $Home "CSA-iLEM"),
+        (Join-Path $Home "CSA-iEM"),
+        (Join-Path $Home "WTL"),
+        "C:\CSA-iLEM",
+        "C:\CSA-iEM",
+        "D:\CSA-iLEM",
+        "D:\CSA-iEM"
+    )
+
+    foreach ($Parent in @((Split-Path $Roots.CodeRoot -Parent), (Split-Path $Roots.RuntimeRoot -Parent), (Join-Path $Home "Documents"))) {
+        if (Test-Path $Parent) {
+            $Candidates += @(Get-ChildItem -Path $Parent -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+        }
+    }
+
+    $Seen = @{}
+    foreach ($Candidate in $Candidates) {
+        if (-not $Candidate -or -not (Test-Path $Candidate)) { continue }
+        $Full = [IO.Path]::GetFullPath($Candidate).TrimEnd("\")
+        if ($Current -contains $Full -or $Seen.ContainsKey($Full)) { continue }
+        $Seen[$Full] = $true
+        $Code = if (Test-Path (Join-Path $Full "Code")) { Join-Path $Full "Code" } else { $Full }
+        $Import = Join-Path $Full "Import"
+        $Runtime = if (Test-Path (Join-Path $Full "Runtime")) { Join-Path $Full "Runtime" } else { $Full }
+        $HasContent = (Test-Path (Join-Path $Code "Repos")) -or (Test-Path (Join-Path $Runtime "Repos")) -or (Test-Path (Join-Path $Runtime "Runners"))
+        if (-not $HasContent) { continue }
+        [pscustomobject]@{
+            Source = $Full
+            CodeRoot = $Code
+            ImportRoot = $Import
+            RuntimeRoot = $Runtime
+            ProjectCount = @(
+                Get-ChildItem -Path (Join-Path $Code "Repos") -Directory -ErrorAction SilentlyContinue |
+                    ForEach-Object { @(Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue) }
+            ).Count
+            RunnerCount = @(Get-ChildItem -Path (Join-Path $Runtime "Runners") -Directory -ErrorAction SilentlyContinue).Count
+        }
+    }
+}
+
+function Invoke-RecoveryMerge {
+    param(
+        [pscustomobject]$Candidate,
+        [hashtable]$Roots
+    )
+
+    $Pairs = @(
+        @{ Source = $Candidate.CodeRoot; Destination = $Roots.CodeRoot },
+        @{ Source = $Candidate.ImportRoot; Destination = $Roots.ImportRoot },
+        @{ Source = $Candidate.RuntimeRoot; Destination = $Roots.RuntimeRoot }
+    )
+    $Copied = 0
+    foreach ($Pair in $Pairs) {
+        if (-not (Test-Path $Pair.Source)) { continue }
+        Ensure-Directory $Pair.Destination
+        Write-Info "Recovering $($Pair.Source) -> $($Pair.Destination)"
+        & robocopy $Pair.Source $Pair.Destination /E /XC /XN /XO /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+        if ($LASTEXITCODE -gt 7) { throw "Recovery copy failed for $($Pair.Source) with robocopy exit code $LASTEXITCODE." }
+        $Copied++
+    }
+    Write-Host "Recovery merge complete. $Copied root mappings processed. Existing destination files were preserved."
+}
+
+function Start-RecoveryMode {
+    param([hashtable]$Roots)
+
+    $Candidates = Get-RecoveryCandidates -Roots $Roots
+    if ($State.RecoverySource) {
+        $Selected = Get-RecoveryCandidates -Roots $Roots | Where-Object { $_.Source -eq ([IO.Path]::GetFullPath($State.RecoverySource).TrimEnd("\")) } | Select-Object -First 1
+        if (-not $Selected) {
+            $Source = [IO.Path]::GetFullPath($State.RecoverySource).TrimEnd("\")
+            $Selected = [pscustomobject]@{ Source = $Source; CodeRoot = if (Test-Path (Join-Path $Source "Code")) { Join-Path $Source "Code" } else { $Source }; ImportRoot = Join-Path $Source "Import"; RuntimeRoot = if (Test-Path (Join-Path $Source "Runtime")) { Join-Path $Source "Runtime" } else { $Source }; ProjectCount = 0; RunnerCount = 0 }
+        }
+        $Candidates = @($Selected) + @($Candidates | Where-Object { $_.Source -ne $Selected.Source })
+    }
+    if (-not $Candidates -or $Candidates.Count -eq 0) { Write-WarnLine "No old workspace roots were detected. Use --recovery-source to choose one."; return }
+
+    Write-Section "Recovery Mode"
+    for ($Index = 0; $Index -lt $Candidates.Count; $Index++) {
+        Write-Host "$($Index + 1)) $($Candidates[$Index].Source) - $($Candidates[$Index].ProjectCount) projects, $($Candidates[$Index].RunnerCount) runners"
+    }
+    $Choice = Read-Host "Choose a recovery source [1-$($Candidates.Count)] (Enter = 1)"
+    if ([string]::IsNullOrWhiteSpace($Choice)) { $Choice = "1" }
+    $Selected = $Candidates[[int]$Choice - 1]
+    Write-Host "Active Code root: $($Roots.CodeRoot)"
+    Write-Host "Active Runtime root: $($Roots.RuntimeRoot)"
+    if (-not (Confirm-Action -Prompt "Merge missing files from $($Selected.Source) into the active roots?")) { return }
+    Invoke-RecoveryMerge -Candidate $Selected -Roots $Roots
 }
 
 function Get-ReportPath {
@@ -1940,6 +2110,13 @@ Options:
   --import-cleanup-preview
   --browse-projects
   --billing-report
+  --list-external-drives
+  --external-drive DRIVE_PATH
+  --set-external-default
+  --move-all-to-external-default
+  --restore-internal-default
+  --recover
+  --recovery-source PATH
   --use-current-root
   --single-root PATH
   --code-root PATH
@@ -1973,6 +2150,16 @@ function Parse-Args {
             "--version" { $State.ShowVersion = $true }
             "--browse-projects" { $State.BrowseProjects = $true }
             "--billing-report" { $State.BillingReport = $true }
+            "--list-external-drives" { $State.ListExternalDrives = $true }
+            "--external-drive" {
+                $Index++
+                $State.ExternalDrive = $ArgsList[$Index]
+            }
+            "--set-external-default" { $State.SetExternalDefault = $true }
+            "--move-all-to-external-default" { $State.MoveAllToExternalDefault = $true }
+            "--restore-internal-default" { $State.RestoreInternalDefault = $true }
+            "--recover" { $State.RecoveryMode = $true }
+            "--recovery-source" { $Index++; $State.RecoverySource = $ArgsList[$Index]; $State.RecoveryMode = $true }
             "--use-current-root" { $State.UseCurrentRoot = $true }
             "--import-full-auto" { $State.ImportFullAuto = $true }
             "--import-cleanup-preview" { $State.ImportCleanupPreview = $true }
@@ -2228,6 +2415,29 @@ $($WindowsExcludedPaths -join [Environment]::NewLine)
 }
 
 function Run-DirectAction {
+    if ($State.ListExternalDrives) {
+        Show-ExternalWorkspaceDrives
+        return
+    }
+    if ($State.RestoreInternalDefault) {
+        $Settings = Load-Settings
+        Save-WorkspaceChoice -CodeRoot (Get-DefaultCodeRoot) -ImportRoot (Get-DefaultImportRoot) -RuntimeRoot (Get-DefaultRuntimeRoot) -GitHubHost $Settings.GitHubHost -Account $Settings.Account
+        Write-Host "Restored Default workspace paths under $(Get-DefaultBaseRoot). No files were moved."
+        return
+    }
+    if ($State.SetExternalDefault) {
+        Set-ExternalDefaultWorkspace -DrivePath $State.ExternalDrive
+        return
+    }
+    if ($State.MoveAllToExternalDefault) {
+        Move-AllToExternalDefaultWorkspace -DrivePath $State.ExternalDrive
+        return
+    }
+    if ($State.RecoveryMode) {
+        $Roots = Resolve-Roots
+        Start-RecoveryMode -Roots $Roots
+        return
+    }
     $Roots = Resolve-Roots
     Ensure-GitHubAuth -GitHubHost $State.GitHubHost
     if (-not $State.Account) {
@@ -2286,8 +2496,9 @@ function Run-Interactive {
         Write-Host "4) Show preflight scan"
         Write-Host "5) Browse imported projects"
         Write-Host "6) GitHub billing and Actions usage report"
-        Write-Host "7) Exit"
-        $Choice = Read-Host "Enter choice [1-7]"
+        Write-Host "7) Recovery mode: find and merge old workspace roots"
+        Write-Host "8) Exit"
+        $Choice = Read-Host "Enter choice [1-8]"
 
         switch ($Choice) {
             "1" {
@@ -2363,7 +2574,8 @@ function Run-Interactive {
             }
             "5" { Browse-ImportedProjects -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot }
             "6" { Show-GitHubBillingReport -GitHubHost $State.GitHubHost -DefaultOwner $State.Account }
-            "7" { return }
+            "7" { Start-RecoveryMode -Roots $Roots }
+            "8" { return }
             default { }
         }
     }
@@ -2387,7 +2599,7 @@ Write-Host "Provider: $AppVendor"
 Write-Host "Website: $AppUrl"
 Write-Host "Use at your own risk."
 
-if ($State.BrowseProjects -or $State.BillingReport -or ($State.Repo -and ($State.ImportMode -or $State.CleanupOnly))) {
+if ($State.ListExternalDrives -or $State.SetExternalDefault -or $State.MoveAllToExternalDefault -or $State.RestoreInternalDefault -or $State.RecoveryMode -or $State.BrowseProjects -or $State.BillingReport -or ($State.Repo -and ($State.ImportMode -or $State.CleanupOnly))) {
     Run-DirectAction
 } else {
     Run-Interactive

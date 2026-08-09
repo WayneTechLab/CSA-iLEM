@@ -1,7 +1,7 @@
 # CSA-iEM Status
 
-Version baseline: `0.3.5`
-Updated: `2026-04-08`
+Version baseline: `0.5.9`
+Updated: `2026-08-08`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
@@ -13,13 +13,17 @@ Long-range product roadmap:
 These major product areas are built into the app now:
 
 - production CLI engine for import, local prep, cleanup, and review flows
-- SwiftUI macOS GUI with `Home`, `Jobs`, `GitHub Account`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
+- SwiftUI macOS GUI with `Home`, `Import`, `Projects`, `CODEX ~ GPT PORTAL`, `GitHub Account`, `GitHub Billing Reports`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
 - Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, devcontainer prep, and repo-level self-hosted runner setup
 - explicit public workspace roots for `Code`, `Import`, and `Runtime` across the shared app model
 - local project browsing with native search, favorites, targeting, and direct open actions
 - local runner and devcontainer inspection/control from the GUI
 - GitHub admin surfaces for repo health, workflows, runs, Codespaces, secrets/variables inventory, and rules/rulesets viewing
 - local move/export/snapshot flows with preview-first behavior
+- local CODEX project discovery, index-first preflight, verified backup, copy, sync, move, conflict quarantine, and handoff-note workflows
+- custom local scan roots that can be entered, selected, or dropped into the portal and persist only in the local app profile
+- mounted-drive Default workspace, backup, relocation, migration, and recovery flows
+- native macOS menu-bar controls and Windows notification-area companion entry points
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
@@ -27,7 +31,7 @@ These major product areas are built into the app now:
 
 ## Is Done
 
-These items are currently tracked as working in the repo at the `0.3.5` baseline:
+These items are currently tracked as working in the repo at the `0.5.9` baseline:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`
@@ -44,6 +48,10 @@ These items are currently tracked as working in the repo at the `0.3.5` baseline
 - safer split-root move staging compared to earlier partial-move behavior
 - export preview destination consistency
 - clearer partial-failure reporting in the GitHub admin panels for secrets, variables, branch protection, and rulesets
+- canonical macOS app replacement that removes stale app bundles and refreshes the single toolbar launcher
+- selected-root project discovery without a broad Codex-history scan
+- persistent source/destination file tables, targeted rsync manifests, optional deep checksum audit, and mandatory full checksum verification before a source is retired
+- generated `Transfer_Note.MD` and `Prompt_Inject.MD` files at verified project destinations
 
 ## Broken
 
@@ -51,7 +59,7 @@ These are the known production gaps or weak spots still open:
 
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
-- the public remote install path still trusts downloaded GitHub content rather than signed or checksummed release artifacts
+- the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source
 - destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures
 - GitHub admin features have not yet been fully smoke-tested across multiple accounts, organizations, and intentionally limited token scopes
 - there is still no deep automated regression suite for install, uninstall, GUI actions, and GitHub-side operations
@@ -64,7 +72,7 @@ These areas are close, but not fully finished to the standard the app is aiming 
 - Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
 - the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
-- `Local Files` now has safer previews, moves, exports, and snapshots, but needs more polished recovery UX and more guided validation
+- `CODEX ~ GPT PORTAL` and `Local Files` now have safer previews, moves, exports, snapshots, and recovery flows, but need more polished cross-platform validation
 - `Projects` has strong browsing and local operations, but still needs deeper native import and one-by-one management flows
 - `Jobs` exists, but not every long-running background action is routed through it yet
 - `Settings` is present, but onboarding and preference explanations can still be cleaner for public users
@@ -75,7 +83,7 @@ These are the next production-hardening tasks with the best return:
 
 - replace more Terminal fallback flows with fully native GUI actions
 - add deeper Windows smoke coverage for runner install/service behavior and Docker/devcontainer lifecycle on real Windows 11 hardware
-- add signed release artifacts or checksum verification to the public installer/update path
+- add signed release artifacts or an independently distributed checksum to the public installer/update path
 - add a rollback/recovery layer for move/export operations when later steps fail
 - add an end-to-end production smoke suite for:
   - install

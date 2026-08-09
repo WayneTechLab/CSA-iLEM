@@ -167,6 +167,12 @@ function Build-CsaIemContextMenu {
     }
     [void]$Menu.Items.Add($RootsItem)
 
+    $ExternalItem = [System.Windows.Forms.ToolStripMenuItem]::new("External Drives")
+    [void]$ExternalItem.DropDownItems.Add((New-MenuItem -Text "List External Drives" -OnClick { Start-CsaIemPowerShell -Arguments @("--list-external-drives") }))
+    [void]$ExternalItem.DropDownItems.Add((New-MenuItem -Text "Open External Drive Command Help" -OnClick { Start-CsaIemPowerShell -Arguments @("--help") }))
+    [void]$ExternalItem.DropDownItems.Add((New-MenuItem -Text "Restore Internal Default Paths" -OnClick { Start-CsaIemPowerShell -Arguments @("--restore-internal-default") }))
+    [void]$Menu.Items.Add($ExternalItem)
+
     $RunnersItem = [System.Windows.Forms.ToolStripMenuItem]::new("GitHub Action Runners")
     if ($RunnerServices.Count -eq 0) {
         [void]$RunnersItem.DropDownItems.Add((New-MenuItem -Text "No actions.runner.* services detected" -Enabled $false))

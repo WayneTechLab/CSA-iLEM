@@ -1,7 +1,80 @@
 # Changelog
 
-## 0.4.5
+## 0.5.9
 
+- Saves the CODEX ~ GPT PORTAL's custom scan-root list locally. A pasted, picked, or dropped folder remains available after the app restarts without saving GitHub identity, credentials, prompt contents, or project files.
+
+## 0.5.8
+
+- Added explicit custom project-search roots to the CODEX ~ GPT PORTAL: paste a readable folder path, choose a folder, or drag and drop one or more Finder folders. The scanner retains its evidence requirement, so adding Documents as a search boundary does not classify every subfolder as a Codex project.
+
+## 0.5.7
+
+- Made selected-folder discovery deterministic and fast. CSA-iEM now scans the selected source folders' on-disk context first and skips expensive Codex session-history parsing when a source scope is present, so unlinked projects are not held behind large or cloud-backed session JSONL files.
+
+## 0.5.6
+
+- Fixed index path handling on macOS paths such as `/tmp` that Foundation resolves through `/private`. The walker now retains the filesystem-provided relative path (for example, `src/changed.txt`) in the saved JSON table and in targeted rsync manifests.
+
+## 0.5.5
+
+- Fixed index recursion for projects that contain symlinks. The virtual file table now continues through ordinary project directories after recording a symlink, so nested source files, generated folders when included, and empty directories are all represented in the preflight plan.
+
+## 0.5.4
+
+- Added index-first preflight for the CODEX ~ GPT PORTAL. Before execution, CSA-iEM now records a source file table, destination file table when present, and a transfer plan JSON under the selected output folder's `_temp/Transfer-Indexes` directory.
+- Existing destinations now use a targeted `rsync --files-from` manifest so repeat Copy, Scan & Backup, and Sync and Move runs transfer only missing, metadata-changed, or deep-audit-failed paths instead of re-copying the full project tree.
+- Added an optional deep checksum audit for metadata-matched paths. Fast preflight compares relative path, type, size, date, and symlink target; the deep audit is available when an operator needs to detect same-size, same-date content changes and accepts the full read cost.
+- Kept the stronger safety boundary for destructive moves: Sync and Move still runs a full checksum comparison before it can retire a source. A new output folder also still requires one complete staged baseline mirror because no destination files exist yet to skip.
+- Expanded discovery beyond active Codex session links. The portal now recognizes project-folder context from Git, manifests, source folders, editor settings, Docker/config files, managed-workspace folders, and prior transfer notes; it can fall back to common Documents, development, Codex worktree, and mounted-drive locations.
+- Added the on-screen virtual file table, index-folder reveal action, preflight indexing progress, targeted-transfer status, and safe blocking for file-versus-folder conflicts.
+
+## 0.5.3
+
+- Expanded the CODEX ~ GPT PORTAL to five explicit transfer modes: Backup Only, Copy to Output, Sync and Move, Sync and Sync, and Scan & Backup (Auto Merge).
+- Added fast bidirectional reconciliation that uses rsync metadata dry-run candidates, timestamp fast paths, and one exact verification pass for ambiguous files.
+- Added auto-heal behavior for one-sided changes, verified pre-sync backups for both folders, conflict quarantine under `_temp`, and `Conflict_Report.MD` with both preserved file versions.
+- Sync and Move now resumes existing destinations automatically and removes the source only after final verification; Sync and Sync never removes either side.
+- Scan & Backup always creates a verified archive while merging missing or changed source files into the output and retaining destination-only recovery data.
+
+## 0.5.2
+
+- Added Auto All for the CODEX ~ GPT PORTAL: select every discovered project and enable destination-aware resume in one action.
+- Existing destination folders are now reconciled with checksum-aware rsync; identical files stay in place, missing or changed files are copied, and existing destination-only files are preserved.
+- Added resume-aware progress summaries, reconciled-file counts, destination safety checks, and resumable failure behavior for interrupted multi-project transfers.
+
+## 0.5.1
+
+- Fixed Codex project transfers so the rsync process drains output without pipe deadlocks and preserves complete generic project trees, including optional `.git`, `node_modules`, `.DS_Store`, and `._*` files.
+- Added a generic post-copy Git recovery path that fetches the detected `origin/main`, activates local `main`, rebuilds only the Git index, and preserves the transferred working tree without checkout or overwrite.
+- Added explicit Finder-metadata and Git-main-rearm controls to the macOS CODEX ~ GPT PORTAL and carried the settings into `Transfer_Note.MD` and `Prompt_Inject.MD`.
+- Bumped the installed macOS app, CLI, toolbar, and Windows-shipped version metadata to `0.5.1`.
+
+## 0.5.0
+
+- Added the native `CODEX ~ GPT PORTAL` for discovering projects from local Codex session history and multiple operator-selected scan roots.
+- Added one, multi, visible, and all-project selection with search, Finder, Codex, and Visual Studio Code quick actions.
+- Added preflighted Backup Only, Copy, and Move workflows with isolated `_temp` staging, checksum comparison, verified ZIP backups, optional `.git` and generated-dependency preservation, and source removal only after final verification.
+- Added per-project `Transfer_Note.MD` and `Prompt_Inject.MD` handoff files so relocated projects carry their source, destination, Git, dependency, verification, and reconnect context.
+- Added opt-in Administrator Terminal mode. CLI launchers use a visible `sudo -v` authorization gate and never read, type, store, or log the administrator password.
+
+## 0.4.9
+
+- Fixed macOS upgrade hygiene: the installer now stops the old app, replaces the canonical app bundle, removes stale CSA-iEM/CSA-iLEM backup bundles, and reloads the single toolbar launch agent.
+
+## 0.4.8
+
+- Fixed macOS launch persistence: after the local agreement/startup check is completed, future launches open directly to the app instead of repeatedly reopening the splash or startup sheet.
+
+## 0.4.7
+
+- Added external-drive Default workspace controls: save a stable `DRIVE/CSA-iEM` path without touching files, prepare a full relocation preview, move all workspace roots after explicit confirmation, reveal the new workspace, and restore internal default paths without moving data.
+- Added workspace-size feedback, external-drive default controls in both macOS toolbar surfaces, Windows external-drive discovery/default/move CLI support, and Windows tray entry points.
+
+## 0.4.6
+
+- added mounted external-drive selection to the Local Files page and macOS toolbar, with capacity display and one-click destination selection
+- added CLI external-drive list, full-workspace backup/move, and repeatable selected-project backup/move commands
 - added a Privacy-First startup readiness check with Auto Fix, manual setup guidance, and Ignore and Continue choices
 - stopped using legacy GitHub session files to prefill macOS app identity or repository targets; saved GitHub contexts are disabled by default and active identities are redacted from GUI logs
 - added a native GitHub Billing Reports page for Actions minutes, paid minute usage, storage, Packages, and per-project Actions activity signals

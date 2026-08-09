@@ -12,9 +12,11 @@ APP_NAME="CSA-iEM"
 GUI_TARGET="CSAiEMMacApp"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
 DIST_DIR="$SCRIPT_DIR/dist"
-APP_DIR="$DIST_DIR/$APP_NAME.app"
+DIST_APP_DIR="$DIST_DIR/$APP_NAME.app"
 SCRATCH_ID="$(printf '%s' "$SCRIPT_DIR" | shasum | awk '{print $1}')"
 SCRATCH_PATH="${CSA_IEM_SCRATCH_PATH:-${TMPDIR:-/tmp}/csa-iem-swiftpm-$SCRATCH_ID}"
+BUILD_ROOT="${CSA_IEM_GUI_BUILD_DIR:-${TMPDIR:-/tmp}/csa-iem-gui-$SCRATCH_ID}"
+APP_DIR="$BUILD_ROOT/$APP_NAME.app"
 
 CLI_FILES=(
   "VERSION"
@@ -116,6 +118,8 @@ if [[ ! -x "$BIN_PATH" ]]; then
   exit 1
 fi
 
+rm -rf "$BUILD_ROOT"
+mkdir -p "$BUILD_ROOT"
 rm -rf "$APP_DIR"
 mkdir -p \
   "$APP_DIR/Contents/MacOS" \
@@ -228,9 +232,36 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+if command -v codesign >/dev/null 2>&1; then
+  signed_bundle=0
+  for _ in 1 2 3; do
+    if command -v xattr >/dev/null 2>&1; then
+      xattr -cr "$APP_DIR"
+      xattr -d com.apple.FinderInfo "$APP_DIR" >/dev/null 2>&1 || true
+      xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" >/dev/null 2>&1 || true
+    fi
+    if codesign --force --deep --sign - --timestamp=none "$APP_DIR" >/dev/null 2>&1 \
+      && codesign --verify --deep --strict "$APP_DIR" >/dev/null 2>&1; then
+      signed_bundle=1
+      break
+    fi
+    sleep 0.2
+  done
+  if [[ "$signed_bundle" -ne 1 ]]; then
+    echo "Failed to create a valid ad-hoc signature for $APP_DIR." >&2
+    exit 1
+  fi
+fi
+
+# Documents may be iCloud/File Provider-backed. Publish a clean copy only
+# after signing so Finder metadata cannot invalidate the bundle mid-build.
+rm -rf "$DIST_APP_DIR"
+ditto --norsrc "$APP_DIR" "$DIST_APP_DIR"
+xattr -rc "$DIST_APP_DIR" >/dev/null 2>&1 || true
+
 echo
 echo "$APP_NAME GUI bundle created:"
-echo "  $APP_DIR"
+echo "  $DIST_APP_DIR"
 echo "SwiftPM scratch path:"
 echo "  $SCRATCH_PATH"
 echo
