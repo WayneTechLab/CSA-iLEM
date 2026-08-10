@@ -130,6 +130,7 @@ RUNNER_PROCESS_NAMES = {
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ACTIVE_CHECKOUT = Path(__file__).absolute().parent
+LAUNCH_CWD = Path(os.path.abspath(os.getcwd()))
 RECOVERY_TEMP_AUXILIARY_PAYLOADS = frozenset({"destination-staging", "live-remotes"})
 
 
@@ -335,6 +336,52 @@ def within(path: str | Path, root: str | Path) -> bool:
         return False
 
 
+_PROTECTED_MUTATION_ROOTS: tuple[Path, ...] = ()
+
+
+def configure_protected_mutation_roots(paths: Sequence[Path]) -> None:
+    global _PROTECTED_MUTATION_ROOTS
+    normalized: list[Path] = []
+    for value in paths:
+        path = absolute(value)
+        if path.is_symlink() or not path.is_dir():
+            raise CleanupError(f"Protected checkout is not a real directory: {path}")
+        if path not in normalized:
+            normalized.append(path)
+    _PROTECTED_MUTATION_ROOTS = tuple(normalized)
+
+
+def require_unprotected_mutation(path: Path, operation: str) -> None:
+    candidate = absolute(path)
+    for protected in _PROTECTED_MUTATION_ROOTS:
+        if within(candidate, protected) or within(protected, candidate):
+            raise CleanupError(
+                f"Refused {operation} touching protected active checkout: "
+                f"{candidate} / {protected}"
+            )
+
+
+def guarded_replace(source: Path, destination: Path) -> None:
+    require_unprotected_mutation(source, "rename source")
+    require_unprotected_mutation(destination, "rename destination")
+    os.replace(source, destination)
+
+
+def guarded_unlink(path: Path) -> None:
+    require_unprotected_mutation(path, "unlink")
+    path.unlink()
+
+
+def guarded_rmdir(path: Path) -> None:
+    require_unprotected_mutation(path, "directory removal")
+    path.rmdir()
+
+
+def guarded_rmtree(path: Path) -> None:
+    require_unprotected_mutation(path, "recursive deletion")
+    shutil.rmtree(path)
+
+
 def stable_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"
@@ -422,11 +469,11 @@ def write_json(path: Path, value: object) -> None:
             os.fsync(handle.fileno())
     except Exception:
         try:
-            temporary.unlink()
+            guarded_unlink(temporary)
         except OSError:
             pass
         raise
-    os.replace(temporary, path)
+    guarded_replace(temporary, path)
     fsync_directory(path.parent)
 
 
@@ -441,11 +488,11 @@ def write_text(path: Path, value: str) -> None:
             os.fsync(handle.fileno())
     except Exception:
         try:
-            temporary.unlink()
+            guarded_unlink(temporary)
         except OSError:
             pass
         raise
-    os.replace(temporary, path)
+    guarded_replace(temporary, path)
     fsync_directory(path.parent)
 
 
@@ -1216,9 +1263,9 @@ def remove_path_without_following(path: Path) -> None:
         return
     mode = os.lstat(path).st_mode
     if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-        path.unlink()
+        guarded_unlink(path)
     else:
-        shutil.rmtree(path)
+        guarded_rmtree(path)
 
 
 def fsync_tree(root: Path) -> None:
@@ -2264,7 +2311,7 @@ def execute_runner_drain(
         if os.path.lexists(receipt_path):
             failed_receipt = phase_dir / "failed-runner-drain-receipt.json"
             try:
-                os.replace(receipt_path, failed_receipt)
+                guarded_replace(receipt_path, failed_receipt)
                 fsync_directory(phase_dir)
             except OSError as receipt_error:
                 invalidation_error = str(receipt_error)
@@ -2596,7 +2643,7 @@ def write_canonical_bootstrap_plists(state: RunnerState, directory: Path) -> dic
                 os.fsync(handle.fileno())
         except Exception:
             try:
-                path.unlink()
+                guarded_unlink(path)
             except OSError:
                 pass
             raise
@@ -2797,7 +2844,7 @@ def execute_runner_restore(
         invalidation_error = ""
         if os.path.lexists(restore_receipt_path):
             try:
-                os.replace(
+                guarded_replace(
                     restore_receipt_path,
                     restore_receipt_path.with_name("failed-runner-restore-receipt.json"),
                 )
@@ -2871,7 +2918,7 @@ def execute_runner_abort(
         invalidation_error = ""
         if os.path.lexists(abort_receipt_path):
             try:
-                os.replace(
+                guarded_replace(
                     abort_receipt_path,
                     abort_receipt_path.with_name("failed-runner-abort-receipt.json"),
                 )
@@ -5643,7 +5690,7 @@ def rollback_roots(
             if os.path.lexists(item.path):
                 errors.append(f"Could not restore {item.path}: compatibility path still exists")
             elif quarantine.exists() and not quarantine.is_symlink():
-                os.replace(quarantine, item.path)
+                guarded_replace(quarantine, item.path)
                 fsync_directory(item.path.parent)
                 fsync_directory(quarantine.parent)
             else:
@@ -5915,14 +5962,14 @@ def execute_retirement(
             source_stat = os.lstat(item.path)
             if (source_stat.st_dev, source_stat.st_ino) != (record["device"], record["inode"]):
                 raise CleanupError(f"Cleanup root identity changed before quarantine: {item.path}")
-            os.replace(item.path, quarantine)
+            guarded_replace(item.path, quarantine)
             fsync_directory(item.path.parent)
             fsync_directory(quarantine.parent)
             moved.append((item, quarantine))
             moved_stat = os.lstat(quarantine)
             if (moved_stat.st_dev, moved_stat.st_ino) != (record["device"], record["inode"]):
                 raise CleanupError(f"Same-volume quarantine changed source identity: {item.path}")
-            os.replace(staging, item.path)
+            guarded_replace(staging, item.path)
             fsync_directory(item.path.parent)
             fsync_directory(staging.parent)
             verify_compatibility_layout(item)
@@ -6754,7 +6801,7 @@ def prune_empty_external_temp_parents(path: Path, managed_root: Path) -> None:
     current = path.parent
     while within(current, managed_root / "_temp") and current not in stop_roots:
         try:
-            current.rmdir()
+            guarded_rmdir(current)
             fsync_directory(current.parent)
         except OSError:
             break
@@ -6805,7 +6852,7 @@ def execute_external_temp_cleanup(
         references = process_references(target, process_table())
         if references:
             raise CleanupError(f"Process references appeared before external temp deletion: {target}")
-        shutil.rmtree(target)
+        guarded_rmtree(target)
         fsync_directory(target.parent)
         deleted_row = {**row, "status": "deleted"}
         deleted.append(deleted_row)
@@ -6967,7 +7014,7 @@ def _execute_local_quarantine_deletion_body(
             raise CleanupError(
                 f"Managed evidence volume changed after final representation verification: {quarantine}"
             )
-        shutil.rmtree(quarantine)
+        guarded_rmtree(quarantine)
         fsync_directory(quarantine.parent)
         record["status"] = "local-quarantine-deleted-evidence-retained"
         write_json(
@@ -6988,7 +7035,7 @@ def _execute_local_quarantine_deletion_body(
 
     quarantine_root = user_home_boundary() / ".csa-iem-quarantine" / transaction
     try:
-        quarantine_root.rmdir()
+        guarded_rmdir(quarantine_root)
         fsync_directory(quarantine_root.parent)
     except OSError:
         pass
@@ -7040,6 +7087,16 @@ def build_parser() -> argparse.ArgumentParser:
     modes.add_argument("--delete-external-temp", action="store_true")
     parser.add_argument("--confirm-token", default="")
     parser.add_argument("--delete-token", default="")
+    parser.add_argument(
+        "--protected-checkout",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Immutable active checkout boundary. Any rename, replacement, unlink, or "
+            "recursive deletion touching this path or an ancestor/descendant fails closed."
+        ),
+    )
     return parser
 
 
@@ -7055,6 +7112,11 @@ def emit_preflight(payload: dict[str, object]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    protected_checkouts = [absolute(path) for path in args.protected_checkout]
+    for implicit in (ACTIVE_CHECKOUT, LAUNCH_CWD):
+        if (implicit / ".git").exists() and implicit not in protected_checkouts:
+            protected_checkouts.append(implicit)
+    configure_protected_mutation_roots(protected_checkouts)
     validate_transaction_id(args.transaction_id, "--transaction-id")
     validate_transaction_id(args.recovery_transaction_id, "--recovery-transaction-id")
     managed_root = absolute(args.managed_root)

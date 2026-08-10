@@ -54,6 +54,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable, Iterator, Sequence
 
 
+LAUNCH_CWD = Path(os.path.abspath(os.getcwd()))
 CONFIRM_TOKEN = "DELETE-VERIFIED-DUPLICATES"
 RECOVERY_DIR_NAME = ".csa-iem-recovery"
 STAGE_SUFFIX_RE = re.compile(r"^(?P<base>.+)\.csa-iem-stage-[A-Za-z0-9-]+$")
@@ -646,6 +647,48 @@ def path_within(path: Path, root: Path) -> bool:
         return os.path.commonpath([os.path.abspath(path), os.path.abspath(root)]) == os.path.abspath(root)
     except ValueError:
         return False
+
+
+_PROTECTED_MUTATION_ROOTS: tuple[Path, ...] = ()
+
+
+def configure_protected_mutation_roots(paths: Sequence[Path]) -> None:
+    """Install immutable checkout boundaries for every destructive primitive."""
+    global _PROTECTED_MUTATION_ROOTS
+    normalized: list[Path] = []
+    for value in paths:
+        path = Path(os.path.abspath(value))
+        if path.is_symlink() or not path.is_dir():
+            raise RecoveryError(f"Protected checkout is not a real directory: {path}")
+        if path not in normalized:
+            normalized.append(path)
+    _PROTECTED_MUTATION_ROOTS = tuple(normalized)
+
+
+def require_unprotected_mutation(path: Path, operation: str) -> None:
+    candidate = Path(os.path.abspath(path))
+    for protected in _PROTECTED_MUTATION_ROOTS:
+        if path_within(candidate, protected) or path_within(protected, candidate):
+            raise RecoveryError(
+                f"Refused {operation} touching protected active checkout: "
+                f"{candidate} / {protected}"
+            )
+
+
+def guarded_replace(source: Path, destination: Path) -> None:
+    require_unprotected_mutation(source, "rename source")
+    require_unprotected_mutation(destination, "rename destination")
+    os.replace(source, destination)
+
+
+def guarded_unlink(path: Path) -> None:
+    require_unprotected_mutation(path, "unlink")
+    path.unlink()
+
+
+def guarded_rmtree(path: Path) -> None:
+    require_unprotected_mutation(path, "recursive deletion")
+    shutil.rmtree(path)
 
 
 def display_path(path: Path | str) -> str:
@@ -2279,7 +2322,7 @@ def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".partial")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    guarded_replace(temporary, path)
 
 
 def fsync_directory(path: Path) -> None:
@@ -2298,7 +2341,7 @@ def write_fsynced_json(path: Path, value: object) -> None:
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    guarded_replace(temporary, path)
     fsync_directory(path.parent)
 
 
@@ -3151,9 +3194,9 @@ def remove_recovery_target(path: Path, root: Path) -> None:
     if not path_within(path, root) or path == root:
         raise RecoveryError(f"Refused to replace a path outside the recovery variant root: {path}")
     if path.is_symlink() or path.is_file():
-        path.unlink()
+        guarded_unlink(path)
     elif path.is_dir():
-        shutil.rmtree(path)
+        guarded_rmtree(path)
 
 
 def copy_exact(source: Path, destination: Path, allowed_root: Path) -> None:
@@ -4554,7 +4597,7 @@ def atomic_copy_missing_file(source: Path, destination: Path) -> bool:
         return True
     finally:
         try:
-            temporary.unlink()
+            guarded_unlink(temporary)
         except FileNotFoundError:
             pass
 
@@ -5480,7 +5523,7 @@ def copy_new_canonical(
     if destination.exists() or destination.is_symlink():
         raise RecoveryError(f"Canonical destination appeared during staging: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(stage, destination)
+    guarded_replace(stage, destination)
 
 
 def move_to_quarantine(source: Path, quarantine_root: Path, source_id: str) -> Path:
@@ -5490,7 +5533,7 @@ def move_to_quarantine(source: Path, quarantine_root: Path, source_id: str) -> P
     quarantine = quarantine_root / source_id
     if quarantine.exists() or quarantine.is_symlink():
         raise RecoveryError(f"Quarantine target already exists: {quarantine}")
-    os.replace(source, quarantine)
+    guarded_replace(source, quarantine)
     return quarantine
 
 
@@ -5499,7 +5542,7 @@ def delete_verified_quarantine(quarantine: Path, quarantine_root: Path) -> None:
         raise RecoveryError(f"Refused to delete outside the transaction quarantine: {quarantine}")
     if quarantine.is_symlink() or not quarantine.is_dir():
         raise RecoveryError(f"Unexpected quarantine object: {quarantine}")
-    shutil.rmtree(quarantine)
+    guarded_rmtree(quarantine)
 
 
 def group_key_for_destination(destination: Path) -> str:
@@ -6151,7 +6194,7 @@ def finalize_destination_group_receipts(
     receipt_path = partial_dir / "group.json"
     write_fsynced_json(receipt_path, group_receipt)
     fsync_directory(partial_dir)
-    os.replace(partial_dir, final_dir)
+    guarded_replace(partial_dir, final_dir)
     fsync_directory(final_dir.parent)
     return final_dir / receipt_path.name
 
@@ -6169,7 +6212,7 @@ def quarantine_failed_receipt_lane(
     target = failure_root / label
     if os.path.lexists(target):
         raise RecoveryError(f"Failed-receipt quarantine target exists: {target}")
-    os.replace(candidate, target)
+    guarded_replace(candidate, target)
     fsync_directory(candidate.parent)
     fsync_directory(failure_root)
 
@@ -6574,12 +6617,12 @@ def process_destination_group(
         revalidate_volume_identity(destination_volume, destination.parent)
         revalidate_volume_identity(destination_volume, stage.parent)
         if physical_existing is not None and backup is not None:
-            os.replace(physical_existing, backup)
+            guarded_replace(physical_existing, backup)
             fsync_directory(physical_existing.parent)
             journal["status"] = "original-moved-to-rollback"
             write_fsynced_json(journal_path, journal)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(stage, destination)
+        guarded_replace(stage, destination)
         fsync_directory(destination.parent)
         promoted = True
         physical_promoted = existing_physical_path(destination)
@@ -6699,7 +6742,7 @@ def process_destination_group(
                 failed_stage.parent.mkdir(parents=True, exist_ok=True)
                 if os.path.lexists(failed_stage):
                     raise RecoveryError(f"Failed-promotion retention target exists: {failed_stage}")
-                os.replace(destination, failed_stage)
+                guarded_replace(destination, failed_stage)
                 fsync_directory(destination.parent)
         except Exception as error:
             rollback_errors.append(f"promoted-stage retention failed: {error}")
@@ -6707,7 +6750,7 @@ def process_destination_group(
             if backup is not None and os.path.lexists(backup):
                 if physical_existing is None:
                     raise RecoveryError("Rollback source path is unavailable")
-                os.replace(backup, physical_existing)
+                guarded_replace(backup, physical_existing)
                 fsync_directory(physical_existing.parent)
         except Exception as error:
             rollback_errors.append(f"canonical rollback failed: {error}")
@@ -7068,13 +7111,13 @@ def cleanup_stage1_root(stage1_root: Path, managed_root: Path, report_dir: Path)
         raise RecoveryError(f"Stage 1 cleanup quarantine already exists: {cleanup_quarantine_root}")
     if stage1_root.stat().st_dev != cleanup_quarantine_root.parent.stat().st_dev:
         raise RecoveryError("Stage 1 root and cleanup quarantine are not on the same filesystem.")
-    os.replace(stage1_root, cleanup_quarantine_root)
+    guarded_replace(stage1_root, cleanup_quarantine_root)
     try:
         verify_exact_path_snapshot(cleanup_quarantine_root, evidence_root)
-        shutil.rmtree(cleanup_quarantine_root)
+        guarded_rmtree(cleanup_quarantine_root)
     except Exception:
         if not stage1_root.exists() and cleanup_quarantine_root.exists():
-            os.replace(cleanup_quarantine_root, stage1_root)
+            guarded_replace(cleanup_quarantine_root, stage1_root)
         raise
 
 
@@ -7093,7 +7136,7 @@ def cleanup_compatibility_links(compat_root: Path, stage1_root: Path, report_dir
         if not path_within(normalized_target, stage1_root):
             continue
         removed.append({"path": display_path(path), "target": target_text})
-        path.unlink()
+        guarded_unlink(path)
     write_json(report_dir / "removed-compatibility-links.json", removed)
     return len(removed)
 
@@ -7178,7 +7221,7 @@ def retire_compatibility_project_roots(
         }
         records.append(record)
         write_json(journal_path, {"transaction": transaction, "roots": records})
-        os.replace(source, target)
+        guarded_replace(source, target)
         target_stat = target.stat()
         if (target_stat.st_dev, target_stat.st_ino) != (source_stat.st_dev, source_stat.st_ino):
             raise RecoveryError(f"Compatibility root rename identity changed: {source} -> {target}")
@@ -7188,7 +7231,7 @@ def retire_compatibility_project_roots(
     if finder_metadata.is_file() and not finder_metadata.is_symlink():
         metadata_root = target_root / "root-metadata"
         metadata_root.mkdir(parents=True, exist_ok=True)
-        os.replace(finder_metadata, metadata_target)
+        guarded_replace(finder_metadata, metadata_target)
     remaining = [path for path in compat_root.iterdir() if path.name != "_temp"]
     if remaining:
         raise RecoveryError(
@@ -7249,7 +7292,7 @@ def retire_managed_stage_roots(
         }
         records.append(record)
         write_json(journal_path, {"transaction": transaction, "roots": records})
-        os.replace(staged_root, target)
+        guarded_replace(staged_root, target)
         target_stat = target.stat()
         if (target_stat.st_dev, target_stat.st_ino) != (source_stat.st_dev, source_stat.st_ino):
             raise RecoveryError(f"Managed staging root rename identity changed: {staged_root} -> {target}")
@@ -7306,7 +7349,7 @@ def retire_runtime_repo_mirrors(
     }
     journal_path = report_dir / "runtime-mirror-retirement.json"
     write_json(journal_path, record)
-    os.replace(source_root, target)
+    guarded_replace(source_root, target)
     target_stat = target.stat()
     if (target_stat.st_dev, target_stat.st_ino) != (source_stat.st_dev, source_stat.st_ino):
         raise RecoveryError(f"Runtime mirror rename identity changed: {source_root} -> {target}")
@@ -7382,7 +7425,7 @@ def retire_runtime_runner_worktrees(
         }
         records.append(record)
         write_json(journal_path, {"transaction": transaction, "workRoots": records})
-        os.replace(work_root, target)
+        guarded_replace(work_root, target)
         target_stat = target.stat()
         if (target_stat.st_dev, target_stat.st_ino) != (source_stat.st_dev, source_stat.st_ino):
             raise RecoveryError(f"Runner _work rename identity changed: {work_root} -> {target}")
@@ -8412,7 +8455,7 @@ def finalize_source_retirement_receipts(
         write_fsynced_json(receipt_path, receipt)
         receipt_paths.append(receipt_path)
     fsync_directory(partial_receipts)
-    os.replace(partial_receipts, receipt_root)
+    guarded_replace(partial_receipts, receipt_root)
     fsync_directory(receipt_root.parent)
     return [receipt_root / path.name for path in receipt_paths]
 
@@ -8925,11 +8968,11 @@ def rollback_workspace_root_swap(
     rollback_root = state.rollback_root
     if not os.path.lexists(rollback_root):
         raise RecoveryError(f"Workspace rollback source is missing: {rollback_root}")
-    os.replace(rollback_root, hold)
+    guarded_replace(rollback_root, hold)
     fsync_directory(hold.parent)
-    os.replace(managed_root, failed)
+    guarded_replace(managed_root, failed)
     fsync_directory(managed_root.parent)
-    os.replace(hold, managed_root)
+    guarded_replace(hold, managed_root)
     fsync_directory(managed_root.parent)
     failed_target = (
         managed_root
@@ -8943,7 +8986,7 @@ def rollback_workspace_root_swap(
         raise RecoveryError(
             f"Workspace failed-promotion quarantine exists: {failed_target}"
         )
-    os.replace(failed, failed_target)
+    guarded_replace(failed, failed_target)
     fsync_directory(failed_target.parent)
     rollback_report = (
         managed_root
@@ -9146,14 +9189,14 @@ def assemble_and_promote_workspace_roots(
         revalidate_volume_identity(managed_volume, staged_managed)
         journal["status"] = "promotion-pending"
         write_fsynced_json(journal_path, journal)
-        os.replace(managed_root, rollback_root)
+        guarded_replace(managed_root, rollback_root)
         fsync_directory(managed_root.parent)
         try:
-            os.replace(staged_managed, managed_root)
+            guarded_replace(staged_managed, managed_root)
             fsync_directory(managed_root.parent)
             promoted = True
         except Exception:
-            os.replace(rollback_root, managed_root)
+            guarded_replace(rollback_root, managed_root)
             fsync_directory(managed_root.parent)
             raise
 
@@ -9241,7 +9284,7 @@ def assemble_and_promote_workspace_roots(
             raise RecoveryError(
                 f"Workspace rollback quarantine exists: {rollback_quarantine}"
             )
-        os.replace(rollback_root, rollback_quarantine)
+        guarded_replace(rollback_root, rollback_quarantine)
         fsync_directory(rollback_quarantine.parent)
         final_journal = report_dir / "workspace-root-swap-journal.json"
         journal.update(
@@ -9252,7 +9295,7 @@ def assemble_and_promote_workspace_roots(
             }
         )
         write_fsynced_json(journal_path, journal)
-        os.replace(journal_path, final_journal)
+        guarded_replace(journal_path, final_journal)
         fsync_directory(final_journal.parent)
         proof_references: list[WorkspaceRootProofReference] = []
         for row, requirement in zip(final_rows, ordered, strict=True):
@@ -9759,7 +9802,7 @@ def execute_global_retirement(
             revalidate_runtime_roots_for_sources([move.source], runner_drain_proofs)
             revalidate_volume_identity(managed_volume, move.source)
             revalidate_volume_identity(managed_volume, move.target.parent)
-            os.replace(move.source, move.target)
+            guarded_replace(move.source, move.target)
             fsync_directory(move.source.parent)
             fsync_directory(move.target.parent)
             target_stat = move.target.lstat()
@@ -9958,7 +10001,7 @@ def execute_global_retirement(
             try:
                 if os.path.lexists(move.target) and not os.path.lexists(move.source):
                     move.source.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(move.target, move.source)
+                    guarded_replace(move.target, move.source)
                     fsync_directory(move.source.parent)
                     fsync_directory(move.target.parent)
                 move.status = "rolled-back"
@@ -10657,6 +10700,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional protected CSA-iEM workspace whose Code/Import/Runtime/runner copies must be merged but retained.",
     )
     parser.add_argument(
+        "--protected-checkout",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Immutable active checkout boundary. Any rename, replacement, unlink, or "
+            "recursive deletion touching this path or an ancestor/descendant fails closed."
+        ),
+    )
+    parser.add_argument(
         "--github-owner-account",
         action="append",
         default=[],
@@ -10952,6 +11005,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RecoveryError("--resume requires --apply and an exact --transaction-id")
     if not 1 <= args.group_workers <= 2:
         raise RecoveryError("--group-workers must be 1 or 2")
+    protected_checkouts = [Path(os.path.abspath(path)) for path in args.protected_checkout]
+    if (LAUNCH_CWD / ".git").exists() and LAUNCH_CWD not in protected_checkouts:
+        protected_checkouts.append(LAUNCH_CWD)
+    configure_protected_mutation_roots(protected_checkouts)
     canonical_root = canonical(args.canonical_root)
     canonical_repos_root = canonical_root.parent
     managed_root = canonical(args.managed_root)
@@ -11086,6 +11143,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         for mapping in mappings
     ]
+    for mapping in mappings:
+        for protected in protected_checkouts:
+            if (
+                path_within(mapping.source, protected)
+                or path_within(protected, mapping.source)
+                or path_within(mapping.destination, protected)
+                or path_within(protected, mapping.destination)
+            ):
+                discovery_errors.append(
+                    f"Protected active checkout appears in the consolidation plan: "
+                    f"{protected} / {mapping.source} -> {mapping.destination}"
+                )
     scoped_run = args.only_source is not None
     if args.only_source is not None:
         selected_source = Path(os.path.abspath(args.only_source))

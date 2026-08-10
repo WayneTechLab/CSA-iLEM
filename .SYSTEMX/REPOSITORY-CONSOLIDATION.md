@@ -12,6 +12,14 @@ and compatibility-link replacement. A path match to the active checkout must
 block the affected operation rather than treating the checkout as old project
 data.
 
+Both consolidation helpers accept repeatable `--protected-checkout PATH` and
+automatically protect the launch directory when it is a Git worktree. The
+boundary is enforced below discovery at every destructive filesystem primitive:
+rename source, rename destination, replacement, unlink, directory removal, and
+recursive deletion all reject the protected path and every ancestor or
+descendant. The active checkout therefore remains immutable even if a future
+source map, scan, or cleanup-root classification is incorrect.
+
 ## Canonical Result
 
 Each GitHub repository resolves to exactly one canonical project directory:

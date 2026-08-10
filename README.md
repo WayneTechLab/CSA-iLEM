@@ -439,6 +439,8 @@ For a large reviewed inventory, `--group-workers 2` enables bounded repository-l
 
 Recovery maintains a cross-transaction SHA-256 index under `Runtime/Indexes/RepoConsolidation`. A hit is accepted only for the same absolute path and complete device, inode, type, link-count, ownership, size, mode, flags, mtime, and ctime identity, with fresh `lstat` checks before and after lookup. Changed or uncertain files are read and hashed again. This supports the lifecycle loop—scan, identity review, plan, execute changed paths, verify, receipt-bound cleanup, then a final source/root sweep—without weakening the final canonical or deletion proof.
 
+Pass the active operator source with repeatable `--protected-checkout PATH` on recovery and cleanup commands. The launch checkout is also protected automatically when it is a Git worktree. This is a filesystem-level boundary: every rename, replacement, unlink, directory removal, and recursive deletion rejects the protected path plus every ancestor and descendant, even when discovery or a reviewed source map accidentally includes it.
+
 After a successful recovery, `repo-consolidation-local-cleanup.py` performs separate receipt-bound phases for local retirement, local quarantine deletion, and external temporary-payload deletion. The external cleanup preflight and `DELETE-VERIFIED-EXTERNAL-TEMP-PAYLOADS` token select only exact paths from completed receipts and audits; canonical repositories, active workspaces, archives, reports, receipts, failed or incomplete transactions, and unrelated `_temp` data remain protected.
 
 ## Windows 11 Admin Shell
