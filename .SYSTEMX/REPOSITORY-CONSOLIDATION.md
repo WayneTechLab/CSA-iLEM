@@ -132,10 +132,12 @@ fall back to direct hashing and never count as verification. Every transaction
 writes hit, miss, write, error, and entry counts into its report.
 
 Metadata-cache keys additionally include a freshly read extended-attribute
-signature. APFS security provenance may change independently of ordinary file
-content; a changed signature forces a fresh metadata decision and routes the
-older exact form to its source-specific recovery variant instead of allowing a
-stale canonical representative into a cleanup proof.
+signature. File content and nonvolatile extended attributes remain exact.
+macOS may asynchronously add or clear the system-managed
+`com.apple.provenance` attribute after a filesystem operation, so its digest is
+recorded in representation proofs but excluded from exact equality and
+deletion authorization. This prevents an OS provenance race from blocking a
+byte-identical repository while preserving the observed provenance evidence.
 
 The operator loop is `scan -> review identity -> plan -> execute deltas ->
 verify receipts -> retire proven copies -> clean receipt-linked temp -> sweep

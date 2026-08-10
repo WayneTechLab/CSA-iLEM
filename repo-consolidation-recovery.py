@@ -103,7 +103,13 @@ EXACT_METADATA_FIELDS = (
     "mtime",
     "hardlink-topology",
 )
-RECORD_ONLY_METADATA_FIELDS = ("birthtime", "atime", "sparse-allocation")
+SYSTEM_MANAGED_RECORD_ONLY_XATTRS = frozenset({"com.apple.provenance"})
+RECORD_ONLY_METADATA_FIELDS = (
+    "birthtime",
+    "atime",
+    "sparse-allocation",
+    "system-managed-provenance-xattrs",
+)
 DERIVATION_EXCEPTIONS = {
     (
         "waynetechlab/sfwa-wtl-template",
@@ -2724,6 +2730,8 @@ def xattr_signature(path: Path) -> tuple[tuple[str, str], ...]:
         raise RecoveryError(f"Could not enumerate extended attributes for {path}: {error}") from error
     values: list[tuple[str, str]] = []
     for name in sorted(names, key=os.fsencode):
+        if os.fsdecode(name) in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+            continue
         try:
             value = os.getxattr(path, name, follow_symlinks=False)
         except NotImplementedError:
@@ -2895,6 +2903,8 @@ def contract_xattr_digests(path: Path) -> dict[str, str]:
             ) from error
         values: dict[str, str] = {}
         for name in sorted(names, key=os.fsencode):
+            if os.fsdecode(name) in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+                continue
             try:
                 payload = os.getxattr(path, name, follow_symlinks=False)
             except OSError as error:
@@ -2916,6 +2926,8 @@ def contract_xattr_digests(path: Path) -> dict[str, str]:
     ]
     values: dict[str, str] = {}
     for name in sorted(names, key=os.fsencode):
+        if os.fsdecode(name) in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+            continue
         read = run_command(
             ["/usr/bin/xattr", *symlink_option, "-p", "-x", name, path],
             check=False,
@@ -2928,6 +2940,55 @@ def contract_xattr_digests(path: Path) -> dict[str, str]:
             raise RecoveryError(
                 f"Could not decode extended attribute {name!r} from {path}"
             ) from error
+        values[name] = sha256_bytes(payload)
+    return values
+
+
+def contract_record_only_xattr_digests(path: Path) -> dict[str, str]:
+    """Record volatile OS-managed xattrs without making cleanup depend on them."""
+    if hasattr(os, "listxattr") and hasattr(os, "getxattr"):
+        try:
+            names = os.listxattr(path, follow_symlinks=False)
+        except (NotImplementedError, OSError):
+            return {}
+        values: dict[str, str] = {}
+        missing_errors = {
+            errno.ENOENT,
+            getattr(errno, "ENOATTR", errno.ENOENT),
+            getattr(errno, "ENODATA", errno.ENOENT),
+        }
+        for name in sorted(names, key=os.fsencode):
+            decoded_name = os.fsdecode(name)
+            if decoded_name not in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+                continue
+            try:
+                payload = os.getxattr(path, name, follow_symlinks=False)
+            except OSError as error:
+                if error.errno in missing_errors:
+                    continue
+                return {}
+            values[decoded_name] = sha256_bytes(payload)
+        return values
+    if sys.platform != "darwin" or not Path("/usr/bin/xattr").is_file():
+        return {}
+    symlink_option = ["-s"] if stat.S_ISLNK(path.lstat().st_mode) else []
+    listing = run_command(["/usr/bin/xattr", *symlink_option, path], check=False)
+    if listing.returncode != 0:
+        return {}
+    values: dict[str, str] = {}
+    for name in listing.stdout.decode("utf-8", "surrogateescape").splitlines():
+        if name not in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+            continue
+        read = run_command(
+            ["/usr/bin/xattr", *symlink_option, "-p", "-x", name, path],
+            check=False,
+        )
+        if read.returncode != 0:
+            continue
+        try:
+            payload = bytes.fromhex("".join(read.stdout.decode("ascii").split()))
+        except (UnicodeError, ValueError):
+            continue
         values[name] = sha256_bytes(payload)
     return values
 
@@ -6022,9 +6083,15 @@ def build_contract_representation_proof(
             {
                 "relativePath": relative,
                 "sourceFingerprint": source_fingerprint,
+                "sourceRecordOnlyXattrs": contract_record_only_xattr_digests(
+                    source_representation_path
+                ),
                 "sourceHardlinkGroup": source_row.get("hardlinkGroup", ""),
                 "representationPath": display_path(representative),
                 "representationFingerprint": representation_fingerprint,
+                "representationRecordOnlyXattrs": contract_record_only_xattr_digests(
+                    representative
+                ),
             }
         )
 
@@ -10154,6 +10221,11 @@ def run_self_test() -> int:
     """Exercise safety invariants only inside one disposable fixture tree."""
     with tempfile.TemporaryDirectory(prefix="csa-iem-recovery-self-test-") as temporary:
         fixture = Path(temporary)
+
+        self_test_require(
+            "com.apple.provenance" in SYSTEM_MANAGED_RECORD_ONLY_XATTRS,
+            "macOS provenance xattr is not record-only",
+        )
 
         # Persistent checksum indexes may skip a repeat file read only while
         # the complete mutation-sensitive stat identity is unchanged.

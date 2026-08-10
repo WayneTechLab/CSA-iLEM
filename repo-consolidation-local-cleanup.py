@@ -82,6 +82,7 @@ TREE_ALGORITHM = "csa-iem-stable-tree-sha256-v1"
 RECEIPT_FORMAT = 3
 REPRESENTATION_FORMAT = 1
 SUCCESS_MARKER = "transaction-success.json"
+SYSTEM_MANAGED_RECORD_ONLY_XATTRS = frozenset({"com.apple.provenance"})
 CRITICAL_RUNNER_FILES = (
     ".credentials",
     ".credentials_rsaparams",
@@ -3334,6 +3335,8 @@ def xattr_digests(path: Path) -> dict[str, str]:
             raise CleanupError(f"Could not enumerate extended attributes for {path}: {error}") from error
         values: dict[str, str] = {}
         for name in sorted(names, key=os.fsencode):
+            if os.fsdecode(name) in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+                continue
             try:
                 payload = os.getxattr(path, name, follow_symlinks=False)
             except OSError as error:
@@ -3355,6 +3358,8 @@ def xattr_digests(path: Path) -> dict[str, str]:
     names = [line for line in listing.stdout.decode("utf-8", "surrogateescape").splitlines() if line]
     values = {}
     for name in sorted(names, key=os.fsencode):
+        if os.fsdecode(name) in SYSTEM_MANAGED_RECORD_ONLY_XATTRS:
+            continue
         read = run_command(
             ["/usr/bin/xattr", *symlink_option, "-p", "-x", name, path],
             timeout=30,
