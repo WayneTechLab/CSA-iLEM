@@ -3121,6 +3121,11 @@ def verify_exact_path_snapshot(source: Path, snapshot: Path) -> str:
 
 def copy_exact_verified(source: Path, snapshot: Path, allowed_root: Path) -> str:
     copy_exact(source, snapshot, allowed_root)
+    if source.is_dir() and not source.is_symlink():
+        # ``ditto`` can leave the copied directory root with a destination-side
+        # mtime/xattr update even when every child is exact. Reapply and verify
+        # the source root metadata after all copy-created children exist.
+        apply_directory_metadata(source, snapshot)
     return verify_exact_path_snapshot(source, snapshot)
 
 
@@ -5728,6 +5733,28 @@ def build_contract_representation_proof(
             raise RecoveryError(f"Source representative disappeared: {representative}")
         representation_fingerprint = contract_stable_fingerprint(representative)
         source_fingerprint = source_row["fingerprint"]
+        source_representation_path = (
+            source_candidate
+            if relative == "."
+            else source_candidate / Path(relative)
+        )
+        variant_root = destination / item.variant_relative
+        if (
+            representation_fingerprint != source_fingerprint
+            and source_fingerprint.get("type") == "directory"
+            and representative.is_dir()
+            and not representative.is_symlink()
+            and (
+                representative == variant_root
+                or lexical_path_within(representative, variant_root)
+            )
+        ):
+            # Some security provenance xattrs can be cleared after an exact
+            # directory variant is populated or promoted. Restore the reviewed
+            # source directory metadata on the isolated variant, then require
+            # the cleanup-contract fingerprint to match exactly.
+            apply_directory_metadata(source_representation_path, representative)
+            representation_fingerprint = contract_stable_fingerprint(representative)
         if representation_fingerprint != source_fingerprint:
             raise RecoveryError(
                 f"Cleanup-contract fingerprint mismatch: "
@@ -7309,7 +7336,11 @@ def inventory_retirement_root(
     }
 
 
-def process_blockers_for_retirement(roots: Sequence[Path]) -> list[str]:
+def process_blockers_for_retirement(
+    roots: Sequence[Path],
+    *,
+    ignore_current_process_tree: bool = False,
+) -> list[str]:
     roots = [Path(os.path.abspath(root)) for root in roots]
     blockers: list[str] = []
     protected_runtime_paths = {
@@ -7321,17 +7352,38 @@ def process_blockers_for_retirement(roots: Sequence[Path]) -> list[str]:
             if lexical_path_within(protected, root):
                 blockers.append(f"{label} is inside retirement root {root}: {protected}")
 
-    ps_result = run_command(["ps", "-axo", "pid=,command="], check=True)
+    ps_result = run_command(["ps", "-axo", "pid=,ppid=,command="], check=True)
+    process_rows: list[tuple[str, str, str]] = []
+    child_pids: dict[str, list[str]] = {}
     for line in ps_result.stdout.decode("utf-8", "replace").splitlines():
         stripped = line.strip()
         if not stripped:
             continue
-        pid_text, _, command = stripped.partition(" ")
-        if pid_text == str(os.getpid()):
+        fields = stripped.split(None, 2)
+        if len(fields) < 3:
+            continue
+        pid_text, parent_pid, command = fields
+        process_rows.append((pid_text, parent_pid, command))
+        child_pids.setdefault(parent_pid, []).append(pid_text)
+
+    ignored_pids = {str(os.getpid())}
+    if ignore_current_process_tree:
+        pending = [str(os.getpid())]
+        while pending:
+            parent_pid = pending.pop()
+            for child_pid in child_pids.get(parent_pid, []):
+                if child_pid not in ignored_pids:
+                    ignored_pids.add(child_pid)
+                    pending.append(child_pid)
+
+    for pid_text, _parent_pid, command in process_rows:
+        if pid_text in ignored_pids:
             continue
         for root in roots:
             if display_path(root) in command:
-                blockers.append(f"process command references retirement root: {stripped}")
+                blockers.append(
+                    f"process command references retirement root: {pid_text} {command}"
+                )
                 break
 
     lsof = shutil.which("lsof") or "/usr/sbin/lsof"
@@ -7355,7 +7407,7 @@ def process_blockers_for_retirement(roots: Sequence[Path]) -> list[str]:
             current_pid = value
         elif prefix == "c":
             current_command = value
-        elif prefix == "n" and current_pid != str(os.getpid()):
+        elif prefix == "n" and current_pid not in ignored_pids:
             candidate = Path(value)
             if not candidate.is_absolute():
                 continue
@@ -7954,7 +8006,8 @@ def revalidate_runner_drain_proof(proof: RunnerDrainProof) -> None:
                     f"Drained launch agent is no longer restart-disabled: {label}"
                 )
         runtime_blockers = process_blockers_for_retirement(
-            [root.source_runtime_root, root.cleanup_root]
+            [root.source_runtime_root, root.cleanup_root],
+            ignore_current_process_tree=True,
         )
         if runtime_blockers:
             raise RecoveryError(
@@ -7970,7 +8023,8 @@ def revalidate_runner_drain_proof(proof: RunnerDrainProof) -> None:
                 if actual_digest != expected_digest:
                     raise RecoveryError(f"Runner critical file hash changed: {critical_path}")
         runtime_blockers = process_blockers_for_retirement(
-            [root.source_runtime_root, root.cleanup_root]
+            [root.source_runtime_root, root.cleanup_root],
+            ignore_current_process_tree=True,
         )
         if runtime_blockers:
             raise RecoveryError(
