@@ -45,6 +45,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import traceback
 import urllib.parse
 from pathlib import Path, PurePosixPath
@@ -10479,24 +10480,42 @@ def group_mappings_by_destination(
     ]
 
 
-def validate_parallel_group_isolation(
+def plan_parallel_group_isolation(
     groups: Sequence[tuple[Path, Sequence[Mapping]]],
-) -> list[str]:
-    """Return reasons destination groups cannot safely share a worker pool.
+) -> tuple[list[str], dict[int, int], list[str]]:
+    """Build serial conflict components for a bounded repository worker pool.
 
     Each group already has a unique transaction stage, rollback, receipt, and
-    checkpoint lane.  This extra audit blocks concurrency when reviewed source
-    trees overlap one another, cross another group's canonical destination, or
-    resolve to duplicate source/report identities.  The caller safely falls
-    back to one worker instead of weakening the transaction.
+    checkpoint lane. Reviewed groups whose source trees, physical roots, Git
+    common directories, or cross-group destinations overlap are joined into a
+    shared serial component. Unrelated components may still run concurrently.
+    Duplicate destination/report lanes remain hard isolation errors.
     """
     errors: list[str] = []
+    conflict_reasons: list[str] = []
+    parents = list(range(len(groups)))
+
+    def find(group_index: int) -> int:
+        while parents[group_index] != group_index:
+            parents[group_index] = parents[parents[group_index]]
+            group_index = parents[group_index]
+        return group_index
+
+    def union(left_group: int, right_group: int, reason: str) -> None:
+        left_root = find(left_group)
+        right_root = find(right_group)
+        if left_root != right_root:
+            parents[right_root] = left_root
+        if len(conflict_reasons) < 20:
+            conflict_reasons.append(reason)
+
     destination_keys: dict[str, Path] = {}
     group_keys: dict[str, Path] = {}
     source_ids: dict[str, tuple[int, Path]] = {}
     source_paths: dict[str, tuple[int, Path]] = {}
     physical_sources: dict[tuple[int, int], tuple[int, Path]] = {}
     git_common_dirs: dict[str, tuple[int, Path]] = {}
+    indexed_sources: list[tuple[int, Path]] = []
 
     for group_index, (destination, group) in enumerate(groups):
         destination_key = os.path.normcase(os.path.abspath(destination))
@@ -10520,18 +10539,23 @@ def validate_parallel_group_isolation(
             source_key = os.path.normcase(os.path.abspath(mapping.source))
             previous_source = source_paths.get(source_key)
             if previous_source is not None and previous_source[0] != group_index:
-                errors.append(
-                    f"source belongs to multiple destination groups: {mapping.source}"
+                union(
+                    previous_source[0],
+                    group_index,
+                    f"shared source serialized: {mapping.source}",
                 )
             source_paths[source_key] = (group_index, mapping.source)
+            indexed_sources.append((group_index, mapping.source))
 
             source_stat = mapping.source.lstat()
             physical_key = (int(source_stat.st_dev), int(source_stat.st_ino))
             previous_physical = physical_sources.get(physical_key)
             if previous_physical is not None and previous_physical[0] != group_index:
-                errors.append(
-                    f"physical source belongs to multiple groups: "
-                    f"{mapping.source} and {previous_physical[1]}"
+                union(
+                    previous_physical[0],
+                    group_index,
+                    f"shared physical source serialized: "
+                    f"{mapping.source} and {previous_physical[1]}",
                 )
             physical_sources[physical_key] = (group_index, mapping.source)
 
@@ -10541,9 +10565,11 @@ def validate_parallel_group_isolation(
                 common_key = os.path.normcase(os.path.realpath(common_dir))
                 previous_common = git_common_dirs.get(common_key)
                 if previous_common is not None and previous_common[0] != group_index:
-                    errors.append(
-                        f"Git common directory is shared across destination groups: "
-                        f"{mapping.source} and {previous_common[1]}"
+                    union(
+                        previous_common[0],
+                        group_index,
+                        f"shared Git common directory serialized: "
+                        f"{mapping.source} and {previous_common[1]}",
                     )
                 git_common_dirs[common_key] = (group_index, mapping.source)
 
@@ -10555,34 +10581,40 @@ def validate_parallel_group_isolation(
                 )
             source_ids[source_id] = (group_index, mapping.source)
 
-    indexed_sources = list(source_paths.values())
     for left_index, (left_group, left_source) in enumerate(indexed_sources):
         left_destination = groups[left_group][0]
         for right_group, right_source in indexed_sources[left_index + 1 :]:
             if left_group == right_group:
                 continue
             if path_within(left_source, right_source) or path_within(right_source, left_source):
-                errors.append(
-                    f"cross-group source trees overlap: {left_source} and {right_source}"
+                union(
+                    left_group,
+                    right_group,
+                    f"overlapping source trees serialized: {left_source} and {right_source}",
                 )
             right_destination = groups[right_group][0]
             if path_within(left_source, right_destination) or path_within(
                 right_destination, left_source
             ):
-                errors.append(
-                    f"source/destination overlap across groups: "
-                    f"{left_source} and {right_destination}"
+                union(
+                    left_group,
+                    right_group,
+                    f"cross-group source/destination overlap serialized: "
+                    f"{left_source} and {right_destination}",
                 )
             if path_within(right_source, left_destination) or path_within(
                 left_destination, right_source
             ):
-                errors.append(
-                    f"source/destination overlap across groups: "
-                    f"{right_source} and {left_destination}"
+                union(
+                    left_group,
+                    right_group,
+                    f"cross-group source/destination overlap serialized: "
+                    f"{right_source} and {left_destination}",
                 )
-            if len(errors) >= 20:
-                return errors
-    return errors
+    component_by_group = {
+        group_index: find(group_index) for group_index in range(len(groups))
+    }
+    return errors, component_by_group, conflict_reasons
 
 
 def execute_destination_group(
@@ -10994,8 +11026,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     failures: list[ProcessResult] = []
     groups = group_mappings_by_destination(mappings)
     requested_group_workers = min(args.group_workers, max(1, len(groups)))
+    component_by_group = {group_index: group_index for group_index in range(len(groups))}
+    conflict_locks: dict[int, threading.Lock] = {}
     if requested_group_workers > 1:
-        isolation_errors = validate_parallel_group_isolation(groups)
+        isolation_errors, component_by_group, conflict_reasons = plan_parallel_group_isolation(
+            groups
+        )
         if isolation_errors:
             requested_group_workers = 1
             print(
@@ -11003,6 +11039,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"reason={isolation_errors[0]}",
                 flush=True,
             )
+        else:
+            component_sizes: dict[int, int] = {}
+            for component in component_by_group.values():
+                component_sizes[component] = component_sizes.get(component, 0) + 1
+            conflict_locks = {
+                component: threading.Lock()
+                for component, size in component_sizes.items()
+                if size > 1
+            }
+            if conflict_reasons:
+                print(
+                    f"GROUP WORKERS | serialized-components={len(conflict_locks)} | "
+                    f"first={conflict_reasons[0]}",
+                    flush=True,
+                )
     print(
         f"GROUP WORKERS | active={requested_group_workers} | "
         "retirement=coordinator-only",
@@ -11044,6 +11095,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
 
+    def execute_scheduled_group(
+        group_index: int,
+        destination: Path,
+        group: Sequence[Mapping],
+    ) -> DestinationGroupResult:
+        def execute() -> DestinationGroupResult:
+            return execute_destination_group(
+                destination,
+                group,
+                resume=args.resume,
+                live_repositories=live_repositories,
+                transaction=transaction,
+                transaction_temp=transaction_temp,
+                report_dir=report_dir,
+                plan_sha256=plan_sha256,
+                fast_mode=not args.no_fast_mode,
+                bindings=contract_bindings,
+                owner_account_bindings=owner_account_bindings,
+                repository_identities=repository_identities,
+                runner_drain_proofs=runner_drain_proofs,
+            )
+
+        conflict_lock = conflict_locks.get(component_by_group[group_index])
+        if conflict_lock is None:
+            return execute()
+        with conflict_lock:
+            return execute()
+
     clear_verification_caches()
     if requested_group_workers == 1:
         for index, (destination, group) in enumerate(groups, 1):
@@ -11055,20 +11134,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             clear_verification_caches()
             try:
                 record_group_success(
-                    execute_destination_group(
+                    execute_scheduled_group(
+                        index - 1,
                         destination,
                         group,
-                        resume=args.resume,
-                        live_repositories=live_repositories,
-                        transaction=transaction,
-                        transaction_temp=transaction_temp,
-                        report_dir=report_dir,
-                        plan_sha256=plan_sha256,
-                        fast_mode=not args.no_fast_mode,
-                        bindings=contract_bindings,
-                        owner_account_bindings=owner_account_bindings,
-                        repository_identities=repository_identities,
-                        runner_drain_proofs=runner_drain_proofs,
                     )
                 )
             except Exception as error:
@@ -11091,20 +11160,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     flush=True,
                 )
                 future = executor.submit(
-                    execute_destination_group,
+                    execute_scheduled_group,
+                    index - 1,
                     destination,
                     group,
-                    resume=args.resume,
-                    live_repositories=live_repositories,
-                    transaction=transaction,
-                    transaction_temp=transaction_temp,
-                    report_dir=report_dir,
-                    plan_sha256=plan_sha256,
-                    fast_mode=not args.no_fast_mode,
-                    bindings=contract_bindings,
-                    owner_account_bindings=owner_account_bindings,
-                    repository_identities=repository_identities,
-                    runner_drain_proofs=runner_drain_proofs,
                 )
                 future_groups[future] = (index, destination, group)
 

@@ -101,10 +101,12 @@ cleanup evidence retained.
 Large inventories may use two repository-group workers. A worker owns exactly
 one canonical destination and its transaction-specific staging, rollback,
 report, receipt, and checkpoint lanes. Copies that target the same repository
-remain serialized so no two streams write one project tree. Before enabling
-the second worker, recovery audits normalized destinations, group keys, source
-IDs, source paths, and cross-group source/destination containment. Any overlap
-automatically reduces the run to one worker.
+remain serialized so no two streams write one project tree. Recovery audits
+normalized destinations, group keys, source IDs, physical inodes, Git common
+directories, source paths, and cross-group source/destination containment.
+Overlapping groups share a serial conflict-component lock while unrelated
+repositories continue on both lanes. Duplicate destination or report lanes
+reduce the complete run to one worker.
 
 Repository creation completes before workers start. Workers may assemble,
 verify, promote, and finalize only their own destination group. The coordinator
