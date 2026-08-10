@@ -630,10 +630,11 @@ csa-iem --disclaimer
 - [`DISCLAIMER.md`](./DISCLAIMER.md)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 - [`VERSION`](./VERSION)
+- [GitHub Wiki](https://github.com/WayneTechLab/CSA-iLEM/wiki)
 
 ## Notes
 
-- macOS only
+- macOS GUI plus Windows 11 PowerShell and notification-area companion flows
 - intended for technical users
 - relies on GitHub CLI, Git, Docker, Homebrew, Node.js, npm, Visual Studio Code, and the macOS Swift toolchain for the GUI
 - the app keeps legacy `CSA-iLEM` wrappers so older installed commands continue to work
