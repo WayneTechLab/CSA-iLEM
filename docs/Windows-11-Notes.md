@@ -98,6 +98,21 @@ The Windows backend supports:
 - workflow patching to self-hosted Windows labels
 - repo-scoped GitHub cleanup actions
 - local project browsing with VS Code and File Explorer
+- Stage 2 GitHub-identity preflight and selected/Full Auto reconciliation into canonical workspace roots
+- Stage 2 notification-area controls for preflight, confirmed Full Auto, and opening source/managed folders
+- Stage 3 receipt preflight, verified source/temp cleanup, reports and audit receipts, plus notification-area preflight, temp-only cleanup, and double-confirmed full cleanup
+
+Stage 2 examples:
+
+```powershell
+csa-iem stage2 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --preflight --all
+csa-iem stage2 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --apply --project "Project Folder" --yes
+csa-iem stage2 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --full-auto --yes
+csa-iem stage3 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --preflight --all --cleanup-all-verified-temp
+csa-iem stage3 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --apply --all --delete-stage1-originals --delete-stage2-inputs --cleanup-all-verified-temp --yes --confirm-delete VERIFIED-STAGE3
+```
+
+The PowerShell engines use GitHub repository IDs and Git ancestry, stage new canonical projects under `Import\Stage2`, use `robocopy` for complete or additive transfer, and preserve Stage 1 by default. Stage 2 permanent deletion requires `VERIFIED-STAGE2`; Stage 3 requires `VERIFIED-STAGE3`, follows receipt chains, re-verifies live content, and never sweeps unreferenced temporary folders.
 
 ## Current Windows Defaults
 

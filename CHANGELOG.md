@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.7.0
+
+- Added the verified repository-consolidation recovery lifecycle for identity-bound many-source-to-one-repository reconciliation, complete source representation proofs, Git object validation, transaction receipts, and fail-closed global retirement.
+- Added exact-transaction checkpoint resume for finalized destination groups. Resume revalidates the source map, source filesystem identity, GitHub identity, Git state, destination receipt, remote state, and representation evidence; partial staging and transactions that entered retirement cannot resume.
+- Corrected global retirement workspace-proof forwarding and made deletion eligibility derive only from each mapping's reviewed retirement authorization. Retained or protected sources can satisfy representation requirements but cannot become deletion candidates.
+- Added bounded stable-file and metadata caches for repeated verification passes while retaining before-and-after filesystem mutation checks and clearing caches at transaction boundaries.
+- Added post-success local and external temporary-data cleanup gates. Cleanup accepts only exact recovery receipts and completed local-retirement evidence, preserves failed or incomplete transactions, and requires `DELETE-VERIFIED-EXTERNAL-TEMP-PAYLOADS` before deleting allowlisted transaction payloads.
+- Added receipt-driven Full Auto lifecycle controls to the native `CODEX ~ GPT PORTAL` with Selected Projects and All Eligible Projects scope. The active CSA-iEM/Codex workspace is excluded from automatic batches.
+- Added independent Stage 1 and Stage 2 verified-ZIP policies, Stage 1 original deletion, Stage 2 Keep/Retire/Permanent Delete policies, and Stage 3 current-transaction or all-verified-temp cleanup selectors.
+- Stage 1 now writes one machine-readable receipt per verified project under `_temp/Transfer-Receipts`, recording original/current source, destination, exact tested archive, Git identity, transfer plan and indexes, preservation policy, and verification time.
+- Fixed Fast Mode's final-audit path so a same-size, same-timestamp content mutation is checksum-preserved on the destination side, repaired with an exact targeted transfer, and whole-tree verified again instead of merely stopping after the fast preflight missed it.
+- Stage 2 can now create and test a source ZIP, write canonical verification receipts, permanently remove an intermediate source only after same-volume quarantine and a second verification, and clean only its current successful transaction.
+- Added `stage3-cleanup.sh` and `stage3-cleanup.ps1`. Stage 3 accepts selected receipts, project filters, or all verified receipts; performs a fresh preflight; follows Stage 1-to-Stage 2 receipt chains; and deletes only receipt-linked sources, indexes, and transaction folders after live verification.
+- Added explicit `VERIFIED-STAGE2` and `VERIFIED-STAGE3` confirmation tokens. Permanent source cleanup fails closed on missing destinations, unverified archives, identity mismatches, active CSA-iEM, boundary failures, or any changed source file.
+- Added Stage 3 commands and interactive menus to the shell and PowerShell CLIs, controls to both macOS menu-bar implementations, and matching preflight, temp-cleanup, and double-confirmed source-cleanup actions to the Windows notification-area tray.
+- Fixed PowerShell Stage 2/Stage 3 subcommand forwarding so GNU-style arguments are passed as an actual string array to a child PowerShell host instead of being split into characters.
+- Bundled both Stage 3 engines into macOS app builds and macOS/Windows versioned installs.
+
+## 0.6.0
+
+- Added `CODEX ~ GPT Portal` Stage 2 for reconciling verified Stage 1 project backups into the canonical `Code/Repos/<owner>/<repo>` workspace under a selected CSA-iEM root.
+- Added GitHub-backed identity preflight using repository node ID, canonical owner/name, default branch, archived state, remote HEAD, local worktree state, and commit ancestry. Folder names are only a fallback; ambiguous identities remain blocked.
+- Added safety-gated selected-project and Full Auto execution. Active CSA-iEM checkouts, dirty or staged canonical destinations, dirty source merges into an existing canonical project, divergent history, archived repositories, duplicate destinations, and identity conflicts are skipped and reported instead of overwritten.
+- Added isolated Stage 2 transactions under `Import/Stage2`, atomic promotion for new canonical projects, APFS clone-copy acceleration, path/type/size/symlink verification, Git object verification, clean local fast-forward, and additive-only healing for existing destinations.
+- Added optional Runtime mirror preparation and optional Stage 1 retirement into `CODEX PROJECTS/_temp/Stage2-Completed`; Stage 1 remains untouched by default.
+- Added explicit private empty-repository creation for projects with no verified GitHub repository. CSA-iEM attaches the local canonical copy but does not commit or upload project files automatically.
+- Added Stage 2 controls to the native macOS portal, both macOS toolbar surfaces, the shell CLI and interactive menu, the Windows PowerShell CLI, and the Windows notification-area tray.
+- Added project quick actions for GitHub Copilot and devcontainer launch alongside Finder, Codex, and Visual Studio Code.
+- Hardened ordinary CLI repo updates so untracked files now block automatic pulls together with staged and modified files.
+- Added per-transaction Markdown reports under `Runtime/Reports/Stage2` with live `PLAN`, `PROGRESS`, and summary output.
+
+## 0.5.18
+
+- Separated CODEX project discovery from current Codex desktop linkage. The portal now reads the local Codex project registry and labels the selected IDE workspace `Active here`, other current local-project entries `Codex linked`, and disk-only discoveries `Unlinked`; historical task records and saved workspace-root history do not falsely relink a project.
+- Added read-only local Git health to every discovered project row. CSA-iEM reports branch, working-tree changes, and ahead/behind/diverged state against the locally stored `origin/main` reference without fetching, changing Git configuration, reading prompts, or storing account data.
+- Parallelized project Git-health reads through a bounded six-project worker pool, with an eight-second per-command limit, so one slow or cloud-backed worktree cannot serialize the entire discovery result.
+- Expanded CODEX project search and summary counts with IDE-link and Git-main status, including an unavailable state that avoids presenting an unreadable Codex registry or timed-out Git check as a confirmed result.
+
+## 0.5.17
+
+- Added a verified repeat-run cache to CODEX Auto All. When transfer settings and roots match a saved plan, CSA-iEM validates the current source-to-destination state with native rsync and returns a zero-copy plan without rebuilding both Swift file trees. Changed projects automatically fall back to the complete index.
+- Added a true no-op execution path for unchanged existing destinations when no backup, Git re-arm, bidirectional sync, or source removal is requested.
+- Added automatic preparation of planned iCloud placeholders in bounded parallel batches before transfer. The UI reports download progress, stalled batches time out and clean up their workers, and transient local-provider rsync failures receive narrow retries without relaxing conflict or checksum gates.
+- Prevented rsync's informational `skipping non-regular file` message for live Git fsmonitor sockets from being parsed as a changed project path, allowing socket-bearing repositories to use the verified zero-delta cache.
+- Saved the CODEX portal's local output folder, transfer mode, and transfer safety toggles across app upgrades and relaunches. These preferences contain paths and booleans only; project content, prompts, GitHub identity, and credentials remain outside app storage.
+
+## 0.5.16
+
+- Replaced the CODEX preflight write probe's Foundation protected-temporary-file path with a direct POSIX `touch` check. This prevents the native UI from freezing inside `FileManager.createFile` on writable external volumes while preserving the same fail-closed output-folder gate.
+
+## 0.5.15
+
+- Made CODEX transfers portable across volumes when a project contains live Unix sockets, named pipes, or device nodes. The virtual file table now records directories, regular files, and symlinks only; rsync explicitly omits runtime-only special nodes, and checksum verification continues to fail closed for every portable project path.
+- Fixed Git repositories with an active `.git/fsmonitor--daemon.ipc` socket so Full Auto no longer stops with `mkstempsock: Invalid argument`.
+
+## 0.5.14
+
+- Fixed staged and final checksum verification for projects containing symbolic links. Verification now preserves and compares link targets instead of treating valid links as skipped non-regular files; real missing, changed, or wrong-target links still fail closed.
+
+## 0.5.13
+
+- Expanded the CODEX transfer fast-path filter so virtual preflight and rsync both skip rebuildable dependency trees, compiler output, framework build folders, coverage, and tool caches when generated content is disabled. This prevents large `dist`, `.build`, `DerivedData`, and cache trees from dominating Auto All while preserving source files, Git metadata, Finder metadata, and project assets.
+- Renamed the portal control and transfer-note field to make build-output handling explicit; generated content can still be included deliberately for a byte-for-byte archival transfer.
+
+## 0.5.12
+
+- Aligned the fast CODEX transfer index with macOS rsync's whole-second timestamp precision. Checksum-identical files whose destination timestamp lost only fractional seconds are now skipped instead of being recopied on every Auto All resume.
+
+## 0.5.11
+
+- Fixed targeted checksum verification on existing destinations so external-filesystem directory timestamp normalization does not stop an otherwise exact transfer. Regular files, symlinks, missing paths, and type conflicts remain fail-closed.
+
+## 0.5.10
+
+- Made CODEX ~ GPT PORTAL Auto All destination-aware by Git identity. When a project already exists under an older folder name, the preflight now reuses the one matching destination instead of scheduling a duplicate initial mirror.
+- Auto All now leaves folders explicitly marked as bad, prior move sources, partial backups, and randomized temporary work clones available for manual selection without including them in the automatic batch.
+- Added fail-closed Git identity checks for same-name destinations, ambiguous external-drive matches, and multiple active sources that could otherwise write to one project folder.
+
 ## 0.5.9
 
 - Saves the CODEX ~ GPT PORTAL's custom scan-root list locally. A pasted, picked, or dropped folder remains available after the app restarts without saving GitHub identity, credentials, prompt contents, or project files.

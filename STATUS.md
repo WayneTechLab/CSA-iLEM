@@ -1,7 +1,7 @@
 # CSA-iEM Status
 
-Version baseline: `0.5.9`
-Updated: `2026-08-08`
+Version baseline: `0.7.0`
+Updated: `2026-08-09`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
@@ -21,6 +21,11 @@ These major product areas are built into the app now:
 - GitHub admin surfaces for repo health, workflows, runs, Codespaces, secrets/variables inventory, and rules/rulesets viewing
 - local move/export/snapshot flows with preview-first behavior
 - local CODEX project discovery, index-first preflight, verified backup, copy, sync, move, conflict quarantine, and handoff-note workflows
+- Stage 2 GitHub-identity preflight and safety-gated selected/Full Auto reconciliation from preservation folders into canonical Code / Import / Runtime workspaces
+- Stage 1 and Stage 2 verification receipts, Stage 3 receipt-linked cleanup, and selected/all end-to-end Full Auto lifecycle controls
+- identity-bound repository consolidation from reviewed legacy sources into one canonical folder per GitHub repository, with complete representation proofs and fail-closed global retirement
+- exact-transaction recovery resume from fully finalized destination-group checkpoints, including fresh source, Git, GitHub, receipt, remote, and representation revalidation
+- receipt-bound local retirement and exact allowlisted external `_temp` payload cleanup after a successful recovery and fresh canonical audit
 - custom local scan roots that can be entered, selected, or dropped into the portal and persist only in the local app profile
 - mounted-drive Default workspace, backup, relocation, migration, and recovery flows
 - native macOS menu-bar controls and Windows notification-area companion entry points
@@ -31,7 +36,7 @@ These major product areas are built into the app now:
 
 ## Is Done
 
-These items are currently tracked as working in the repo at the `0.5.9` baseline:
+These items are currently tracked as working in the repo at the `0.7.0` baseline:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`
@@ -50,8 +55,26 @@ These items are currently tracked as working in the repo at the `0.5.9` baseline
 - clearer partial-failure reporting in the GitHub admin panels for secrets, variables, branch protection, and rulesets
 - canonical macOS app replacement that removes stale app bundles and refreshes the single toolbar launcher
 - selected-root project discovery without a broad Codex-history scan
+- separate CODEX registry status for the selected active workspace, other linked local projects, unlinked disk discoveries, and unavailable registry reads
+- read-only per-project branch, local-change, and local `origin/main` ahead/behind/diverged status with a bounded parallel Git-check pool and no network fetch
 - persistent source/destination file tables, targeted rsync manifests, optional deep checksum audit, and mandatory full checksum verification before a source is retired
+- Git-identity destination reuse for renamed CODEX project folders, with fail-closed ambiguity checks and automatic exclusion of clearly stale transfer/work folders from Auto All
+- checksum verification that tolerates directory-only timestamp normalization on external filesystems without relaxing regular-file, symlink, missing-path, or type-conflict checks
+- whole-second metadata matching aligned with macOS rsync so fractional timestamp truncation does not schedule checksum-identical files for repeat copies
+- one shared generated-content filter for CODEX preflight and rsync, excluding rebuildable dependency, build, coverage, and cache trees unless the operator explicitly includes them
+- checksum verification that preserves and validates symbolic-link targets during both staged and final project checks
+- portable transfer handling that excludes live sockets, pipes, and device nodes from both the virtual index and rsync while retaining regular files, directories, and symlinks
+- an external-volume preflight write probe that avoids Foundation's protected temporary-file path and returns control to the native UI reliably
+- verified zero-delta CODEX plan reuse that validates the current source-to-destination state with native rsync before skipping Swift tree re-indexing and transfer work
+- bounded parallel iCloud-placeholder preparation for planned files, with progress, timeout cleanup, and transient rsync retry handling
+- local persistence for CODEX output path, transfer mode, and transfer safety switches without storing project content or GitHub credentials
 - generated `Transfer_Note.MD` and `Prompt_Inject.MD` files at verified project destinations
+- GitHub repository-ID matching, active-project exclusion, dirty/staged/diverged/archived/identity-conflict blocks, APFS clone staging, atomic promotion, additive healing, optional Runtime mirrors, and Stage 2 transaction reports
+- matching Stage 2 shell, PowerShell, native macOS portal, macOS toolbar, and Windows tray entry points
+- matching Stage 3 Bash/PowerShell engines, reports, audit receipts, direct CLI commands, interactive menus, native lifecycle panel, macOS toolbar controls, and Windows tray controls
+- optional Stage 1/Stage 2 ZIPs, two-pass permanent source deletion, exact current-run receipt scope, Stage 1-to-Stage 2 receipt-chain resolution, and receipt-linked current/all temp cleanup
+- repository-consolidation retirement authorization that keeps retained/protected sources out of deletion scope even when their content is fully represented
+- transaction-bound runner drain/restore evidence and a separate confirmation token for deleting only completed recovery payloads from external temporary storage
 
 ## Broken
 

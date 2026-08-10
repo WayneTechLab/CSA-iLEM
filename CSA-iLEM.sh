@@ -956,6 +956,10 @@ Usage:
   $(basename "$0") --browse-cost-control --use-current-root
   $(basename "$0") --browse-devcontainers
   $(basename "$0") --browse-devcontainers --use-current-root
+  $(basename "$0") stage2 --source "/Volumes/DRIVE/CODEX PROJECTS" --managed-root "/Volumes/DRIVE/CSA-iEM" --preflight --all
+  $(basename "$0") stage2 --source "/Volumes/DRIVE/CODEX PROJECTS" --managed-root "/Volumes/DRIVE/CSA-iEM" --full-auto --yes
+  $(basename "$0") stage3 --source "/Volumes/DRIVE/CODEX PROJECTS" --managed-root "/Volumes/DRIVE/CSA-iEM" --preflight --all --cleanup-all-verified-temp
+  $(basename "$0") stage3 --source "/Volumes/DRIVE/CODEX PROJECTS" --managed-root "/Volumes/DRIVE/CSA-iEM" --apply --all --delete-stage1-originals --delete-stage2-inputs --cleanup-all-verified-temp --yes --confirm-delete VERIFIED-STAGE3
   $(basename "$0") --list-external-drives
   $(basename "$0") --external-drive /Volumes/DRIVE --backup-all --use-current-root
   $(basename "$0") --external-drive /Volumes/DRIVE --move-project OWNER/REPO --yes --use-current-root
@@ -991,6 +995,8 @@ What it does:
   - Includes a browser for imported projects, active local containers, and local Actions runners
   - Lets you open an imported project in VS Code and optionally start its devcontainer
   - Can jump directly into imported projects, the full local browser, cost-control review, or installed devcontainers
+  - Includes Stage 2 GitHub-identity preflight and safe reconciliation from a CODEX PROJECTS backup into Code / Import / Runtime
+  - Includes Stage 3 receipt-driven source and transaction cleanup with two-pass verification and exact confirmation tokens
   - Accepts cleaner-style direct cleanup flags for host, account, repo, workflows, runs, artifacts, caches, and Codespaces
   - Can be installed into ~/.local/bin on any supported Mac with the included install.sh
   - Returns to a main menu after single operations instead of exiting immediately
@@ -1025,6 +1031,17 @@ Direct import flags:
   --import-root PATH
   --runtime-root PATH
   --auto-mode
+
+Stage 2 workspace command:
+  stage2 --help
+  stage2 --source PATH --managed-root PATH --preflight --all
+  stage2 --source PATH --managed-root PATH --apply --project PATH --yes
+  stage2 --source PATH --managed-root PATH --full-auto --yes
+
+Stage 3 lifecycle cleanup command:
+  stage3 --help
+  stage3 --source PATH --managed-root PATH --preflight --all --cleanup-all-verified-temp
+  stage3 --source PATH --managed-root PATH --apply --receipt PATH --delete-stage1-originals --yes --confirm-delete VERIFIED-STAGE3
 
 Local external-drive flags:
   --list-external-drives
@@ -3651,6 +3668,127 @@ show_batch_inventory_summary() {
   show_imported_projects_summary
 }
 
+run_stage2_interactive() {
+  local managed_root=""
+  local source_root=""
+  local selection=""
+  local project_path=""
+  local action=""
+  local args=()
+
+  if workspace_uses_separate_roots; then
+    managed_root="$(dirname "$CODE_ROOT")"
+  else
+    managed_root="$ROOT"
+  fi
+  if [[ "$(basename "$managed_root")" == "CSA-iEM" ]]; then
+    source_root="$(dirname "$managed_root")/CODEX PROJECTS"
+  else
+    source_root="$HOME/CODEX PROJECTS"
+  fi
+
+  echo
+  print_line
+  echo "CODEX ~ GPT Portal: Stage 2"
+  print_line
+  read -r -p "Stage 1 source (Enter = $source_root): " selection
+  [[ -n "$selection" ]] && source_root="$selection"
+  read -r -p "Managed CSA-iEM root (Enter = $managed_root): " selection
+  [[ -n "$selection" ]] && managed_root="$selection"
+  echo "1) Preflight all projects"
+  echo "2) Preflight one project"
+  echo "3) Full Auto safe reconciliation"
+  read -r -p "Enter choice [1-3] (Enter = 1): " action
+  case "$action" in
+    ""|1) args=(--source "$source_root" --managed-root "$managed_root" --preflight --all) ;;
+    2)
+      read -r -p "Project folder path or name: " project_path
+      [[ -n "$project_path" ]] || { warn "A project is required."; return; }
+      args=(--source "$source_root" --managed-root "$managed_root" --preflight --project "$project_path")
+      ;;
+    3)
+      if ! manual_confirm "Run Stage 2 Full Auto with safety blocks enabled?"; then
+        warn "Stage 2 cancelled."
+        return
+      fi
+      args=(--source "$source_root" --managed-root "$managed_root" --full-auto --yes)
+      ;;
+    *) warn "Invalid choice."; return ;;
+  esac
+  "$SCRIPT_DIR/stage2-workspace.sh" "${args[@]}"
+}
+
+run_stage3_interactive() {
+  local managed_root=""
+  local source_root=""
+  local selection=""
+  local project_selector=""
+  local action=""
+  local args=()
+
+  if workspace_uses_separate_roots; then
+    managed_root="$(dirname "$CODE_ROOT")"
+  else
+    managed_root="$ROOT"
+  fi
+  if [[ "$(basename "$managed_root")" == "CSA-iEM" ]]; then
+    source_root="$(dirname "$managed_root")/CODEX PROJECTS"
+  else
+    source_root="$HOME/CODEX PROJECTS"
+  fi
+
+  echo
+  print_line
+  echo "CODEX ~ GPT Portal: Stage 3"
+  print_line
+  read -r -p "Stage 1 source (Enter = $source_root): " selection
+  [[ -n "$selection" ]] && source_root="$selection"
+  read -r -p "Managed CSA-iEM root (Enter = $managed_root): " selection
+  [[ -n "$selection" ]] && managed_root="$selection"
+  echo "1) All verified receipts"
+  echo "2) One project name or repository slug"
+  read -r -p "Selection [1-2] (Enter = 1): " selection
+  args=(--source "$source_root" --managed-root "$managed_root" --all)
+  if [[ "$selection" == "2" ]]; then
+    read -r -p "Project name or OWNER/REPO: " project_selector
+    [[ -n "$project_selector" ]] || { warn "A project selector is required."; return; }
+    args+=(--project "$project_selector")
+  fi
+
+  manual_confirm "Delete verified Stage 1 originals?" && args+=(--delete-stage1-originals)
+  manual_confirm "Delete verified Stage 2 input folders?" && args+=(--delete-stage2-inputs)
+  echo "Temporary-data policy:"
+  echo "1) Keep temporary data"
+  echo "2) Clean receipt-linked Stage 2 transaction data"
+  echo "3) Clean all receipt-linked Stage 1 and Stage 2 temporary data"
+  read -r -p "Enter choice [1-3] (Enter = 2): " selection
+  case "$selection" in
+    1) ;;
+    3) args+=(--cleanup-all-verified-temp) ;;
+    *) args+=(--cleanup-transaction-temp) ;;
+  esac
+  if [[ " ${args[*]} " != *" --delete-stage1-originals "* &&
+        " ${args[*]} " != *" --delete-stage2-inputs "* &&
+        " ${args[*]} " != *" --cleanup-"* ]]; then
+    warn "Choose at least one Stage 3 cleanup policy."
+    return
+  fi
+
+  echo "1) Preflight only"
+  echo "2) Apply receipt-verified cleanup"
+  read -r -p "Action [1-2] (Enter = 1): " action
+  if [[ "$action" == "2" ]]; then
+    if ! manual_confirm "Run permanent Stage 3 cleanup after a fresh preflight?"; then
+      warn "Stage 3 cancelled."
+      return
+    fi
+    args+=(--apply --yes --confirm-delete VERIFIED-STAGE3)
+  else
+    args+=(--preflight)
+  fi
+  "$SCRIPT_DIR/stage3-cleanup.sh" "${args[@]}"
+}
+
 main_menu_loop() {
   local choice=""
 
@@ -3666,10 +3804,12 @@ main_menu_loop() {
     echo "3) Switch GitHub host/account"
     echo "4) Show preflight scan"
     echo "5) Browse imported projects / containers / local Actions / etc."
-    echo "6) Exit"
+    echo "6) CODEX ~ GPT Portal Stage 2"
+    echo "7) CODEX ~ GPT Portal Stage 3"
+    echo "8) Exit"
     echo
 
-    read -r -p "Enter choice [1-6]: " choice
+    read -r -p "Enter choice [1-8]: " choice
     case "$choice" in
       1)
         choose_mode
@@ -3691,6 +3831,12 @@ main_menu_loop() {
         browse_local_resources
         ;;
       6)
+        run_stage2_interactive
+        ;;
+      7)
+        run_stage3_interactive
+        ;;
+      8)
         break
         ;;
       *)
@@ -4758,13 +4904,13 @@ clone_or_update_one_repo_copy() {
 
   git -C "$target_dir" checkout "$default_branch" >/dev/null 2>&1 || true
 
-  if git -C "$target_dir" diff --quiet && git -C "$target_dir" diff --cached --quiet; then
+  if [[ -z "$(git -C "$target_dir" status --porcelain=v1 --untracked-files=normal 2>/dev/null)" ]]; then
     if ! git -C "$target_dir" pull --ff-only origin "$default_branch"; then
       warn "Failed to pull $default_branch for $target_dir"
       return 1
     fi
   else
-    warn "Local changes are present in $target_dir. Skipping pull."
+    warn "Tracked, staged, or untracked local changes are present in $target_dir. Skipping pull."
   fi
 }
 
@@ -6087,5 +6233,15 @@ main() {
     printf 'Root workspace: %s\n' "$ROOT"
   fi
 }
+
+if [[ "${1:-}" == "stage2" ]]; then
+  shift
+  exec "$SCRIPT_DIR/stage2-workspace.sh" "$@"
+fi
+
+if [[ "${1:-}" == "stage3" ]]; then
+  shift
+  exec "$SCRIPT_DIR/stage3-cleanup.sh" "$@"
+fi
 
 main "$@"

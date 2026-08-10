@@ -2102,6 +2102,10 @@ Windows 11 admin-shell usage:
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --repo OWNER/REPO --all --dry-run --yes
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --browse-projects --use-current-root
   powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --billing-report
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage2 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --preflight --all
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage2 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --full-auto --yes
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage3 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --preflight --all --cleanup-all-verified-temp
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage3 --source "E:\CODEX PROJECTS" --managed-root "E:\CSA-iEM" --apply --all --delete-stage1-originals --delete-stage2-inputs --cleanup-all-verified-temp --yes --confirm-delete VERIFIED-STAGE3
 
 Options:
   --repo OWNER/REPO
@@ -2136,6 +2140,12 @@ Options:
   --yes
   --version
   --help
+
+Stage 2 options are provided by stage2-workspace.ps1. Run:
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage2 --help
+
+Stage 3 options are provided by stage3-cleanup.ps1. Run:
+  powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 stage3 --help
 "@ | Write-Host
 }
 
@@ -2471,6 +2481,77 @@ function Run-DirectAction {
     throw "A direct repo action requires either --import-mode or cleanup flags."
 }
 
+function Start-Stage2Interactive {
+    param([hashtable]$Roots)
+    $ManagedRoot = Split-Path $Roots.CodeRoot -Parent
+    $SourceRoot = if ((Split-Path $ManagedRoot -Leaf) -eq "CSA-iEM") { Join-Path (Split-Path $ManagedRoot -Parent) "CODEX PROJECTS" } else { Join-Path $HOME "CODEX PROJECTS" }
+    $Value = Read-Host "Stage 1 source (Enter = $SourceRoot)"
+    if ($Value) { $SourceRoot = $Value }
+    $Value = Read-Host "Managed CSA-iEM root (Enter = $ManagedRoot)"
+    if ($Value) { $ManagedRoot = $Value }
+    Write-Host "1) Preflight all projects"
+    Write-Host "2) Preflight one project"
+    Write-Host "3) Full Auto safe reconciliation"
+    $Choice = Read-Host "Enter choice [1-3] (Enter = 1)"
+    $Stage2Script = Join-Path $ScriptDir "stage2-workspace.ps1"
+    switch ($Choice) {
+        { $_ -in @("", "1") } { & $Stage2Script -Source $SourceRoot -ManagedRoot $ManagedRoot -Preflight -All }
+        "2" {
+            $ProjectPath = Read-Host "Project folder path or name"
+            if ($ProjectPath) { & $Stage2Script -Source $SourceRoot -ManagedRoot $ManagedRoot -Preflight -Project $ProjectPath }
+        }
+        "3" {
+            if (Confirm-Action -Prompt "Run Stage 2 Full Auto with safety blocks enabled?" -DefaultYes $false) {
+                & $Stage2Script -Source $SourceRoot -ManagedRoot $ManagedRoot -FullAuto -Yes
+            }
+        }
+    }
+}
+
+function Start-Stage3Interactive {
+    param([hashtable]$Roots)
+    $ManagedRoot = Split-Path $Roots.CodeRoot -Parent
+    $SourceRoot = if ((Split-Path $ManagedRoot -Leaf) -eq "CSA-iEM") { Join-Path (Split-Path $ManagedRoot -Parent) "CODEX PROJECTS" } else { Join-Path $HOME "CODEX PROJECTS" }
+    $Value = Read-Host "Stage 1 source (Enter = $SourceRoot)"
+    if ($Value) { $SourceRoot = $Value }
+    $Value = Read-Host "Managed CSA-iEM root (Enter = $ManagedRoot)"
+    if ($Value) { $ManagedRoot = $Value }
+    $Arguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($Value in @("--source", $SourceRoot, "--managed-root", $ManagedRoot, "--all")) { $Arguments.Add($Value) }
+    Write-Host "1) All verified receipts"
+    Write-Host "2) One project name or OWNER/REPO"
+    if ((Read-Host "Selection [1-2] (Enter = 1)") -eq "2") {
+        $Selector = Read-Host "Project name or OWNER/REPO"
+        if (-not $Selector) { Write-WarnLine "A project selector is required."; return }
+        $Arguments.Add("--project"); $Arguments.Add($Selector)
+    }
+    if (Confirm-Action -Prompt "Delete verified Stage 1 originals?" -DefaultYes $false) { $Arguments.Add("--delete-stage1-originals") }
+    if (Confirm-Action -Prompt "Delete verified Stage 2 input folders?" -DefaultYes $false) { $Arguments.Add("--delete-stage2-inputs") }
+    Write-Host "1) Keep temporary data"
+    Write-Host "2) Clean receipt-linked Stage 2 transaction data"
+    Write-Host "3) Clean all receipt-linked Stage 1 and Stage 2 temporary data"
+    switch (Read-Host "Temporary-data policy [1-3] (Enter = 2)") {
+        "1" { }
+        "3" { $Arguments.Add("--cleanup-all-verified-temp") }
+        default { $Arguments.Add("--cleanup-transaction-temp") }
+    }
+    if (-not (@($Arguments) | Where-Object { $_ -in @("--delete-stage1-originals", "--delete-stage2-inputs", "--cleanup-transaction-temp", "--cleanup-all-verified-temp") })) {
+        Write-WarnLine "Choose at least one Stage 3 cleanup policy."
+        return
+    }
+    Write-Host "1) Preflight only"
+    Write-Host "2) Apply receipt-verified cleanup"
+    if ((Read-Host "Action [1-2] (Enter = 1)") -eq "2") {
+        if (-not (Confirm-Action -Prompt "Run permanent Stage 3 cleanup after a fresh preflight?" -DefaultYes $false)) { return }
+        foreach ($Value in @("--apply", "--yes", "--confirm-delete", "VERIFIED-STAGE3")) { $Arguments.Add($Value) }
+    } else {
+        $Arguments.Add("--preflight")
+    }
+    $Stage3Script = Join-Path $ScriptDir "stage3-cleanup.ps1"
+    $PowerShellHost = (Get-Process -Id $PID).Path
+    & $PowerShellHost -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Stage3Script @Arguments
+}
+
 function Run-Interactive {
     $Scan = Show-Preflight
     Offer-PreflightActions -Scan $Scan
@@ -2497,8 +2578,10 @@ function Run-Interactive {
         Write-Host "5) Browse imported projects"
         Write-Host "6) GitHub billing and Actions usage report"
         Write-Host "7) Recovery mode: find and merge old workspace roots"
-        Write-Host "8) Exit"
-        $Choice = Read-Host "Enter choice [1-8]"
+        Write-Host "8) CODEX ~ GPT Portal Stage 2"
+        Write-Host "9) CODEX ~ GPT Portal Stage 3"
+        Write-Host "10) Exit"
+        $Choice = Read-Host "Enter choice [1-10]"
 
         switch ($Choice) {
             "1" {
@@ -2575,10 +2658,30 @@ function Run-Interactive {
             "5" { Browse-ImportedProjects -CodeRoot $Roots.CodeRoot -RuntimeRoot $Roots.RuntimeRoot }
             "6" { Show-GitHubBillingReport -GitHubHost $State.GitHubHost -DefaultOwner $State.Account }
             "7" { Start-RecoveryMode -Roots $Roots }
-            "8" { return }
+            "8" { Start-Stage2Interactive -Roots $Roots }
+            "9" { Start-Stage3Interactive -Roots $Roots }
+            "10" { return }
             default { }
         }
     }
+}
+
+if ($args.Count -gt 0 -and $args[0] -eq "stage2") {
+    $Stage2Script = Join-Path $ScriptDir "stage2-workspace.ps1"
+    if (-not (Test-Path $Stage2Script)) { throw "Stage 2 engine was not found: $Stage2Script" }
+    [string[]]$Stage2Args = if ($args.Count -gt 1) { @($args[1..($args.Count - 1)]) } else { @("--help") }
+    $PowerShellHost = (Get-Process -Id $PID).Path
+    & $PowerShellHost -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Stage2Script @Stage2Args
+    exit $LASTEXITCODE
+}
+
+if ($args.Count -gt 0 -and $args[0] -eq "stage3") {
+    $Stage3Script = Join-Path $ScriptDir "stage3-cleanup.ps1"
+    if (-not (Test-Path $Stage3Script)) { throw "Stage 3 engine was not found: $Stage3Script" }
+    [string[]]$Stage3Args = if ($args.Count -gt 1) { @($args[1..($args.Count - 1)]) } else { @("--help") }
+    $PowerShellHost = (Get-Process -Id $PID).Path
+    & $PowerShellHost -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Stage3Script @Stage3Args
+    exit $LASTEXITCODE
 }
 
 Parse-Args -ArgsList $args

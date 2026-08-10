@@ -111,6 +111,8 @@ The published GUI now defaults to a generic public three-root model:
 
 If the app detects a current custom-drive setup on the machine, it presents that as a detected workspace migration example instead of surfacing legacy preset names in the main UX.
 
+The `CODEX ~ GPT Portal` includes Stage 2 source and managed-root controls, selected and Full Auto GitHub-identity preflight, optional verified ZIPs, Runtime mirrors, and Keep/Retire/Delete source policies. Stage 3 adds receipt-linked source and temporary-data cleanup. The Full Auto Lifecycle can run selected or all eligible projects through all three stages with independent ZIP and cleanup controls. Both macOS menu-bar surfaces expose Stage 2 and Full Lifecycle preflight/run entry points; destructive actions still require arming in the app.
+
 ## Icon Packaging
 
 `build-gui-app.sh` converts `assets/AppIcon.appiconset` into `AppIcon.icns` for Finder and Dock use when `iconutil` is available.

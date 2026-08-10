@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.5.9`
+Version: `0.7.0`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -16,6 +16,10 @@ Notice: `Use at your own risk.`
 - GitHub account and repo shortcuts for login, org/repo navigation, workflow and run loading, Codespaces, secrets, rulesets, repo settings, and direct tab links for Actions, Issues, Pull Requests, Projects, Security, and Insights
 - GitHub billing reports for Actions minutes, paid minutes, storage, Packages, project-level usage signals, and direct account or organization billing links
 - Privacy-First startup checks that verify local tools and GitHub CLI login state without importing or saving GitHub tokens, API keys, account identity, repository inventory, or organization data
+- index-first CODEX transfers that reuse verified zero-delta plans, skip unchanged destination files, prepare planned iCloud placeholders in bounded parallel batches, and by default omit rebuildable dependencies, compiler output, coverage, and tool caches
+- separate CODEX discovery, IDE-link, and Git-main status so the selected Codex workspace, other linked projects, unlinked disk projects, local changes, and local `origin/main` parity remain distinguishable
+- Stage 2 GitHub-identity reconciliation from a `CODEX PROJECTS` preservation folder into canonical `Code/Repos`, with selected or Full Auto execution and fail-closed worktree/history checks
+- receipt-linked Stage 3 cleanup and end-to-end Full Auto controls for selected or all eligible CODEX projects, with independent ZIP, source-retention, intermediate-retention, and verified-temp policies
 - mounted external-drive controls for previewed full-workspace or selected-project backups and moves from the GUI, CLI, and macOS toolbar
 - external-drive Default workspace controls that can save a stable `DRIVE/CSA-iEM` layout without moving data, or stage and relocate all `Code`, `Import`, and `Runtime` roots after explicit confirmation
 - runner fleet controls for stopping all active runners or starting only one selected runner
@@ -41,6 +45,15 @@ For the current production-status snapshot, see:
 - [`STATUS.md`](./STATUS.md)
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
 - [`docs/Windows-Contributor-Setup.md`](./docs/Windows-Contributor-Setup.md)
+
+The active Codex project checkout is the checkout containing this README.
+Treat it as protected operator infrastructure: it is not a legacy project
+source, a Stage 1 input, or a receipt-linked cleanup target. Machine-specific
+absolute paths belong only in the local reviewed source map and receipts.
+
+The fail-closed one-folder-per-repository lifecycle, GitHub identity rules,
+local-source retirement gates, and final `_temp` cleanup contract are recorded
+in [`.SYSTEMX/REPOSITORY-CONSOLIDATION.md`](./.SYSTEMX/REPOSITORY-CONSOLIDATION.md).
 
 ## Git Project
 
@@ -326,11 +339,25 @@ The GUI is a SwiftUI macOS app that:
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
 - adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/import/runtime/runner combinations to another folder or external drive
 - adds a dedicated `CODEX ~ GPT PORTAL` that scans selected custom folders first, accepts a pasted path, Finder folder picker, or dropped folders, and discovers only project roots with Git, manifests, or generic on-disk project context before supporting single, multi, visible, and all-project targeting
+- reads Codex's local project registry to label the selected workspace `Active here`, other registered local projects `Codex linked`, and filesystem-only discoveries `Unlinked`; historical sessions and saved-root history do not count as current links
+- reports each project's branch, tracked or untracked local changes, and ahead/behind/diverged state against the locally stored `origin/main` reference through bounded parallel checks without performing a fetch or changing the repository
 - packages each selected Codex project through preflight, isolated `_temp` staging, checksum verification, optional `.git` and generated-dependency preservation, a tested ZIP backup, and `Transfer_Note.MD` plus `Prompt_Inject.MD` handoff files
+- writes a Stage 1 receipt for every verified result so later cleanup can identify the exact original, current source, destination, tested ZIP, file indexes, and preservation policy without rescanning unrelated folders
+- adds Stage 2 selected-project and Full Auto controls that match by GitHub repository ID, canonical owner/name, remote HEAD, and commit ancestry before promoting a project into `Code/Repos/<owner>/<repo>`
+- blocks the active CSA-iEM checkout, dirty or staged canonical destinations, dirty source merges into an existing destination, archived repositories, identity conflicts, duplicate destinations, and divergent or unverified history
+- stages new canonical projects under `Import/Stage2`, uses APFS clone-copy acceleration when available, verifies the complete staged tree and Git object database, then promotes atomically; existing clean projects receive only proven fast-forwards and additive missing-file healing
+- can create a missing GitHub repository as private and empty, attach the local canonical project, and leave commit/push to the operator so local files are never uploaded implicitly
+- can optionally prepare `Runtime/Repos` mirrors, retire completed Stage 1 sources into `_temp/Stage2-Completed`, and open the managed project in Codex, Visual Studio Code, GitHub Copilot, Finder, or its devcontainer
+- can create and verify a Stage 2 ZIP, keep or retire the intermediate project, or permanently delete it only after canonical verification, same-volume quarantine, and a second verification
+- adds Stage 3 selected/all receipt cleanup for original source folders, Stage 2 inputs, current transaction data, or all receipt-linked temporary indexes while preserving canonical repositories, archives, reports, receipts, failed transactions, unreferenced temp data, and active CSA-iEM
+- adds a single Full Auto lifecycle control that runs Stage 1, requires one receipt per result, sends only those destinations to Stage 2, preflights Stage 3 from the exact receipts emitted by the current run, and stops at the first blocked stage
 - can preserve Finder sidecars, re-arm a copied project to the detected `origin/main` by rebuilding only the Git index, and keep the original source untouched until final verification completes
 - Preflight builds persistent source/destination file-index JSON and a virtual transfer plan under the output `_temp/Transfer-Indexes` folder before it changes a project; the on-screen table shows indexed entries, planned paths, and destination-only recovery data
-- Auto All resumes existing output folders with a targeted rsync manifest: metadata-matched files are skipped, missing or changed paths are reconciled, and destination-only files are preserved without re-copying the full tree
-- fast preflight compares relative path, type, size, date, and symlink target; the optional deep checksum audit reads metadata-matched files to detect rare silent content changes, while a new destination still needs one complete staged baseline mirror
+- Auto All reuses a uniquely matching Git destination even when its folder was renamed, validates saved zero-delta indexes with native rsync, and turns unchanged projects into no-op cache hits; changed projects fall back to the complete index and targeted manifest path
+- planned iCloud placeholders are downloaded in bounded parallel batches before rsync runs, with visible progress, a per-batch timeout, and narrow retries for transient local-provider failures; permission, conflict, and checksum failures still stop fail-closed
+- the CODEX portal remembers its local output folder, transfer mode, and safety toggles across relaunches without storing project content, prompts, GitHub identity, tokens, or API keys
+- fast preflight compares relative path, type, size, whole-second date, and symlink target to match macOS rsync's timestamp precision; the optional deep checksum audit detects rare same-size, same-second changes during planning, while the mandatory final audit preserves the prior destination variant, repairs any checksum-only miss, and repeats whole-tree verification before a cleanup-capable receipt can be written
+- exact verification ignores ordinary directory timestamp normalization on external filesystems while continuing to fail on changed regular files, symlinks, missing paths, and file-versus-folder conflicts
 - supports five explicit transfer modes: Backup Only, Copy to Output, Sync and Move, Sync and Sync, and Scan & Backup (Auto Merge)
 - Sync and Move auto-resumes an existing output, verifies the reconciled result, and retires the source only after success; Sync and Sync keeps both folders and auto-heals one-sided changes without deleting either side
 - Scan & Backup creates verified source and destination recovery archives, merges missing or changed files, retains destination-only data, and never removes the source
@@ -358,6 +385,58 @@ GUI build and source-run requirements:
 - Swift available in `PATH`
 - Xcode Command Line Tools or Xcode installed
 
+## Stage 2 Managed Workspace
+
+Stage 1 preserves projects in a selected output folder such as `CODEX PROJECTS`. Stage 2 separately plans and applies reconciliation into a managed CSA-iEM workspace. Preflight leaves project content unchanged and writes its report under `Runtime/Reports/Stage2`.
+
+```bash
+csa-iem stage2 \
+  --source "/Volumes/DRIVE/CODEX PROJECTS" \
+  --managed-root "/Volumes/DRIVE/CSA-iEM" \
+  --preflight --all
+
+csa-iem stage2 \
+  --source "/Volumes/DRIVE/CODEX PROJECTS" \
+  --managed-root "/Volumes/DRIVE/CSA-iEM" \
+  --apply --project "Project Folder" --yes
+
+csa-iem stage2 \
+  --source "/Volumes/DRIVE/CODEX PROJECTS" \
+  --managed-root "/Volumes/DRIVE/CSA-iEM" \
+  --full-auto --yes
+```
+
+`--create-missing-repos` creates private empty repositories by default and does not upload files. `--prepare-runtime` prepares a runtime mirror. `--archive-sources` creates and tests a Stage 2 ZIP. `--retire-sources` moves verified Stage 1 folders under `_temp`; `--delete-sources --confirm-delete VERIFIED-STAGE2` permanently removes only a twice-verified intermediate source.
+
+## Stage 3 Verified Cleanup
+
+Stage 3 does not discover deletion targets from arbitrary folder names. It reads verified Stage 1 and Stage 2 receipts, resolves a completed Stage 1-to-canonical chain, performs a fresh live verification, and then applies only planned receipt-linked rows.
+
+```bash
+csa-iem stage3 \
+  --source "/Volumes/DRIVE/CODEX PROJECTS" \
+  --managed-root "/Volumes/DRIVE/CSA-iEM" \
+  --preflight --all --cleanup-all-verified-temp
+
+csa-iem stage3 \
+  --source "/Volumes/DRIVE/CODEX PROJECTS" \
+  --managed-root "/Volumes/DRIVE/CSA-iEM" \
+  --apply --all \
+  --delete-stage1-originals --delete-stage2-inputs \
+  --cleanup-all-verified-temp \
+  --yes --confirm-delete VERIFIED-STAGE3
+```
+
+Use repeatable `--receipt PATH` for exact current-run scope or `--project NAME_OR_SLUG` with `--all` to filter verified receipts. Stage 3 preserves ZIPs, reports, receipts, canonical repositories, active CSA-iEM, failed transactions, and unreferenced temporary data.
+
+## Verified Repository Consolidation Recovery
+
+The bundled repository-consolidation helpers reconcile reviewed legacy folders and worktrees by verified GitHub identity into one canonical `Code/Repos/<owner>/<repository>` directory. A merge is complete only when every source entry has a verified canonical or conflict-preservation representation and the Git object database, remote identity, and destination receipts pass the final audit.
+
+Interrupted apply runs may use `repo-consolidation-recovery.py --resume` only with the exact transaction ID. Resume accepts fully finalized destination-group checkpoints after revalidating source filesystem identity, the reviewed source-map digest, Git/GitHub identity, remote state, destination content, and representation receipts. Partial staging and any transaction that entered global retirement remain blocked.
+
+After a successful recovery, `repo-consolidation-local-cleanup.py` performs separate receipt-bound phases for local retirement, local quarantine deletion, and external temporary-payload deletion. The external cleanup preflight and `DELETE-VERIFIED-EXTERNAL-TEMP-PAYLOADS` token select only exact paths from completed receipts and audits; canonical repositories, active workspaces, archives, reports, receipts, failed or incomplete transactions, and unrelated `_temp` data remain protected.
+
 ## Windows 11 Admin Shell
 
 The Windows release is PowerShell-first today.
@@ -372,6 +451,8 @@ It supports:
 - workflow patching to self-hosted Windows labels
 - GitHub cleanup actions for workflows, runs, artifacts, caches, and Codespaces
 - local project browsing with VS Code and File Explorer
+- Stage 2 GitHub-identity preflight, selected/Full Auto canonical reconciliation, optional verified ZIP/private-repository/Runtime preparation, and verified source-retention policies
+- Stage 3 receipt preflight, source and transaction cleanup, PowerShell reports/audits, and Windows notification-area tray entry points
 
 Windows documentation:
 - [`docs/Windows-11-Notes.md`](./docs/Windows-11-Notes.md)

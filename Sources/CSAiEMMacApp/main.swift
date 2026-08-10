@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import UniformTypeIdentifiers
+import Darwin
 
 private func readFirstLine(from path: String) -> String? {
   guard !path.isEmpty,
@@ -60,6 +61,30 @@ private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
 private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
 private let administratorTerminalModeKey = "com.waynetechlab.csa-iem.administrator-terminal-mode"
+private let codexOutputRootKey = "com.waynetechlab.csa-iem.codex-output-root"
+private let codexTransferModeKey = "com.waynetechlab.csa-iem.codex-transfer-mode"
+private let codexCreateBackupKey = "com.waynetechlab.csa-iem.codex-create-backup"
+private let codexIncludeGitMetadataKey = "com.waynetechlab.csa-iem.codex-include-git"
+private let codexIncludeFinderMetadataKey = "com.waynetechlab.csa-iem.codex-include-finder-metadata"
+private let codexIncludeDependenciesKey = "com.waynetechlab.csa-iem.codex-include-generated-content"
+private let codexFullChecksumAuditKey = "com.waynetechlab.csa-iem.codex-full-checksum-audit"
+private let codexCreateCompatibilityLinkKey = "com.waynetechlab.csa-iem.codex-create-compatibility-link"
+private let codexRearmGitMainKey = "com.waynetechlab.csa-iem.codex-rearm-git-main"
+private let codexAutoResumeExistingKey = "com.waynetechlab.csa-iem.codex-auto-resume-existing"
+private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
+private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
+private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
+private let stage2CreateMissingReposKey = "com.waynetechlab.csa-iem.stage2-create-missing-repos"
+private let stage2RetireSourcesKey = "com.waynetechlab.csa-iem.stage2-retire-sources"
+private let stage2SourceRetentionKey = "com.waynetechlab.csa-iem.stage2-source-retention"
+private let stage2ArchiveSourcesKey = "com.waynetechlab.csa-iem.stage2-archive-sources"
+private let stage2CleanupTransactionTempKey = "com.waynetechlab.csa-iem.stage2-cleanup-transaction-temp"
+private let stage2PrepareRuntimeKey = "com.waynetechlab.csa-iem.stage2-prepare-runtime"
+private let stage2OpenAfterApplyKey = "com.waynetechlab.csa-iem.stage2-open-after-apply"
+private let codexLifecycleScopeKey = "com.waynetechlab.csa-iem.codex-lifecycle-scope"
+private let codexLifecycleDeleteStage1Key = "com.waynetechlab.csa-iem.codex-lifecycle-delete-stage1"
+private let codexLifecycleRunStage2Key = "com.waynetechlab.csa-iem.codex-lifecycle-run-stage2"
+private let codexLifecycleCleanupScopeKey = "com.waynetechlab.csa-iem.codex-lifecycle-cleanup-scope"
 private let contextsFile = (appSupportDir as NSString).appendingPathComponent("contexts.json")
 private let taskTemplatesFile = (appSupportDir as NSString).appendingPathComponent("task-templates.json")
 private let favoriteProjectsFile = (appSupportDir as NSString).appendingPathComponent("favorite-projects.json")
@@ -277,7 +302,169 @@ enum CodexProjectTransferMode: String, CaseIterable, Identifiable {
   }
 }
 
-struct CodexProjectEntry: Identifiable, Hashable {
+enum Stage2OpenOption: String, CaseIterable, Identifiable {
+  case none
+  case codex
+  case code
+  case copilot
+  case finder
+  case devcontainer
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .none: return "Do Not Open"
+    case .codex: return "Codex"
+    case .code: return "Visual Studio Code"
+    case .copilot: return "GitHub Copilot"
+    case .finder: return "Finder"
+    case .devcontainer: return "Start Devcontainer"
+    }
+  }
+}
+
+enum Stage2SourceRetention: String, CaseIterable, Identifiable, Sendable {
+  case keep
+  case retire
+  case delete
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .keep: return "Keep Stage 1 Inputs"
+    case .retire: return "Retire to _temp"
+    case .delete: return "Delete After Two Verifications"
+    }
+  }
+}
+
+enum CodexLifecycleScope: String, CaseIterable, Identifiable, Sendable {
+  case selected
+  case all
+
+  var id: String { rawValue }
+  var label: String { self == .selected ? "Selected Projects" : "All Eligible Projects" }
+}
+
+enum CodexLifecycleCleanupScope: String, CaseIterable, Identifiable, Sendable {
+  case none
+  case currentTransaction
+  case allVerifiedTemp
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .none: return "Keep Temporary Data"
+    case .currentTransaction: return "Clean Current Transaction"
+    case .allVerifiedTemp: return "Clean All Receipt-Linked Temp"
+    }
+  }
+}
+
+enum CodexIDEProjectState: String, Hashable, Sendable {
+  case active = "Active here"
+  case linked = "Codex linked"
+  case unlinked = "Unlinked"
+  case unavailable = "Codex status unavailable"
+}
+
+enum CodexGitMainState: Hashable, Sendable {
+  case synchronized
+  case ahead(Int)
+  case behind(Int)
+  case diverged(ahead: Int, behind: Int)
+  case noOriginMain
+  case unavailable
+  case noGit
+}
+
+struct CodexGitWorkspaceStatus: Hashable, Sendable {
+  let branch: String?
+  let upstream: String?
+  let mainState: CodexGitMainState
+  let hasLocalChanges: Bool
+
+  var mainLabel: String {
+    switch mainState {
+    case .synchronized:
+      return branch == "main" ? "Main: synced" : "Main: same commit"
+    case let .ahead(count):
+      return "Main: ahead \(count)"
+    case let .behind(count):
+      return "Main: behind \(count)"
+    case let .diverged(ahead, behind):
+      return "Main: +\(ahead) / -\(behind)"
+    case .noOriginMain:
+      return "Main: not tracked"
+    case .unavailable:
+      return "Git status unavailable"
+    case .noGit:
+      return "No Git"
+    }
+  }
+
+  var mainDetail: String {
+    switch mainState {
+    case .synchronized:
+      return "HEAD matches the locally stored origin/main commit."
+    case let .ahead(count):
+      return "HEAD is \(count) commit(s) ahead of the locally stored origin/main commit."
+    case let .behind(count):
+      return "HEAD is \(count) commit(s) behind the locally stored origin/main commit."
+    case let .diverged(ahead, behind):
+      return "HEAD is \(ahead) commit(s) ahead and \(behind) commit(s) behind the locally stored origin/main commit."
+    case .noOriginMain:
+      return "No local origin/main reference is available."
+    case .unavailable:
+      return "The local Git status check did not complete."
+    case .noGit:
+      return "This project has no Git worktree."
+    }
+  }
+
+  var isMainSynchronized: Bool {
+    if case .synchronized = mainState { return true }
+    return false
+  }
+}
+
+private struct CodexDesktopProjectRegistry: Sendable {
+  let isAvailable: Bool
+  let linkedRootPaths: Set<String>
+  let activeRootPaths: Set<String>
+
+  func state(for projectPath: String) -> CodexIDEProjectState {
+    guard isAvailable else { return .unavailable }
+    let projectVariants = Self.normalizedPathVariants(projectPath)
+    if Self.matches(projectVariants: projectVariants, registryRoots: activeRootPaths) {
+      return .active
+    }
+    if Self.matches(projectVariants: projectVariants, registryRoots: linkedRootPaths) {
+      return .linked
+    }
+    return .unlinked
+  }
+
+  static func normalizedPathVariants(_ path: String) -> Set<String> {
+    let expanded = NSString(string: path).expandingTildeInPath
+    let standardized = NSString(string: expanded).standardizingPath
+    let resolved = URL(fileURLWithPath: standardized).resolvingSymlinksInPath().path
+    return Set([standardized, resolved].filter { !$0.isEmpty })
+  }
+
+  private static func matches(projectVariants: Set<String>, registryRoots: Set<String>) -> Bool {
+    projectVariants.contains { projectPath in
+      registryRoots.contains { rootPath in
+        projectPath == rootPath || projectPath.hasPrefix(rootPath + "/")
+      }
+    }
+  }
+}
+
+struct CodexProjectEntry: Identifiable, Hashable, Sendable {
   let path: String
   let name: String
   let discoveredBy: String
@@ -287,6 +474,8 @@ struct CodexProjectEntry: Identifiable, Hashable {
   let hasSystemX: Bool
   let remoteURL: String?
   let branch: String?
+  let ideState: CodexIDEProjectState
+  let gitStatus: CodexGitWorkspaceStatus
 
   var id: String { path }
 
@@ -300,20 +489,45 @@ struct CodexProjectEntry: Identifiable, Hashable {
   }
 
   var searchableText: String {
-    ([name, path, discoveredBy, remoteURL ?? "", branch ?? ""] + badges)
+    ([name, path, discoveredBy, remoteURL ?? "", branch ?? "", ideState.rawValue, gitStatus.mainLabel] + badges)
       .joined(separator: " ")
       .lowercased()
   }
 }
 
+private final class CodexProjectEntryCollector: @unchecked Sendable {
+  private let lock = NSLock()
+  private var entries: [CodexProjectEntry?]
+
+  init(count: Int) {
+    entries = Array(repeating: nil, count: count)
+  }
+
+  func store(_ entry: CodexProjectEntry, at index: Int) {
+    lock.lock()
+    entries[index] = entry
+    lock.unlock()
+  }
+
+  func collectedEntries() -> [CodexProjectEntry] {
+    lock.lock()
+    defer { lock.unlock() }
+    return entries.compactMap { $0 }
+  }
+}
+
 struct CodexProjectTransferOutcome {
   let projectName: String
+  let originalSourcePath: String
+  let currentSourcePath: String?
   let destinationPath: String?
   let backupPath: String?
+  let archivePath: String?
   let warnings: [String]
   let resumedExistingDestination: Bool
   let reconciledFileCount: Int
   let conflictCount: Int
+  var receiptPath: String? = nil
 }
 
 struct CodexFileIndexEntry: Codable, Hashable {
@@ -333,7 +547,7 @@ struct CodexFileIndexEntry: Codable, Hashable {
   func isMetadataEquivalent(to other: CodexFileIndexEntry) -> Bool {
     kind == other.kind &&
       byteCount == other.byteCount &&
-      abs(modifiedAt - other.modifiedAt) < 0.5 &&
+      Int64(modifiedAt) == Int64(other.modifiedAt) &&
       symbolicLinkDestination == other.symbolicLinkDestination
   }
 }
@@ -369,11 +583,16 @@ struct CodexTransferPlan: Identifiable, Codable {
   let sourceIndexPath: String
   let destinationIndexPath: String?
   let planPath: String
+  let cacheFormatVersion: Int?
+  let includeGitMetadata: Bool?
+  let includeFinderMetadata: Bool?
+  let includeDependencies: Bool?
+  let usedVerifiedCache: Bool?
 
   var id: String { projectPath }
 
   var plannedPaths: [String] {
-    Array(Set(missingPaths + metadataChangedPaths + checksumChangedPaths)).sorted()
+    Array(Set(missingPaths + metadataChangedPaths + checksumChangedPaths + typeConflictPaths)).sorted()
   }
 
   var plannedByteCount: Int64 {
@@ -390,7 +609,7 @@ struct CodexTransferPlan: Identifiable, Codable {
       return "Initial mirror required"
     }
     if plannedPaths.isEmpty {
-      return "No file copy needed"
+      return usedVerifiedCache == true ? "Verified cache: no copy needed" : "No file copy needed"
     }
     return "\(plannedPaths.count) path(s) need transfer"
   }
@@ -400,7 +619,12 @@ struct CodexTransferPlan: Identifiable, Codable {
     if requiresInitialMirror {
       return "New destination: \(sourceFileCount) indexed entries, \(planned) baseline copy."
     }
-    let audit = fullChecksumAudit ? " Deep checksum audit included." : " Metadata-matched files are skipped."
+    if usedVerifiedCache == true, plannedPaths.isEmpty {
+      return "Saved index verified against the current folders. No paths or bytes need transfer."
+    }
+    let audit = fullChecksumAudit
+      ? " Deep checksum audit included during planning; final whole-tree checksum required."
+      : " Metadata matches are skipped during copy planning; final whole-tree checksum required."
     return "\(plannedPaths.count) planned, \(destinationOnlyPaths.count) destination-only, \(metadataMatchedCount) metadata-matched. \(planned) to copy.\(audit)"
   }
 }
@@ -1067,6 +1291,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var host = "github.com" {
     didSet {
       if host != oldValue {
+        stage2SafetyArmed = false
+        codexLifecycleSafetyArmed = false
         isAuthenticated = false
         clearRepoCatalog(resetOwner: false)
         reloadAccountChoices()
@@ -1080,6 +1306,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var account = "" {
     didSet {
       if account != oldValue {
+        stage2SafetyArmed = false
+        codexLifecycleSafetyArmed = false
         if repoOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || repoOwner == oldValue {
           repoOwner = account
         }
@@ -1110,16 +1338,156 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexScanRootsDraft = NSString(string: "~/Documents").expandingTildeInPath
   @Published var codexScanRootEntryDraft = ""
   @Published var isCodexScanRootDropTarget = false
-  @Published var codexOutputRootDraft = NSString(string: "~/CODEX PROJECTS").expandingTildeInPath
-  @Published var codexTransferMode: CodexProjectTransferMode = .backupOnly
-  @Published var codexCreateBackup = false
-  @Published var codexIncludeGitMetadata = true
-  @Published var codexIncludeFinderMetadata = true
-  @Published var codexIncludeDependencies = false
-  @Published var codexFullChecksumAudit = false
-  @Published var codexCreateCompatibilityLink = true
-  @Published var codexRearmGitMain = true
-  @Published var codexAutoResumeExisting = true
+  @Published var codexOutputRootDraft = NSString(string: "~/CODEX PROJECTS").expandingTildeInPath {
+    didSet {
+      UserDefaults.standard.set(codexOutputRootDraft, forKey: codexOutputRootKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexTransferMode: CodexProjectTransferMode = .backupOnly {
+    didSet {
+      UserDefaults.standard.set(codexTransferMode.rawValue, forKey: codexTransferModeKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexCreateBackup = false {
+    didSet {
+      UserDefaults.standard.set(codexCreateBackup, forKey: codexCreateBackupKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexIncludeGitMetadata = true {
+    didSet {
+      UserDefaults.standard.set(codexIncludeGitMetadata, forKey: codexIncludeGitMetadataKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexIncludeFinderMetadata = true {
+    didSet {
+      UserDefaults.standard.set(codexIncludeFinderMetadata, forKey: codexIncludeFinderMetadataKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexIncludeDependencies = false {
+    didSet {
+      UserDefaults.standard.set(codexIncludeDependencies, forKey: codexIncludeDependenciesKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexFullChecksumAudit = false {
+    didSet {
+      UserDefaults.standard.set(codexFullChecksumAudit, forKey: codexFullChecksumAuditKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexCreateCompatibilityLink = true {
+    didSet {
+      UserDefaults.standard.set(codexCreateCompatibilityLink, forKey: codexCreateCompatibilityLinkKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexRearmGitMain = true {
+    didSet {
+      UserDefaults.standard.set(codexRearmGitMain, forKey: codexRearmGitMainKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexAutoResumeExisting = true {
+    didSet {
+      UserDefaults.standard.set(codexAutoResumeExisting, forKey: codexAutoResumeExistingKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2SourceRootDraft = NSString(string: "~/CODEX PROJECTS").expandingTildeInPath {
+    didSet {
+      UserDefaults.standard.set(stage2SourceRootDraft, forKey: stage2SourceRootKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2ManagedRootDraft = publicDefaultRoot {
+    didSet {
+      UserDefaults.standard.set(stage2ManagedRootDraft, forKey: stage2ManagedRootKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2GitHubOwnerAccountsDraft = "" {
+    didSet {
+      UserDefaults.standard.set(stage2GitHubOwnerAccountsDraft, forKey: stage2GitHubOwnerAccountsKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2CreateMissingRepos = false {
+    didSet {
+      UserDefaults.standard.set(stage2CreateMissingRepos, forKey: stage2CreateMissingReposKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2SourceRetention: Stage2SourceRetention = .keep {
+    didSet {
+      UserDefaults.standard.set(stage2SourceRetention.rawValue, forKey: stage2SourceRetentionKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2ArchiveSources = false {
+    didSet {
+      UserDefaults.standard.set(stage2ArchiveSources, forKey: stage2ArchiveSourcesKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2CleanupTransactionTemp = true {
+    didSet {
+      UserDefaults.standard.set(stage2CleanupTransactionTemp, forKey: stage2CleanupTransactionTempKey)
+      stage2SafetyArmed = false
+    }
+  }
+  @Published var stage2PrepareRuntime = false {
+    didSet {
+      UserDefaults.standard.set(stage2PrepareRuntime, forKey: stage2PrepareRuntimeKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2OpenAfterApply: Stage2OpenOption = .none {
+    didSet {
+      UserDefaults.standard.set(stage2OpenAfterApply.rawValue, forKey: stage2OpenAfterApplyKey)
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var stage2SafetyArmed = false
+  @Published var stage2Status = "Scan the Stage 1 folder, review GitHub identity and worktree state, then preflight selected projects or run safety-gated Full Auto."
+  @Published var codexLifecycleScope: CodexLifecycleScope = .selected {
+    didSet {
+      UserDefaults.standard.set(codexLifecycleScope.rawValue, forKey: codexLifecycleScopeKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexLifecycleDeleteStage1Originals = false {
+    didSet {
+      UserDefaults.standard.set(codexLifecycleDeleteStage1Originals, forKey: codexLifecycleDeleteStage1Key)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexLifecycleRunStage2 = true {
+    didSet {
+      UserDefaults.standard.set(codexLifecycleRunStage2, forKey: codexLifecycleRunStage2Key)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexLifecycleCleanupScope: CodexLifecycleCleanupScope = .currentTransaction {
+    didSet {
+      UserDefaults.standard.set(codexLifecycleCleanupScope.rawValue, forKey: codexLifecycleCleanupScopeKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexLifecycleSafetyArmed = false
+  @Published var codexLifecycleStatus = "Preflight Stage 1, then run the selected or all-project lifecycle through verified Stage 2 and receipt-linked Stage 3 cleanup."
   @Published var administratorTerminalMode = false
   @Published var savedViewNameDraft = ""
   @Published var contextNameDraft = ""
@@ -1167,7 +1535,14 @@ final class CleanupViewModel: ObservableObject {
   @Published var availableRepos: [RepoCatalogEntry] = []
   @Published var localProjects: [LocalProjectEntry] = []
   @Published var codexProjects: [CodexProjectEntry] = []
-  @Published var selectedCodexProjectPaths: Set<String> = []
+  @Published var selectedCodexProjectPaths: Set<String> = [] {
+    didSet {
+      guard selectedCodexProjectPaths != oldValue else { return }
+      codexTransferPlans.removeAll()
+      stage2SafetyArmed = false
+      codexLifecycleSafetyArmed = false
+    }
+  }
   @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
@@ -1509,14 +1884,38 @@ final class CleanupViewModel: ObservableObject {
     codexProjects.filter { selectedCodexProjectPaths.contains($0.path) }
   }
 
+  var isCodexPortalBusy: Bool {
+    isScanningCodexProjects || isBuildingCodexTransferPlan || isRunningCodexTransfer
+  }
+
+  var stage2SelectedProjects: [CodexProjectEntry] {
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    return selectedCodexProjects.filter { project in
+      let projectPath = normalizeWorkspacePath(project.path)
+      return projectPath == sourceRoot || projectPath.hasPrefix(sourceRoot + "/")
+    }
+  }
+
+  var stage2SelectionSummary: String {
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    let discoveredCount = codexProjects.filter { project in
+      let projectPath = normalizeWorkspacePath(project.path)
+      return projectPath == sourceRoot || projectPath.hasPrefix(sourceRoot + "/")
+    }.count
+    return "\(discoveredCount) Stage 1 project(s) found · \(stage2SelectedProjects.count) selected · managed root \(normalizeWorkspacePath(stage2ManagedRootDraft))"
+  }
+
   var areAllVisibleCodexProjectsSelected: Bool {
     !filteredCodexProjects.isEmpty && filteredCodexProjects.allSatisfy { selectedCodexProjectPaths.contains($0.path) }
   }
 
   var codexProjectSummary: String {
     let selectedCount = selectedCodexProjectPaths.count
-    let gitCount = codexProjects.filter(\.hasGit).count
-    return "\(codexProjects.count) projects found · \(gitCount) Git worktrees · \(selectedCount) selected"
+    let activeCount = codexProjects.filter { $0.ideState == .active }.count
+    let linkedCount = codexProjects.filter { $0.ideState == .linked }.count
+    let unlinkedCount = codexProjects.filter { $0.ideState == .unlinked }.count
+    let synchronizedMainCount = codexProjects.filter { $0.gitStatus.isMainSynchronized }.count
+    return "\(codexProjects.count) found · Codex \(activeCount) active here / \(linkedCount) linked / \(unlinkedCount) unlinked · \(synchronizedMainCount) main synced · \(selectedCount) selected"
   }
 
   var codexTransferPlanSummary: String {
@@ -1527,7 +1926,17 @@ final class CleanupViewModel: ObservableObject {
     let plannedByteCount = codexTransferPlans.reduce(Int64(0)) { $0 + $1.plannedByteCount }
     let initialMirrors = codexTransferPlans.filter(\.requiresInitialMirror).count
     let destinationOnly = codexTransferPlans.reduce(0) { $0 + $1.destinationOnlyPaths.count }
-    let prefix = initialMirrors > 0 ? "\(initialMirrors) initial mirror(s)" : "Index ready"
+    let cachedPlans = codexTransferPlans.filter { $0.usedVerifiedCache == true }.count
+    let prefix: String
+    if initialMirrors > 0 {
+      prefix = "\(initialMirrors) initial mirror(s)"
+    } else if cachedPlans == codexTransferPlans.count {
+      prefix = "\(cachedPlans) verified cache hit(s)"
+    } else if cachedPlans > 0 {
+      prefix = "Index ready · \(cachedPlans) cache hit(s)"
+    } else {
+      prefix = "Index ready"
+    }
     return "\(prefix) · \(plannedPathCount) path(s) planned · \(ByteCountFormatter.string(fromByteCount: plannedByteCount, countStyle: .file)) · \(destinationOnly) destination-only"
   }
 
@@ -1774,6 +2183,7 @@ final class CleanupViewModel: ObservableObject {
 
     adoptDetectedWorkspaceIfNeeded()
     syncWorkspaceDraftsFromResolvedRoots()
+    configureStage2DefaultsIfNeeded()
     reloadAuthInventory()
     refreshAuthStatus()
     refreshLocalProjects()
@@ -1793,7 +2203,84 @@ final class CleanupViewModel: ObservableObject {
     if let savedCodexRoots: [String] = readJSON([String].self, from: codexScanRootsFile), !savedCodexRoots.isEmpty {
       codexScanRootsDraft = savedCodexRoots.joined(separator: "\n")
     }
-    administratorTerminalMode = UserDefaults.standard.bool(forKey: administratorTerminalModeKey)
+    let defaults = UserDefaults.standard
+    if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
+      codexOutputRootDraft = savedOutputRoot
+    }
+    if let savedMode = defaults.string(forKey: codexTransferModeKey),
+       let mode = CodexProjectTransferMode(rawValue: savedMode) {
+      codexTransferMode = mode
+    }
+    if defaults.object(forKey: codexCreateBackupKey) != nil {
+      codexCreateBackup = defaults.bool(forKey: codexCreateBackupKey)
+    }
+    if defaults.object(forKey: codexIncludeGitMetadataKey) != nil {
+      codexIncludeGitMetadata = defaults.bool(forKey: codexIncludeGitMetadataKey)
+    }
+    if defaults.object(forKey: codexIncludeFinderMetadataKey) != nil {
+      codexIncludeFinderMetadata = defaults.bool(forKey: codexIncludeFinderMetadataKey)
+    }
+    if defaults.object(forKey: codexIncludeDependenciesKey) != nil {
+      codexIncludeDependencies = defaults.bool(forKey: codexIncludeDependenciesKey)
+    }
+    if defaults.object(forKey: codexFullChecksumAuditKey) != nil {
+      codexFullChecksumAudit = defaults.bool(forKey: codexFullChecksumAuditKey)
+    }
+    if defaults.object(forKey: codexCreateCompatibilityLinkKey) != nil {
+      codexCreateCompatibilityLink = defaults.bool(forKey: codexCreateCompatibilityLinkKey)
+    }
+    if defaults.object(forKey: codexRearmGitMainKey) != nil {
+      codexRearmGitMain = defaults.bool(forKey: codexRearmGitMainKey)
+    }
+    if defaults.object(forKey: codexAutoResumeExistingKey) != nil {
+      codexAutoResumeExisting = defaults.bool(forKey: codexAutoResumeExistingKey)
+    }
+    if let savedStage2Source = defaults.string(forKey: stage2SourceRootKey), !savedStage2Source.isEmpty {
+      stage2SourceRootDraft = savedStage2Source
+    }
+    if let savedStage2Root = defaults.string(forKey: stage2ManagedRootKey), !savedStage2Root.isEmpty {
+      stage2ManagedRootDraft = savedStage2Root
+    }
+    if let savedOwnerAccounts = defaults.string(forKey: stage2GitHubOwnerAccountsKey) {
+      stage2GitHubOwnerAccountsDraft = savedOwnerAccounts
+    }
+    if defaults.object(forKey: stage2CreateMissingReposKey) != nil {
+      stage2CreateMissingRepos = defaults.bool(forKey: stage2CreateMissingReposKey)
+    }
+    if let savedRetention = defaults.string(forKey: stage2SourceRetentionKey),
+       let retention = Stage2SourceRetention(rawValue: savedRetention) {
+      stage2SourceRetention = retention
+    } else if defaults.bool(forKey: stage2RetireSourcesKey) {
+      stage2SourceRetention = .retire
+    }
+    if defaults.object(forKey: stage2ArchiveSourcesKey) != nil {
+      stage2ArchiveSources = defaults.bool(forKey: stage2ArchiveSourcesKey)
+    }
+    if defaults.object(forKey: stage2CleanupTransactionTempKey) != nil {
+      stage2CleanupTransactionTemp = defaults.bool(forKey: stage2CleanupTransactionTempKey)
+    }
+    if defaults.object(forKey: stage2PrepareRuntimeKey) != nil {
+      stage2PrepareRuntime = defaults.bool(forKey: stage2PrepareRuntimeKey)
+    }
+    if let savedStage2Open = defaults.string(forKey: stage2OpenAfterApplyKey),
+       let openOption = Stage2OpenOption(rawValue: savedStage2Open) {
+      stage2OpenAfterApply = openOption
+    }
+    if let savedScope = defaults.string(forKey: codexLifecycleScopeKey),
+       let scope = CodexLifecycleScope(rawValue: savedScope) {
+      codexLifecycleScope = scope
+    }
+    if defaults.object(forKey: codexLifecycleDeleteStage1Key) != nil {
+      codexLifecycleDeleteStage1Originals = defaults.bool(forKey: codexLifecycleDeleteStage1Key)
+    }
+    if defaults.object(forKey: codexLifecycleRunStage2Key) != nil {
+      codexLifecycleRunStage2 = defaults.bool(forKey: codexLifecycleRunStage2Key)
+    }
+    if let savedCleanup = defaults.string(forKey: codexLifecycleCleanupScopeKey),
+       let cleanup = CodexLifecycleCleanupScope(rawValue: savedCleanup) {
+      codexLifecycleCleanupScope = cleanup
+    }
+    administratorTerminalMode = defaults.bool(forKey: administratorTerminalModeKey)
     if appSettings.privacyFirstMode == false,
        let loadedContexts: [SavedGitHubContext] = readJSON([SavedGitHubContext].self, from: contextsFile) {
       savedContexts = loadedContexts
@@ -1823,6 +2310,30 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexScanRoots() {
     writeJSON(parsedCodexScanRoots(), to: codexScanRootsFile)
+  }
+
+  private func configureStage2DefaultsIfNeeded() {
+    let defaults = UserDefaults.standard
+    let roots = resolvedProfileRoots()
+    let codeParent = (roots.codeRoot as NSString).deletingLastPathComponent
+    let importParent = (roots.importRoot as NSString).deletingLastPathComponent
+    let runtimeParent = (roots.runtimeRoot as NSString).deletingLastPathComponent
+    let managedRoot = codeParent == importParent && codeParent == runtimeParent
+      ? codeParent
+      : publicDefaultRoot
+
+    if defaults.object(forKey: stage2ManagedRootKey) == nil {
+      stage2ManagedRootDraft = managedRoot
+    }
+    if defaults.object(forKey: stage2SourceRootKey) == nil {
+      let stage1Output = normalizeWorkspacePath(codexOutputRootDraft)
+      if !stage1Output.isEmpty {
+        stage2SourceRootDraft = stage1Output
+      } else if (managedRoot as NSString).lastPathComponent == "CSA-iEM" {
+        stage2SourceRootDraft = ((managedRoot as NSString).deletingLastPathComponent as NSString)
+          .appendingPathComponent("CODEX PROJECTS")
+      }
+    }
   }
 
   private func persistContexts() {
@@ -3392,6 +3903,323 @@ final class CleanupViewModel: ObservableObject {
     codexOutputRootDraft = selectedPath
   }
 
+  func chooseStage2SourceRoot() {
+    guard let selectedPath = chooseDirectory(startingAt: stage2SourceRootDraft) else { return }
+    stage2SourceRootDraft = selectedPath
+    stage2Status = "Stage 2 source changed. Scan it before selecting projects."
+  }
+
+  func chooseStage2ManagedRoot() {
+    guard let selectedPath = chooseDirectory(startingAt: stage2ManagedRootDraft) else { return }
+    stage2ManagedRootDraft = selectedPath
+    stage2Status = "Managed root changed. Run a new Stage 2 preflight before applying."
+  }
+
+  func revealStage2SourceRoot() {
+    let path = normalizeWorkspacePath(stage2SourceRootDraft)
+    guard FileManager.default.fileExists(atPath: path) else {
+      stage2Status = "The Stage 1 source folder is not mounted or does not exist."
+      return
+    }
+    launchDetached(executable: "/usr/bin/open", arguments: [path])
+  }
+
+  func revealStage2ManagedRoot() {
+    let path = normalizeWorkspacePath(stage2ManagedRootDraft)
+    guard FileManager.default.fileExists(atPath: path) else {
+      stage2Status = "The managed root does not exist yet. Stage 2 preflight creates its report folders."
+      return
+    }
+    launchDetached(executable: "/usr/bin/open", arguments: [path])
+  }
+
+  func scanStage2Projects() {
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    guard FileManager.default.fileExists(atPath: sourceRoot) else {
+      stage2Status = "The Stage 1 source folder is not mounted or does not exist: \(sourceRoot)"
+      return
+    }
+    codexScanRootsDraft = sourceRoot
+    persistCodexScanRoots()
+    stage2Status = "Scanning the Stage 1 output folder. Temporary and transaction folders are excluded during Stage 2 planning."
+    scanCodexProjects()
+  }
+
+  func openCodexProjectDevcontainer(_ project: CodexProjectEntry) {
+    guard project.hasDevcontainer else {
+      codexPortalStatus = "No .devcontainer/devcontainer.json was detected for \(project.name)."
+      return
+    }
+    let command = [
+      "cd \(shellQuote(project.path))",
+      "if command -v devcontainer >/dev/null 2>&1; then devcontainer up --workspace-folder \(shellQuote(project.path)); else echo 'Dev Containers CLI is not installed.'; fi"
+    ].joined(separator: "; ")
+    openTerminalCommand(command)
+  }
+
+  func runStage2PreflightSelected() {
+    runStage2InTerminal(action: "preflight", fullAuto: false)
+  }
+
+  func runStage2ApplySelected() {
+    runStage2InTerminal(action: "apply", fullAuto: false)
+  }
+
+  func runStage2PreflightAll() {
+    runStage2InTerminal(action: "preflight", fullAuto: true)
+  }
+
+  func runStage2FullAuto() {
+    runStage2InTerminal(action: "apply", fullAuto: true)
+  }
+
+  func runStage3Preflight() {
+    runStage3InTerminal(action: "preflight")
+  }
+
+  func runStage3Cleanup() {
+    runStage3InTerminal(action: "apply")
+  }
+
+  private nonisolated static func isSafeGitHubPrincipal(_ value: String) -> Bool {
+    guard !value.isEmpty,
+          value.count <= 39,
+          value.first != "-",
+          value.last != "-" else {
+      return false
+    }
+    return value.unicodeScalars.allSatisfy { scalar in
+      switch scalar.value {
+      case 45, 48...57, 65...90, 97...122:
+        return true
+      default:
+        return false
+      }
+    }
+  }
+
+  private func parsedStage2GitHubOwnerAccounts() throws -> [String] {
+    let trimmedDraft = stage2GitHubOwnerAccountsDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedDraft.isEmpty else { return [] }
+
+    let normalizedDraft = stage2GitHubOwnerAccountsDraft
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+    let rawEntries = normalizedDraft.components(separatedBy: CharacterSet(charactersIn: "\n;"))
+    var ownerLogins: [String: String] = [:]
+    var bindings: [String] = []
+
+    for (offset, rawEntry) in rawEntries.enumerated() {
+      let entryNumber = offset + 1
+      let entry = rawEntry.trimmingCharacters(in: .whitespaces)
+      guard !entry.isEmpty else {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "GitHub owner-account entry \(entryNumber) is empty. Remove blank rows and repeated or trailing separators, or clear the field to use the selected single account."]
+        )
+      }
+
+      let components = entry.components(separatedBy: "=")
+      guard components.count == 2 else {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "GitHub owner-account entry \(entryNumber) must be OWNER=LOGIN with exactly one equals sign."]
+        )
+      }
+
+      let owner = components[0].trimmingCharacters(in: .whitespaces)
+      let login = components[1].trimmingCharacters(in: .whitespaces)
+      guard Self.isSafeGitHubPrincipal(owner), Self.isSafeGitHubPrincipal(login) else {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "GitHub owner-account entry \(entryNumber) must use 1–39 ASCII letters, numbers, or hyphens for both OWNER and LOGIN; neither value may begin or end with a hyphen."]
+        )
+      }
+
+      let ownerKey = owner.lowercased()
+      if let existingLogin = ownerLogins[ownerKey] {
+        let detail = existingLogin.caseInsensitiveCompare(login) == .orderedSame
+          ? "duplicates an earlier binding"
+          : "conflicts with the earlier login \(existingLogin)"
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "GitHub owner-account entry \(entryNumber) \(detail) for owner \(owner). Keep exactly one binding per owner."]
+        )
+      }
+
+      ownerLogins[ownerKey] = login
+      bindings.append("\(owner)=\(login)")
+    }
+
+    return bindings
+  }
+
+  private func runStage3InTerminal(action: String) {
+    guard !isCodexPortalBusy else {
+      codexLifecycleStatus = "Wait for the active project scan, preflight, or lifecycle run to finish before starting Stage 3."
+      return
+    }
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
+    let githubOwnerAccounts: [String]
+    do {
+      githubOwnerAccounts = try parsedStage2GitHubOwnerAccounts()
+    } catch {
+      codexLifecycleStatus = "Stage 3 configuration error: \(error.localizedDescription)"
+      return
+    }
+    guard FileManager.default.fileExists(atPath: sourceRoot), FileManager.default.fileExists(atPath: managedRoot) else {
+      codexLifecycleStatus = "Stage 3 needs mounted Stage 1 and managed roots before it can read receipts."
+      return
+    }
+    if action == "apply" && !codexLifecycleSafetyArmed {
+      codexLifecycleStatus = "Arm Full Auto before applying permanent Stage 3 cleanup."
+      return
+    }
+    var arguments = ["stage3", "--source", sourceRoot, "--managed-root", managedRoot, "--all"]
+    for binding in githubOwnerAccounts {
+      arguments.append(contentsOf: ["--github-account", binding])
+    }
+    if codexLifecycleScope == .selected {
+      guard !selectedCodexProjects.isEmpty else {
+        codexLifecycleStatus = "Select one or more projects, or switch lifecycle scope to All Eligible Projects."
+        return
+      }
+      for project in selectedCodexProjects {
+        arguments.append(contentsOf: ["--project", project.name])
+      }
+    }
+    if codexLifecycleDeleteStage1Originals { arguments.append("--delete-stage1-originals") }
+    if stage2SourceRetention == .delete { arguments.append("--delete-stage2-inputs") }
+    switch codexLifecycleCleanupScope {
+    case .none:
+      break
+    case .currentTransaction:
+      arguments.append("--cleanup-transaction-temp")
+    case .allVerifiedTemp:
+      arguments.append("--cleanup-all-verified-temp")
+    }
+    guard arguments.contains(where: {
+      $0 == "--delete-stage1-originals" || $0 == "--delete-stage2-inputs" || $0.hasPrefix("--cleanup-")
+    }) else {
+      codexLifecycleStatus = "Choose at least one source or temporary-data cleanup policy before Stage 3."
+      return
+    }
+    if action == "apply" {
+      arguments.append(contentsOf: ["--apply", "--yes", "--confirm-delete", "VERIFIED-STAGE3"])
+    } else {
+      arguments.append("--preflight")
+    }
+    guard let command = terminalCommandString(
+      arguments: arguments,
+      exitLabel: action == "apply" ? "Stage 3 Cleanup" : "Stage 3 Preflight"
+    ) else {
+      codexLifecycleStatus = "The bundled Stage 3 CLI was not found."
+      return
+    }
+    codexLifecycleStatus = action == "apply"
+      ? "Stage 3 is running in Terminal. Only receipt-linked rows that pass live verification can be deleted."
+      : "Stage 3 preflight is building a receipt-linked cleanup plan without changing files."
+    openTerminalCommand(command)
+    if action == "apply" { codexLifecycleSafetyArmed = false }
+  }
+
+  private func runStage2InTerminal(action: String, fullAuto: Bool) {
+    guard !isCodexPortalBusy else {
+      stage2Status = "Wait for the active project scan, preflight, or lifecycle run to finish before starting Stage 2."
+      return
+    }
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
+    let githubOwnerAccounts: [String]
+    do {
+      githubOwnerAccounts = try parsedStage2GitHubOwnerAccounts()
+    } catch {
+      stage2Status = "Stage 2 configuration error: \(error.localizedDescription)"
+      return
+    }
+    guard FileManager.default.fileExists(atPath: sourceRoot) else {
+      stage2Status = "Stage 2 cannot start because the Stage 1 source is unavailable: \(sourceRoot)"
+      return
+    }
+    guard sourceRoot != managedRoot,
+          !sourceRoot.hasPrefix(managedRoot + "/"),
+          !managedRoot.hasPrefix(sourceRoot + "/") else {
+      stage2Status = "Stage 1 source and the managed CSA-iEM root must be separate folders."
+      return
+    }
+    if action == "apply" && !stage2SafetyArmed {
+      stage2Status = "Arm Stage 2 writes after reviewing the source, managed root, GitHub account, and options."
+      return
+    }
+
+    var arguments = ["stage2", "--source", sourceRoot, "--managed-root", managedRoot]
+    if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      arguments.append(contentsOf: ["--host", host])
+    }
+    if !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      arguments.append(contentsOf: ["--account", account])
+    }
+    for binding in githubOwnerAccounts {
+      arguments.append(contentsOf: ["--github-account", binding])
+    }
+    for activeProject in codexProjects.filter({ $0.ideState == .active }) {
+      arguments.append(contentsOf: ["--exclude-path", activeProject.path])
+    }
+
+    if fullAuto {
+      arguments.append(action == "apply" ? "--full-auto" : "--all")
+      if action == "preflight" { arguments.append("--preflight") }
+    } else {
+      guard !stage2SelectedProjects.isEmpty else {
+        stage2Status = "Select one or more projects found inside the Stage 1 source folder."
+        return
+      }
+      arguments.append(action == "apply" ? "--apply" : "--preflight")
+      for project in stage2SelectedProjects {
+        arguments.append(contentsOf: ["--project", project.path])
+      }
+    }
+
+    if stage2CreateMissingRepos { arguments.append("--create-missing-repos") }
+    if stage2ArchiveSources { arguments.append("--archive-sources") }
+    switch stage2SourceRetention {
+    case .keep:
+      break
+    case .retire:
+      arguments.append("--retire-sources")
+    case .delete:
+      // Stage 2 may only move verified inputs into managed _temp. Permanent
+      // receipt-linked deletion is owned by Stage 3.
+      arguments.append("--retire-sources")
+    }
+    if stage2PrepareRuntime { arguments.append("--prepare-runtime") }
+    if action == "apply" {
+      arguments.append("--yes")
+      if stage2CleanupTransactionTemp { arguments.append("--cleanup-transaction-temp") }
+      if stage2OpenAfterApply != .none {
+        arguments.append(contentsOf: ["--open", stage2OpenAfterApply.rawValue])
+      }
+    }
+
+    guard let command = terminalCommandString(
+      arguments: arguments,
+      exitLabel: action == "apply" ? "Stage 2 Reconciliation" : "Stage 2 Preflight"
+    ) else {
+      stage2Status = "The bundled Stage 2 CLI was not found."
+      return
+    }
+    stage2Status = action == "apply"
+      ? "Stage 2 is running in Terminal with live PLAN and PROGRESS rows. Safety-blocked projects will be skipped and reported."
+      : "Stage 2 preflight is running in Terminal. No canonical project files will be changed."
+    openTerminalCommand(command)
+    if action == "apply" { stage2SafetyArmed = false }
+  }
+
   func toggleCodexProject(_ project: CodexProjectEntry) {
     if selectedCodexProjectPaths.contains(project.path) {
       selectedCodexProjectPaths.remove(project.path)
@@ -3399,6 +4227,7 @@ final class CleanupViewModel: ObservableObject {
       selectedCodexProjectPaths.insert(project.path)
     }
     codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
   }
 
   func setVisibleCodexProjectsSelected(_ enabled: Bool) {
@@ -3410,11 +4239,13 @@ final class CleanupViewModel: ObservableObject {
       }
     }
     codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
   }
 
   func selectAllCodexProjects() {
     selectedCodexProjectPaths = Set(codexProjects.map(\.path))
     codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
   }
 
   func armCodexAutoAll() {
@@ -3422,18 +4253,23 @@ final class CleanupViewModel: ObservableObject {
       codexPortalStatus = "Scan for Codex projects before arming Auto All."
       return
     }
-    selectAllCodexProjects()
+    let eligibleProjects = codexProjects.filter { Self.codexAutoAllSkipReason(for: $0) == nil }
+    let skippedCount = codexProjects.count - eligibleProjects.count
+    selectedCodexProjectPaths = Set(eligibleProjects.map(\.path))
+    codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
     codexAutoResumeExisting = true
-    if codexTransferMode != .backupOnly && !codexTransferMode.performsScanAndBackup {
-      codexCreateBackup = false
-    }
-    codexPortalProgressText = "Auto All armed for \(codexProjects.count) project(s)."
-    codexPortalStatus = "Auto All will build an index for every selected project, skip metadata-matched content, and transfer only missing or changed paths. Optional full ZIP archives are off for fast repeat runs."
+    codexPortalProgressText = "Auto All armed for \(eligibleProjects.count) active project(s)."
+    let skippedSummary = skippedCount > 0
+      ? " \(skippedCount) folder(s) marked bad, moved-backup, or temporary work data remain available for manual selection."
+      : ""
+    codexPortalStatus = "Auto All will verify saved zero-delta indexes first, reuse uniquely matched Git destinations, and rebuild a complete index only for projects that changed. Planned iCloud files download before targeted transfer. Your saved ZIP policy remains unchanged.\(skippedSummary)"
   }
 
   func clearCodexProjectSelection() {
     selectedCodexProjectPaths.removeAll()
     codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
   }
 
   func openCodexProject(_ project: CodexProjectEntry, inApplication appName: String) {
@@ -3522,8 +4358,9 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let resolvedDestinations: [String: String]
     do {
-      try Self.preflightCodexTransfer(
+      resolvedDestinations = try Self.preflightCodexTransfer(
         projects: projects,
         outputRoot: outputRoot,
         mode: codexTransferMode,
@@ -3568,6 +4405,7 @@ final class CleanupViewModel: ObservableObject {
             project: project,
             outputRoot: outputRoot,
             mode: mode,
+            destinationPath: resolvedDestinations[project.path],
             includeGit: includeGit,
             includeFinderMetadata: includeFinderMetadata,
             includeDependencies: includeDependencies,
@@ -3599,7 +4437,90 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func preflightCodexLifecycle() {
+    guard prepareCodexLifecycleSelection() else { return }
+    guard validateCodexLifecycleConfiguration() else { return }
+    codexLifecycleStatus = "Lifecycle options passed. Building the Stage 1 virtual file table; Stage 2 and Stage 3 will remain read-only until Full Auto is armed and started."
+    preflightCodexTransfer()
+  }
+
+  func runCodexLifecycle() {
+    guard prepareCodexLifecycleSelection() else { return }
+    guard validateCodexLifecycleConfiguration() else { return }
+    guard codexLifecycleSafetyArmed else {
+      codexLifecycleStatus = "Arm Full Auto after reviewing scope, selected projects, ZIP, source-retention, Stage 2, and Stage 3 cleanup options."
+      return
+    }
+    codexLifecycleSafetyArmed = false
+    runCodexTransfer(runLifecycle: true)
+  }
+
   func runCodexTransfer() {
+    runCodexTransfer(runLifecycle: false)
+  }
+
+  private func prepareCodexLifecycleSelection() -> Bool {
+    if codexLifecycleScope == .all {
+      guard !codexProjects.isEmpty else {
+        codexLifecycleStatus = "Scan for projects before running All Eligible Projects."
+        return false
+      }
+      let eligible = codexProjects.filter { Self.codexAutoAllSkipReason(for: $0) == nil }
+      selectedCodexProjectPaths = Set(eligible.map(\.path))
+      codexTransferPlans.removeAll()
+    }
+    guard !selectedCodexProjects.isEmpty else {
+      codexLifecycleStatus = "Select at least one project for the lifecycle."
+      return false
+    }
+    if let protected = selectedCodexProjects.first(where: { Self.codexAutoAllSkipReason(for: $0) == "active CSA-iEM workspace" }) {
+      codexLifecycleStatus = "The active CSA-iEM workspace is protected from Full Auto: \(protected.path)"
+      return false
+    }
+    return true
+  }
+
+  private func validateCodexLifecycleConfiguration() -> Bool {
+    let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
+    do {
+      _ = try parsedStage2GitHubOwnerAccounts()
+    } catch {
+      codexLifecycleStatus = "Lifecycle configuration error: \(error.localizedDescription)"
+      return false
+    }
+    if codexLifecycleRunStage2 && !codexTransferMode.writesDestination {
+      codexLifecycleStatus = "Stage 2 requires a Stage 1 mode that creates or reconciles an output project."
+      return false
+    }
+    if codexLifecycleDeleteStage1Originals && !codexTransferMode.writesDestination {
+      codexLifecycleStatus = "Deleting Stage 1 originals requires a verified output destination; Backup Only always keeps the source."
+      return false
+    }
+    if codexLifecycleDeleteStage1Originals,
+       selectedCodexProjects.contains(where: \.hasGit),
+       !codexIncludeGitMetadata {
+      codexLifecycleStatus = "Deleting a Git source requires Preserve .git metadata so repository-local state can be verified before cleanup."
+      return false
+    }
+    if codexLifecycleDeleteStage1Originals,
+       selectedCodexProjects.contains(where: \.hasGit),
+       !codexLifecycleRunStage2 {
+      codexLifecycleStatus = "Deleting a Git source requires Stage 2 so a full verified Git-state snapshot reaches the canonical workspace before Stage 3."
+      return false
+    }
+    if codexLifecycleRunStage2 && (
+      outputRoot == managedRoot ||
+      outputRoot.hasPrefix(managedRoot + "/") ||
+      managedRoot.hasPrefix(outputRoot + "/")
+    ) {
+      codexLifecycleStatus = "The Stage 1 output and managed CSA-iEM root must be separate folders."
+      return false
+    }
+    return true
+  }
+
+  private func runCodexTransfer(runLifecycle: Bool) {
     guard !isRunningCodexTransfer, !isScanningCodexProjects, !isBuildingCodexTransferPlan else { return }
     let projects = selectedCodexProjects
     guard !projects.isEmpty else {
@@ -3608,8 +4529,9 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let resolvedDestinations: [String: String]
     do {
-      try Self.preflightCodexTransfer(
+      resolvedDestinations = try Self.preflightCodexTransfer(
         projects: projects,
         outputRoot: outputRoot,
         mode: codexTransferMode,
@@ -3629,14 +4551,38 @@ final class CleanupViewModel: ObservableObject {
     let compatibilityLink = codexCreateCompatibilityLink
     let rearmGitMain = codexRearmGitMain && !includeGit && mode.writesDestination
     let autoResumeExisting = mode.writesDestination && (codexAutoResumeExisting || mode.requiresExistingDestinationMerge)
+    let destinationUseCounts = resolvedDestinations.values.reduce(into: [String: Int]()) { counts, destination in
+      counts[Self.codexDestinationComparisonKey(destination), default: 0] += 1
+    }
     if rearmGitMain, projects.contains(where: { ($0.remoteURL ?? "").isEmpty }) {
       codexPortalStatus = "Preflight failed: Git main re-arm needs a detected remote for every selected project."
       return
     }
+    let lifecycleRunStage2 = runLifecycle && codexLifecycleRunStage2
+    let lifecycleDeleteStage1 = runLifecycle && codexLifecycleDeleteStage1Originals
+    let lifecycleCleanupScope = codexLifecycleCleanupScope
+    let lifecycleManagedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
+    let lifecycleRetention = stage2SourceRetention
+    let lifecycleArchiveStage2 = stage2ArchiveSources
+    let lifecycleCreateMissingRepos = stage2CreateMissingRepos
+    let lifecyclePrepareRuntime = stage2PrepareRuntime
+    let lifecycleOpenAfterApply = stage2OpenAfterApply.rawValue
+    let lifecycleHost = host
+    let lifecycleAccount = account
+    let lifecycleGitHubOwnerAccounts: [String]
+    do {
+      lifecycleGitHubOwnerAccounts = runLifecycle ? try parsedStage2GitHubOwnerAccounts() : []
+    } catch {
+      codexLifecycleStatus = "Lifecycle configuration error: \(error.localizedDescription)"
+      codexPortalStatus = codexLifecycleStatus
+      return
+    }
+    let lifecycleActiveProjectPaths = codexProjects.filter { $0.ideState == .active }.map(\.path)
+    let lifecycleCLIPath = cliPath
     let environment = baseEnvironment()
     let jobID = createJob(
       kind: "Codex",
-      title: "\(mode.label) Codex projects",
+      title: runLifecycle ? "Full Auto CODEX lifecycle" : "\(mode.label) Codex projects",
       target: "\(projects.count) project(s)",
       detail: "Preflight passed. Building current file indexes before targeted transfer.",
       initialState: .running
@@ -3649,6 +4595,7 @@ final class CleanupViewModel: ObservableObject {
     processQueue.async { [weak self] in
       var outcomes: [CodexProjectTransferOutcome] = []
       var failure: Error?
+      var lifecycleSummary = ""
 
       for (index, project) in projects.enumerated() {
         DispatchQueue.main.async {
@@ -3671,6 +4618,7 @@ final class CleanupViewModel: ObservableObject {
             project: project,
             outputRoot: outputRoot,
             mode: mode,
+            destinationPath: resolvedDestinations[project.path],
             includeGit: includeGit,
             includeFinderMetadata: includeFinderMetadata,
             includeDependencies: includeDependencies,
@@ -3686,12 +4634,35 @@ final class CleanupViewModel: ObservableObject {
             self.codexPortalProgressText = "\(index + 1) of \(projects.count): \(plan.planningLabel) for \(project.name)"
             self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
           }
+          if !plan.plannedPaths.isEmpty {
+            guard let sourceIndex = Self.readCodexIndexArtifact(
+              CodexFileIndexSnapshot.self,
+              from: plan.sourceIndexPath
+            ) else {
+              throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The saved source index for \(project.name) could not be reopened before transfer."])
+            }
+            _ = try Self.materializeCodexSourceFiles(
+              sourceRoot: project.path,
+              sourceIndex: sourceIndex,
+              relativePaths: plan.plannedPaths,
+              outputRoot: outputRoot,
+              projectName: project.name,
+              environment: environment
+            ) { completed, total, bytes in
+              DispatchQueue.main.async {
+                guard let self else { return }
+                self.codexPortalProgress = (Double(index) + 0.6) / Double(max(projects.count, 1))
+                self.codexPortalProgressText = "\(index + 1) of \(projects.count): downloading iCloud files \(completed) of \(total) (\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)))"
+                self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+              }
+            }
+          }
           DispatchQueue.main.async {
             guard let self else { return }
             self.codexPortalProgressText = "\(index + 1) of \(projects.count): transferring \(plan.plannedPaths.count) planned path(s) for \(project.name)"
             self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
           }
-          let outcome = try Self.performCodexTransfer(
+          var outcome = try Self.performCodexTransfer(
             project: project,
             outputRoot: outputRoot,
             mode: mode,
@@ -3701,14 +4672,62 @@ final class CleanupViewModel: ObservableObject {
             includeDependencies: includeDependencies,
             createCompatibilityLink: compatibilityLink,
             rearmGitMain: rearmGitMain,
-            autoResumeExisting: autoResumeExisting,
+            autoResumeExisting: autoResumeExisting || (plan.destinationPath.map {
+              destinationUseCounts[Self.codexDestinationComparisonKey($0), default: 0] > 1
+            } ?? false),
             transferPlan: plan,
             environment: environment
+          )
+          outcome.receiptPath = try Self.writeCodexStage1Receipt(
+            project: project,
+            outcome: outcome,
+            transferPlan: plan,
+            outputRoot: outputRoot,
+            mode: mode,
+            includeGit: includeGit,
+            includeFinderMetadata: includeFinderMetadata,
+            includeDependencies: includeDependencies
           )
           outcomes.append(outcome)
         } catch {
           failure = error
           break
+        }
+      }
+
+      if failure == nil, runLifecycle {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.codexPortalProgress = 0.82
+          self.codexPortalProgressText = "Stage 1 verified. Running Stage 2 reconciliation and Stage 3 receipt cleanup..."
+          self.codexLifecycleStatus = self.codexPortalProgressText
+          self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
+        }
+        do {
+          guard let lifecycleCLIPath else {
+            throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The bundled lifecycle CLI was not found."])
+          }
+          lifecycleSummary = try Self.performCodexLifecycleStages(
+            outcomes: outcomes,
+            outputRoot: outputRoot,
+            managedRoot: lifecycleManagedRoot,
+            cliPath: lifecycleCLIPath,
+            runStage2: lifecycleRunStage2,
+            deleteStage1Originals: lifecycleDeleteStage1,
+            cleanupScope: lifecycleCleanupScope,
+            sourceRetention: lifecycleRetention,
+            archiveStage2Sources: lifecycleArchiveStage2,
+            createMissingRepos: lifecycleCreateMissingRepos,
+            prepareRuntime: lifecyclePrepareRuntime,
+            openAfterApply: lifecycleOpenAfterApply,
+            host: lifecycleHost,
+            account: lifecycleAccount,
+            githubOwnerAccounts: lifecycleGitHubOwnerAccounts,
+            activeProjectPaths: lifecycleActiveProjectPaths,
+            environment: environment
+          )
+        } catch {
+          failure = error
         }
       }
 
@@ -3718,6 +4737,7 @@ final class CleanupViewModel: ObservableObject {
         if let failure {
           self.codexPortalProgressText = "Stopped after \(outcomes.count) completed project(s)."
           self.codexPortalStatus = "Transfer stopped safely: \(failure.localizedDescription)"
+          if runLifecycle { self.codexLifecycleStatus = self.codexPortalStatus }
           self.updateJob(id: jobID, state: .failed, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
         } else {
@@ -3734,13 +4754,172 @@ final class CleanupViewModel: ObservableObject {
             ? " \(conflictCount) conflict(s) were preserved in a review folder."
             : ""
           self.codexPortalStatus = warningCount == 0
-            ? "Verified \(mode.label.lowercased()) completed for \(outcomes.count) project(s).\(resumeSummary)\(conflictSummary)"
-            : "Completed with \(warningCount) preservation warning(s). Review the job log before cleanup.\(resumeSummary)\(conflictSummary)"
+            ? "Verified \(mode.label.lowercased()) completed for \(outcomes.count) project(s).\(resumeSummary)\(conflictSummary) \(lifecycleSummary)"
+            : "Completed with \(warningCount) preservation warning(s).\(resumeSummary)\(conflictSummary) \(lifecycleSummary)"
+          if runLifecycle { self.codexLifecycleStatus = self.codexPortalStatus }
           self.updateJob(id: jobID, state: .succeeded, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
         }
       }
     }
+  }
+
+  private nonisolated static func lifecycleSummaryValue(_ key: String, output: String) -> Int? {
+    guard let summary = output.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix("SUMMARY |") }) else {
+      return nil
+    }
+    for token in summary.split(whereSeparator: \.isWhitespace) {
+      let parts = token.split(separator: "=", maxSplits: 1)
+      if parts.count == 2, parts[0] == Substring(key) {
+        return Int(parts[1])
+      }
+    }
+    return nil
+  }
+
+  private nonisolated static func stage2ReceiptPaths(from output: String) -> [String] {
+    var paths: [String] = []
+    for line in output.split(whereSeparator: \.isNewline) {
+      let text = String(line)
+      guard let marker = text.range(of: "Stage 2 receipt:") else { continue }
+      let path = text[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+      if !path.isEmpty, !paths.contains(path) { paths.append(path) }
+    }
+    return paths
+  }
+
+  private nonisolated static func performCodexLifecycleStages(
+    outcomes: [CodexProjectTransferOutcome],
+    outputRoot: String,
+    managedRoot: String,
+    cliPath: String,
+    runStage2: Bool,
+    deleteStage1Originals: Bool,
+    cleanupScope: CodexLifecycleCleanupScope,
+    sourceRetention: Stage2SourceRetention,
+    archiveStage2Sources: Bool,
+    createMissingRepos: Bool,
+    prepareRuntime: Bool,
+    openAfterApply: String,
+    host: String,
+    account: String,
+    githubOwnerAccounts: [String],
+    activeProjectPaths: [String],
+    environment: [String: String]
+  ) throws -> String {
+    let stage1Receipts = outcomes.compactMap(\.receiptPath)
+    guard stage1Receipts.count == outcomes.count else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Stage 1 finished without a receipt for every project; later stages were not started."])
+    }
+
+    var stage2Receipts: [String] = []
+    if runStage2 {
+      let outcomeDestinations = outcomes.compactMap(\.destinationPath)
+      guard outcomeDestinations.count == outcomes.count else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Stage 2 requires a verified destination for every Stage 1 project."])
+      }
+      var seenDestinations: Set<String> = []
+      let destinations = outcomeDestinations.compactMap { destination -> String? in
+        let normalized = NSString(string: destination).standardizingPath
+        let comparisonKey = codexDestinationComparisonKey(normalized)
+        return seenDestinations.insert(comparisonKey).inserted ? normalized : nil
+      }
+      var arguments = ["stage2", "--source", outputRoot, "--managed-root", managedRoot, "--apply", "--yes"]
+      if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        arguments.append(contentsOf: ["--host", host])
+      }
+      if !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        arguments.append(contentsOf: ["--account", account])
+      }
+      for binding in githubOwnerAccounts {
+        arguments.append(contentsOf: ["--github-account", binding])
+      }
+      for destination in destinations {
+        arguments.append(contentsOf: ["--project", destination])
+      }
+      for activePath in activeProjectPaths {
+        arguments.append(contentsOf: ["--exclude-path", activePath])
+      }
+      if createMissingRepos { arguments.append("--create-missing-repos") }
+      if archiveStage2Sources { arguments.append("--archive-sources") }
+      if prepareRuntime { arguments.append("--prepare-runtime") }
+      switch sourceRetention {
+      case .keep:
+        break
+      case .retire:
+        arguments.append("--retire-sources")
+      case .delete:
+        // Stage 2 may only retire verified inputs to managed _temp. Stage 3 is
+        // the sole permanent-cleanup owner and consumes the exact receipts.
+        arguments.append("--retire-sources")
+      }
+      if openAfterApply != Stage2OpenOption.none.rawValue {
+        arguments.append(contentsOf: ["--open", openAfterApply])
+      }
+      let result = runCommand(executable: cliPath, arguments: arguments, environment: environment)
+      let failed = lifecycleSummaryValue("failed", output: result.output) ?? -1
+      let blocked = lifecycleSummaryValue("blocked", output: result.output) ?? -1
+      let needsRepo = lifecycleSummaryValue("needs_repo", output: result.output) ?? -1
+      let applied = lifecycleSummaryValue("applied", output: result.output) ?? -1
+      guard result.status == 0, failed == 0, blocked == 0, needsRepo == 0, applied == destinations.count else {
+        throw NSError(
+          domain: appTitle,
+          code: Int(result.status),
+          userInfo: [NSLocalizedDescriptionKey: "Stage 2 stopped before cleanup. \(redactSensitiveText(result.output))"]
+        )
+      }
+      stage2Receipts = stage2ReceiptPaths(from: result.output)
+      guard stage2Receipts.count == destinations.count else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Stage 2 did not emit one verified receipt per unique destination; Stage 3 was not started."])
+      }
+    }
+
+    let hasStage1SourceToDelete = deleteStage1Originals && outcomes.contains { $0.currentSourcePath != nil }
+    let hasCurrentStage2Temp = runStage2 && (
+      cleanupScope != .none || sourceRetention == .delete
+    )
+    let hasIndexedTemp = cleanupScope == .allVerifiedTemp
+    if hasStage1SourceToDelete || hasCurrentStage2Temp || hasIndexedTemp {
+      var commonArguments = ["stage3", "--source", outputRoot, "--managed-root", managedRoot]
+      for binding in githubOwnerAccounts {
+        commonArguments.append(contentsOf: ["--github-account", binding])
+      }
+      for receipt in stage1Receipts + stage2Receipts {
+        commonArguments.append(contentsOf: ["--receipt", receipt])
+      }
+      if hasStage1SourceToDelete { commonArguments.append("--delete-stage1-originals") }
+      if runStage2 && (sourceRetention == .delete || cleanupScope != .none) {
+        commonArguments.append("--delete-stage2-inputs")
+      }
+      switch cleanupScope {
+      case .none:
+        if sourceRetention == .delete { commonArguments.append("--cleanup-transaction-temp") }
+      case .currentTransaction:
+        if runStage2 { commonArguments.append("--cleanup-transaction-temp") }
+      case .allVerifiedTemp:
+        commonArguments.append("--cleanup-all-verified-temp")
+      }
+
+      var preflightArguments = commonArguments
+      preflightArguments.append("--preflight")
+      let preflight = runCommand(executable: cliPath, arguments: preflightArguments, environment: environment)
+      let preflightBlocked = lifecycleSummaryValue("blocked", output: preflight.output) ?? -1
+      guard preflight.status == 0, preflightBlocked == 0 else {
+        throw NSError(domain: appTitle, code: Int(preflight.status), userInfo: [NSLocalizedDescriptionKey: "Stage 3 preflight blocked cleanup. \(redactSensitiveText(preflight.output))"])
+      }
+
+      var applyArguments = commonArguments
+      applyArguments.append(contentsOf: ["--apply", "--yes", "--confirm-delete", "VERIFIED-STAGE3"])
+      let apply = runCommand(executable: cliPath, arguments: applyArguments, environment: environment)
+      let failed = lifecycleSummaryValue("failed", output: apply.output) ?? -1
+      let blocked = lifecycleSummaryValue("blocked", output: apply.output) ?? -1
+      guard apply.status == 0, failed == 0, blocked == 0 else {
+        throw NSError(domain: appTitle, code: Int(apply.status), userInfo: [NSLocalizedDescriptionKey: "Stage 3 stopped safely. \(redactSensitiveText(apply.output))"])
+      }
+    }
+
+    let stage2Label = runStage2 ? ", Stage 2 receipts \(stage2Receipts.count)" : ""
+    return "Full Auto verified: Stage 1 receipts \(stage1Receipts.count)\(stage2Label); selected cleanup policy completed."
   }
 
   private func parsedCodexScanRoots() -> [String] {
@@ -6240,7 +7419,13 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
-  private nonisolated static func runCommand(executable: String, arguments: [String], environment: [String: String], stdin: String? = nil) -> CommandResult {
+  private nonisolated static func runCommand(
+    executable: String,
+    arguments: [String],
+    environment: [String: String],
+    stdin: String? = nil,
+    timeout: TimeInterval? = nil
+  ) -> CommandResult {
     let process = Process()
     let pipe = Pipe()
     let stdinPipe = Pipe()
@@ -6275,13 +7460,34 @@ final class CleanupViewModel: ObservableObject {
       outputLock.unlock()
     }
     DispatchQueue.global(qos: .utility).async(execute: outputReader)
+    var timedOut = false
+    if let timeout {
+      let deadline = Date().addingTimeInterval(max(1, timeout))
+      while process.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.1)
+      }
+      if process.isRunning {
+        timedOut = true
+        process.terminate()
+        let terminationDeadline = Date().addingTimeInterval(2)
+        while process.isRunning && Date() < terminationDeadline {
+          Thread.sleep(forTimeInterval: 0.1)
+        }
+        if process.isRunning {
+          kill(process.processIdentifier, SIGKILL)
+        }
+      }
+    }
     process.waitUntilExit()
     outputReader.wait()
     outputLock.lock()
     let data = capturedData
     outputLock.unlock()
-    let output = String(data: data, encoding: .utf8) ?? ""
-    return CommandResult(status: process.terminationStatus, output: output)
+    var output = String(data: data, encoding: .utf8) ?? ""
+    if timedOut {
+      output += output.hasSuffix("\n") || output.isEmpty ? "Command timed out.\n" : "\nCommand timed out.\n"
+    }
+    return CommandResult(status: timedOut ? 124 : process.terminationStatus, output: output)
   }
 
   private nonisolated static func looksLikeTerminalGate(_ output: String) -> Bool {
@@ -7574,14 +8780,24 @@ final class CleanupViewModel: ObservableObject {
       "node_modules", "Pods", "DerivedData", "dist", "build", ".build", ".next", ".turbo",
       ".terraform", ".gradle", "coverage", "_temp", "backup"
     ]
+    let skippedLowercaseNames = Set(skippedNames.map { $0.lowercased() })
     let scanDeadline = Date().addingTimeInterval(45)
     var scannedDirectories = 0
     var discovered: [String: String] = [:]
 
+    func shouldSkipDirectoryName(_ name: String) -> Bool {
+      let lowercaseName = name.lowercased()
+      return skippedNames.contains(name) ||
+        skippedLowercaseNames.contains(lowercaseName) ||
+        isCodexAuxiliaryDestinationName(name)
+    }
+
     func addCandidate(_ path: String, source: String) {
       var isDirectory: ObjCBool = false
       let normalized = NSString(string: path).standardizingPath
-      guard fm.fileExists(atPath: normalized, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+      guard fm.fileExists(atPath: normalized, isDirectory: &isDirectory),
+            isDirectory.boolValue,
+            !isCodexAuxiliaryDestinationName((normalized as NSString).lastPathComponent) else { return }
       let evidence = codexProjectEvidence(at: normalized, fileManager: fm)
       guard !evidence.isEmpty else { return }
       let discoverySource = evidence.contains("folder context") ? "\(source), folder context" : source
@@ -7658,7 +8874,7 @@ final class CleanupViewModel: ObservableObject {
         guard values?.isDirectory == true else { continue }
         scannedDirectories += 1
         let depth = url.pathComponents.count - rootDepth
-        if values?.isSymbolicLink == true || depth >= 7 || skippedNames.contains(url.lastPathComponent) {
+        if values?.isSymbolicLink == true || depth >= 7 || shouldSkipDirectoryName(url.lastPathComponent) {
           enumerator.skipDescendants()
           continue
         }
@@ -7688,22 +8904,47 @@ final class CleanupViewModel: ObservableObject {
       }
     }
 
-    return discovered.map { path, source in
-      let metadata = readCodexGitMetadata(projectPath: path)
-      return CodexProjectEntry(
-        path: path,
-        name: (path as NSString).lastPathComponent,
-        discoveredBy: source,
-        hasGit: metadata.hasGit,
-        hasPackageManifest: ["package.json", "Package.swift", "Cargo.toml", "pyproject.toml", "requirements.txt", "Gemfile", "go.mod"]
-          .contains { fm.fileExists(atPath: (path as NSString).appendingPathComponent($0)) },
-        hasDevcontainer: fm.fileExists(atPath: (path as NSString).appendingPathComponent(".devcontainer")),
-        hasSystemX: fm.fileExists(atPath: (path as NSString).appendingPathComponent(".SYSTEMX")),
-        remoteURL: metadata.remoteURL,
-        branch: metadata.branch
-      )
+    let codexRegistry = readCodexDesktopProjectRegistry(environment: environment)
+    let candidates = discovered.map { (path: $0.key, source: $0.value) }
+      .sorted {
+        ($0.path as NSString).lastPathComponent.localizedCaseInsensitiveCompare(
+          ($1.path as NSString).lastPathComponent
+        ) == .orderedAscending
+      }
+    let collector = CodexProjectEntryCollector(count: candidates.count)
+    let gitStatusQueue = OperationQueue()
+    gitStatusQueue.name = "com.waynetechlab.csaiem.codex-git-status"
+    gitStatusQueue.qualityOfService = .userInitiated
+    gitStatusQueue.maxConcurrentOperationCount = max(2, min(6, ProcessInfo.processInfo.activeProcessorCount / 2))
+
+    for (index, candidate) in candidates.enumerated() {
+      gitStatusQueue.addOperation {
+        let fileManager = FileManager.default
+        let metadata = readCodexGitMetadata(projectPath: candidate.path)
+        let gitStatus = readCodexGitWorkspaceStatus(
+          projectPath: candidate.path,
+          metadata: metadata,
+          environment: environment
+        )
+        let entry = CodexProjectEntry(
+          path: candidate.path,
+          name: (candidate.path as NSString).lastPathComponent,
+          discoveredBy: candidate.source,
+          hasGit: metadata.hasGit,
+          hasPackageManifest: ["package.json", "Package.swift", "Cargo.toml", "pyproject.toml", "requirements.txt", "Gemfile", "go.mod"]
+            .contains { fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent($0)) },
+          hasDevcontainer: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".devcontainer")),
+          hasSystemX: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".SYSTEMX")),
+          remoteURL: metadata.remoteURL,
+          branch: gitStatus.branch ?? metadata.branch,
+          ideState: codexRegistry.state(for: candidate.path),
+          gitStatus: gitStatus
+        )
+        collector.store(entry, at: index)
+      }
     }
-    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    gitStatusQueue.waitUntilAllOperationsAreFinished()
+    return collector.collectedEntries()
   }
 
   private nonisolated static func readCodexGitMetadata(projectPath: String) -> (hasGit: Bool, remoteURL: String?, branch: String?) {
@@ -7762,12 +9003,530 @@ final class CleanupViewModel: ObservableObject {
     return (true, remoteURL, branch)
   }
 
+  private nonisolated static func readCodexDesktopProjectRegistry(
+    environment: [String: String]
+  ) -> CodexDesktopProjectRegistry {
+    let unavailable = CodexDesktopProjectRegistry(
+      isAvailable: false,
+      linkedRootPaths: [],
+      activeRootPaths: []
+    )
+    let home = environment["HOME"] ?? NSHomeDirectory()
+    let configuredCodexHome = environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let codexHome = configuredCodexHome?.isEmpty == false
+      ? NSString(string: configuredCodexHome!).expandingTildeInPath
+      : (home as NSString).appendingPathComponent(".codex")
+    let statePath = (codexHome as NSString).appendingPathComponent(".codex-global-state.json")
+
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath), options: .mappedIfSafe),
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return unavailable
+    }
+
+    let rawProjects = root["local-projects"] as? [String: Any] ?? [:]
+    var rootsByProjectID: [String: Set<String>] = [:]
+    var linkedRoots: Set<String> = []
+    for (projectID, rawProject) in rawProjects {
+      guard let project = rawProject as? [String: Any],
+            let rawRootPaths = project["rootPaths"] as? [Any] else { continue }
+      let projectRoots = rawRootPaths.reduce(into: Set<String>()) { result, value in
+        guard let path = value as? String else { return }
+        result.formUnion(CodexDesktopProjectRegistry.normalizedPathVariants(path))
+      }
+      rootsByProjectID[projectID] = projectRoots
+      linkedRoots.formUnion(projectRoots)
+    }
+
+    let selectedProject = root["selected-project"] as? [String: Any]
+    let selectedProjectID = selectedProject?["projectId"] as? String
+    let activeRoots = selectedProjectID.flatMap { rootsByProjectID[$0] } ?? []
+    return CodexDesktopProjectRegistry(
+      isAvailable: true,
+      linkedRootPaths: linkedRoots,
+      activeRootPaths: activeRoots
+    )
+  }
+
+  private nonisolated static func readCodexGitWorkspaceStatus(
+    projectPath: String,
+    metadata: (hasGit: Bool, remoteURL: String?, branch: String?),
+    environment: [String: String]
+  ) -> CodexGitWorkspaceStatus {
+    guard metadata.hasGit else {
+      return CodexGitWorkspaceStatus(
+        branch: nil,
+        upstream: nil,
+        mainState: .noGit,
+        hasLocalChanges: false
+      )
+    }
+
+    let gitCandidates = [
+      environment["GIT"],
+      "/usr/bin/git",
+      "/opt/homebrew/bin/git",
+      "/usr/local/bin/git"
+    ].compactMap { $0 }
+    guard let git = gitCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+      return CodexGitWorkspaceStatus(
+        branch: metadata.branch,
+        upstream: nil,
+        mainState: .unavailable,
+        hasLocalChanges: false
+      )
+    }
+
+    var gitEnvironment = environment
+    gitEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
+    gitEnvironment["GIT_TERMINAL_PROMPT"] = "0"
+    gitEnvironment["GIT_LFS_SKIP_SMUDGE"] = "1"
+    let safeDirectory = "safe.directory=\(projectPath)"
+    let statusResult = runCommand(
+      executable: git,
+      arguments: [
+        "-c", safeDirectory,
+        "-C", projectPath,
+        "status", "--porcelain=v2", "--branch", "--untracked-files=normal"
+      ],
+      environment: gitEnvironment,
+      timeout: 8
+    )
+    guard statusResult.status == 0 else {
+      return CodexGitWorkspaceStatus(
+        branch: metadata.branch,
+        upstream: nil,
+        mainState: .unavailable,
+        hasLocalChanges: false
+      )
+    }
+
+    var branch = metadata.branch
+    var upstream: String?
+    var upstreamAhead: Int?
+    var upstreamBehind: Int?
+    var hasLocalChanges = false
+    for rawLine in statusResult.output.split(whereSeparator: \.isNewline) {
+      let line = String(rawLine)
+      if line.hasPrefix("# branch.head ") {
+        let value = String(line.dropFirst("# branch.head ".count))
+        branch = value == "(detached)" ? nil : value
+      } else if line.hasPrefix("# branch.upstream ") {
+        upstream = String(line.dropFirst("# branch.upstream ".count))
+      } else if line.hasPrefix("# branch.ab ") {
+        let values = line.split(whereSeparator: \.isWhitespace)
+        if values.count >= 4 {
+          upstreamAhead = Int(values[2].dropFirst())
+          upstreamBehind = Int(values[3].dropFirst())
+        }
+      } else if !line.hasPrefix("# ") {
+        hasLocalChanges = true
+      }
+    }
+
+    let mainState: CodexGitMainState
+    if upstream == "origin/main", let ahead = upstreamAhead, let behind = upstreamBehind {
+      mainState = codexGitMainState(ahead: ahead, behind: behind)
+    } else {
+      let comparison = runCommand(
+        executable: git,
+        arguments: [
+          "-c", safeDirectory,
+          "-C", projectPath,
+          "rev-list", "--left-right", "--count", "origin/main...HEAD"
+        ],
+        environment: gitEnvironment,
+        timeout: 8
+      )
+      let counts = comparison.output.split(whereSeparator: \.isWhitespace)
+      if comparison.status == 0,
+         counts.count >= 2,
+         let behind = Int(counts[0]),
+         let ahead = Int(counts[1]) {
+        mainState = codexGitMainState(ahead: ahead, behind: behind)
+      } else if comparison.status == 124 {
+        mainState = .unavailable
+      } else {
+        mainState = .noOriginMain
+      }
+    }
+
+    return CodexGitWorkspaceStatus(
+      branch: branch,
+      upstream: upstream,
+      mainState: mainState,
+      hasLocalChanges: hasLocalChanges
+    )
+  }
+
+  private nonisolated static func codexGitMainState(ahead: Int, behind: Int) -> CodexGitMainState {
+    switch (ahead, behind) {
+    case (0, 0): return .synchronized
+    case (_, 0): return .ahead(ahead)
+    case (0, _): return .behind(behind)
+    default: return .diverged(ahead: ahead, behind: behind)
+    }
+  }
+
+  private nonisolated static func codexAutoAllSkipReason(for project: CodexProjectEntry) -> String? {
+    let normalizedName = project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let projectIdentity = compactCodexIdentity(project.name)
+    let remoteIdentity = compactCodexIdentity(normalizedCodexGitRemoteIdentifier(project.remoteURL) ?? "")
+    if project.ideState == .active ||
+       projectIdentity == "csaiem" || projectIdentity == "csailem" ||
+       remoteIdentity == compactCodexIdentity("WayneTechLab/CSA-iLEM") {
+      return "active CSA-iEM workspace"
+    }
+    if normalizedName.contains(".moved-to-backup-") || normalizedName.contains(".csa-iem-source-") {
+      return "prior move source"
+    }
+    if normalizedName.hasSuffix("-bad") || normalizedName.contains(".partial-backup-") {
+      return "folder marked as incomplete"
+    }
+
+    let pathComponents = URL(fileURLWithPath: project.path).pathComponents.map { $0.lowercased() }
+    let nameParts = project.name.split(separator: ".", omittingEmptySubsequences: false)
+    if pathComponents.contains("work"),
+       let suffix = nameParts.last,
+       suffix.count == 6,
+       suffix.allSatisfy({ $0.isLetter || $0.isNumber }) {
+      return "temporary work folder"
+    }
+    return nil
+  }
+
+  private nonisolated static func normalizedCodexGitRemoteIdentifier(_ rawURL: String?) -> String? {
+    guard var value = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+      return nil
+    }
+
+    if let url = URL(string: value), let host = url.host {
+      value = host + url.path
+    } else if let colon = value.firstIndex(of: ":"),
+              let at = value[..<colon].lastIndex(of: "@") {
+      let hostStart = value.index(after: at)
+      let pathStart = value.index(after: colon)
+      value = String(value[hostStart..<colon]) + "/" + String(value[pathStart...])
+    } else if let scheme = value.range(of: "://") {
+      value = String(value[scheme.upperBound...])
+    }
+
+    if let query = value.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+      value = String(value[..<query])
+    }
+    value = value.replacingOccurrences(of: "\\", with: "/")
+    while value.hasSuffix("/") { value.removeLast() }
+    if value.lowercased().hasSuffix(".git") {
+      value.removeLast(4)
+    }
+    return value.isEmpty ? nil : value.lowercased()
+  }
+
+  private nonisolated static func casedCodexGitHubRepositoryIdentifier(_ rawURL: String?) -> String? {
+    guard var value = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+      return nil
+    }
+    var host = ""
+    var repositoryPath = ""
+    if let url = URL(string: value), let urlHost = url.host {
+      host = urlHost
+      repositoryPath = url.path
+    } else if value.hasPrefix("git@"), let colon = value.firstIndex(of: ":") {
+      host = String(value[value.index(value.startIndex, offsetBy: 4)..<colon])
+      repositoryPath = String(value[value.index(after: colon)...])
+    } else {
+      if let query = value.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+        value = String(value[..<query])
+      }
+      let components = value.replacingOccurrences(of: "\\", with: "/").split(separator: "/")
+      guard components.count >= 3 else { return nil }
+      host = String(components[0])
+      repositoryPath = components.dropFirst().joined(separator: "/")
+    }
+    guard host.caseInsensitiveCompare("github.com") == .orderedSame ||
+            host.caseInsensitiveCompare("www.github.com") == .orderedSame else {
+      return nil
+    }
+    if let query = repositoryPath.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+      repositoryPath = String(repositoryPath[..<query])
+    }
+    let components = repositoryPath
+      .replacingOccurrences(of: "\\", with: "/")
+      .split(separator: "/")
+      .map(String.init)
+    guard components.count == 2 else { return nil }
+    let owner = components[0].removingPercentEncoding ?? components[0]
+    var repository = components[1].removingPercentEncoding ?? components[1]
+    if repository.lowercased().hasSuffix(".git") {
+      repository.removeLast(4)
+    }
+    guard !owner.isEmpty,
+          !repository.isEmpty,
+          !owner.contains("/"),
+          !repository.contains("/") else { return nil }
+    return "\(owner)/\(repository)"
+  }
+
+  private nonisolated static func compactCodexIdentity(_ value: String) -> String {
+    String(value.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+  }
+
+  private nonisolated static func codexDestinationComparisonKey(_ path: String) -> String {
+    NSString(string: path).standardizingPath
+      .precomposedStringWithCanonicalMapping
+      .lowercased()
+  }
+
+  private nonisolated static func isCodexAuxiliaryDestinationName(_ name: String) -> Bool {
+    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized.isEmpty ||
+      normalized.hasPrefix(".") ||
+      ["_temp", "backup", "backups", "_backup", "_backups"].contains(normalized) ||
+      normalized.contains(".csa-iem-stage-") ||
+      normalized.contains(".csa-iem-source-") ||
+      normalized.contains(".migrate-") ||
+      normalized.contains(".moved-") ||
+      normalized.contains(".partial-") ||
+      normalized.contains(".partial-backup-") ||
+      normalized.contains(".admin-verified") ||
+      normalized.contains(".data-copy") ||
+      normalized.contains(".transfer-candidate") ||
+      normalized.contains(".moved-to-codex-projects-") ||
+      normalized.contains(".moved-to-backup-")
+  }
+
+  private nonisolated static func codexRemotePreferenceScore(
+    project: CodexProjectEntry,
+    destination: String,
+    remoteIdentifier: String
+  ) -> Int {
+    let sourceIdentity = compactCodexIdentity(project.name)
+    let destinationIdentity = compactCodexIdentity((destination as NSString).lastPathComponent)
+    let repositoryIdentity = compactCodexIdentity(String(remoteIdentifier.split(separator: "/").last ?? ""))
+    var score = 0
+    if !repositoryIdentity.isEmpty, sourceIdentity == repositoryIdentity { score += 100 }
+    if !destinationIdentity.isEmpty, sourceIdentity == destinationIdentity { score += 90 }
+    if sourceIdentity.count >= 5,
+       (repositoryIdentity.contains(sourceIdentity) || sourceIdentity.contains(repositoryIdentity)) {
+      score += 25
+    }
+    let loweredName = project.name.lowercased()
+    if loweredName.hasSuffix("-bad") { score -= 150 }
+    if loweredName.contains(".moved-to-backup-") { score -= 100 }
+    return score
+  }
+
+  private nonisolated static func codexDestinationIdentity(at path: String) -> String? {
+    if let remote = normalizedCodexGitRemoteIdentifier(readCodexGitMetadata(projectPath: path).remoteURL) {
+      return remote
+    }
+
+    let transferNotePath = (path as NSString).appendingPathComponent("Transfer_Note.MD")
+    guard let transferNote = try? String(contentsOfFile: transferNotePath, encoding: .utf8) else {
+      return nil
+    }
+    for rawLine in transferNote.split(whereSeparator: \.isNewline) {
+      let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard line.lowercased().hasPrefix("- git remote:") else { continue }
+      let value = line.dropFirst("- Git remote:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !value.isEmpty, value.caseInsensitiveCompare("Not detected") != .orderedSame else {
+        return nil
+      }
+      return normalizedCodexGitRemoteIdentifier(value)
+    }
+    return nil
+  }
+
+  private nonisolated static func codexCanonicalRepositoryFolderName(
+    projects: [CodexProjectEntry],
+    remoteIdentifier: String
+  ) -> String {
+    for project in projects.sorted(by: { $0.path.localizedStandardCompare($1.path) == .orderedAscending }) {
+      guard var value = project.remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty else { continue }
+      if let query = value.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+        value = String(value[..<query])
+      }
+      value = value.replacingOccurrences(of: "\\", with: "/")
+      while value.hasSuffix("/") { value.removeLast() }
+      guard var candidate = value.split(separator: "/").last.map(String.init), !candidate.isEmpty else {
+        continue
+      }
+      if candidate.lowercased().hasSuffix(".git") {
+        candidate.removeLast(4)
+      }
+      candidate = candidate.removingPercentEncoding ?? candidate
+      guard !candidate.isEmpty,
+            candidate != ".",
+            candidate != "..",
+            !candidate.contains("/"),
+            !candidate.contains(":"),
+            !isCodexAuxiliaryDestinationName(candidate) else { continue }
+      return candidate
+    }
+
+    let repositoryName = String(remoteIdentifier.split(separator: "/").last ?? "project")
+    return isCodexAuxiliaryDestinationName(repositoryName) ? "project" : repositoryName
+  }
+
+  private nonisolated static func resolveCodexDestinationPaths(
+    projects: [CodexProjectEntry],
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    fileManager fm: FileManager
+  ) throws -> [String: String] {
+    guard mode.writesDestination else { return [:] }
+
+    var resolved: [String: String] = [:]
+    var projectsByRemote: [String: [CodexProjectEntry]] = [:]
+    var projectsWithoutRemote: [CodexProjectEntry] = []
+
+    for project in projects {
+      guard !isCodexAuxiliaryDestinationName(project.name) else {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Auxiliary or staging folders cannot be transfer candidates: \(project.path)"]
+        )
+      }
+      if let remote = normalizedCodexGitRemoteIdentifier(project.remoteURL) {
+        projectsByRemote[remote, default: []].append(project)
+      } else {
+        projectsWithoutRemote.append(project)
+      }
+    }
+
+    var destinationsByRemote: [String: [String]] = [:]
+    let destinationURLs = (try? fm.contentsOfDirectory(
+      at: URL(fileURLWithPath: outputRoot, isDirectory: true),
+      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+      options: [.skipsHiddenFiles]
+    )) ?? []
+    for url in destinationURLs {
+      let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+      guard values?.isDirectory == true,
+            values?.isSymbolicLink != true,
+            !isCodexAuxiliaryDestinationName(url.lastPathComponent),
+            let remote = codexDestinationIdentity(at: url.path) else {
+        continue
+      }
+      destinationsByRemote[remote, default: []].append(url.path)
+    }
+
+    for (remote, remoteProjects) in projectsByRemote {
+      var identityCandidates = Set((destinationsByRemote[remote] ?? []).map {
+        NSString(string: $0).standardizingPath
+      })
+      var unidentifiedExactCandidates: Set<String> = []
+
+      for project in remoteProjects {
+        let exactDestination = NSString(
+          string: (outputRoot as NSString).appendingPathComponent(project.name)
+        ).standardizingPath
+        guard fm.fileExists(atPath: exactDestination) else { continue }
+        if let destinationRemote = codexDestinationIdentity(at: exactDestination) {
+          guard destinationRemote == remote else {
+            throw NSError(
+              domain: appTitle,
+              code: 1,
+              userInfo: [NSLocalizedDescriptionKey: "Destination Git identity does not match \(project.name): \(exactDestination)"]
+            )
+          }
+          identityCandidates.insert(exactDestination)
+        } else {
+          unidentifiedExactCandidates.insert(exactDestination)
+        }
+      }
+
+      guard identityCandidates.count <= 1 else {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "More than one existing destination has the Git identity used by \(remoteProjects.map(\.name).joined(separator: ", ")). Move old partial copies under _temp, then run Preflight again."]
+        )
+      }
+
+      let canonicalDestination: String
+      if let identifiedDestination = identityCandidates.first {
+        let competingUnknowns = unidentifiedExactCandidates.filter { $0 != identifiedDestination }
+        guard competingUnknowns.isEmpty else {
+          throw NSError(
+            domain: appTitle,
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "The Git identity for \(remoteProjects.map(\.name).joined(separator: ", ")) has both an identified destination and an unidentified exact-name destination. Move the old copy under _temp or restore its Git identity before retrying."]
+          )
+        }
+        canonicalDestination = identifiedDestination
+      } else if unidentifiedExactCandidates.count == 1, let exactDestination = unidentifiedExactCandidates.first {
+        canonicalDestination = exactDestination
+      } else if unidentifiedExactCandidates.count > 1 {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Multiple existing folders could be the canonical destination for \(remoteProjects.map(\.name).joined(separator: ", ")), but none has a verifiable Git identity. Move old copies under _temp or restore one origin remote before retrying."]
+        )
+      } else {
+        let canonicalName = codexCanonicalRepositoryFolderName(
+          projects: remoteProjects,
+          remoteIdentifier: remote
+        )
+        canonicalDestination = NSString(
+          string: (outputRoot as NSString).appendingPathComponent(canonicalName)
+        ).standardizingPath
+        if fm.fileExists(atPath: canonicalDestination),
+           let destinationRemote = codexDestinationIdentity(at: canonicalDestination),
+           destinationRemote != remote {
+          throw NSError(
+            domain: appTitle,
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Canonical destination \(canonicalDestination) belongs to a different Git identity."]
+          )
+        }
+      }
+
+      for project in remoteProjects {
+        resolved[project.path] = canonicalDestination
+      }
+    }
+
+    for project in projectsWithoutRemote {
+      let exactDestination = NSString(
+        string: (outputRoot as NSString).appendingPathComponent(project.name)
+      ).standardizingPath
+      if fm.fileExists(atPath: exactDestination), codexDestinationIdentity(at: exactDestination) != nil {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Cannot prove that \(project.name) belongs to the existing Git destination \(exactDestination) because the source has no detected remote."]
+        )
+      }
+      resolved[project.path] = exactDestination
+    }
+
+    var destinationIdentityClaims: [String: String] = [:]
+    for project in projects {
+      guard let destination = resolved[project.path] else { continue }
+      let destinationKey = codexDestinationComparisonKey(destination)
+      let identity = normalizedCodexGitRemoteIdentifier(project.remoteURL)
+        .map { "remote:\($0)" }
+        ?? "local:\(NSString(string: project.path).standardizingPath.lowercased())"
+      if let claimedIdentity = destinationIdentityClaims[destinationKey], claimedIdentity != identity {
+        throw NSError(
+          domain: appTitle,
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Different project identities would share the destination \(destination). Rename or separate the ambiguous source folders before retrying."]
+        )
+      }
+      destinationIdentityClaims[destinationKey] = identity
+    }
+    return resolved
+  }
+
   private nonisolated static func preflightCodexTransfer(
     projects: [CodexProjectEntry],
     outputRoot: String,
     mode: CodexProjectTransferMode,
     resumeExisting: Bool
-  ) throws {
+  ) throws -> [String: String] {
     let fm = FileManager.default
     guard !outputRoot.isEmpty else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Choose an output folder."])
@@ -7775,32 +9534,67 @@ final class CleanupViewModel: ObservableObject {
     try fm.createDirectory(atPath: outputRoot, withIntermediateDirectories: true, attributes: nil)
 
     let testPath = (outputRoot as NSString).appendingPathComponent(".csa-iem-write-test-\(UUID().uuidString)")
-    guard fm.createFile(atPath: testPath, contents: Data("write test".utf8)) else {
+    let writeTest = runCommand(
+      executable: "/usr/bin/touch",
+      arguments: [testPath],
+      environment: ProcessInfo.processInfo.environment
+    )
+    guard writeTest.status == 0 else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The output folder is not writable: \(outputRoot)"])
     }
     try? fm.removeItem(atPath: testPath)
 
-    var plannedDestinations: Set<String> = []
+    let resolvedDestinations = try resolveCodexDestinationPaths(
+      projects: projects,
+      outputRoot: outputRoot,
+      mode: mode,
+      fileManager: fm
+    )
+    var projectsByDestination: [String: [CodexProjectEntry]] = [:]
+    if mode.writesDestination {
+      for project in projects {
+        guard let destination = resolvedDestinations[project.path] else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not resolve an output destination for \(project.name)."])
+        }
+        projectsByDestination[codexDestinationComparisonKey(destination), default: []].append(project)
+      }
+      for (_, destinationProjects) in projectsByDestination where destinationProjects.count > 1 {
+        let destination = resolvedDestinations[destinationProjects[0].path] ?? outputRoot
+        let identities = destinationProjects.compactMap { normalizedCodexGitRemoteIdentifier($0.remoteURL) }
+        guard identities.count == destinationProjects.count, Set(identities).count == 1 else {
+          throw NSError(
+            domain: appTitle,
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "More than one selected project would use \(destination), but their normalized Git identities are missing or different."]
+          )
+        }
+      }
+    }
+
     for project in projects {
       let source = NSString(string: project.path).standardizingPath
       guard fm.fileExists(atPath: source) else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Project source is missing: \(source)"])
       }
+      guard !isCodexAuxiliaryDestinationName((source as NSString).lastPathComponent) else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Auxiliary or staging folders cannot be transfer candidates: \(source)"])
+      }
       if outputRoot == source || outputRoot.hasPrefix(source + "/") {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Output cannot be inside project source: \(source)"])
       }
       if mode.writesDestination {
-        let destination = (outputRoot as NSString).appendingPathComponent(project.name)
-        guard plannedDestinations.insert(destination).inserted else {
-          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "More than one selected project would use the destination \(destination). Transfer those projects separately or rename one first."])
+        guard let destination = resolvedDestinations[project.path] else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not resolve an output destination for \(project.name)."])
         }
         if destination == source {
           throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "\(project.name) is already in the selected output folder. Use Backup Only to create a preservation package."])
         }
-        if fm.fileExists(atPath: destination), destination != source, !resumeExisting {
+        let destinationKey = codexDestinationComparisonKey(destination)
+        let sharedIdentityDestination = (projectsByDestination[destinationKey]?.count ?? 0) > 1
+        if fm.fileExists(atPath: destination), destination != source, !resumeExisting, !sharedIdentityDestination {
           throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination already exists: \(destination). Choose another output folder or use Backup Only."])
         }
-        if resumeExisting, fm.fileExists(atPath: destination) {
+        if (resumeExisting || sharedIdentityDestination), fm.fileExists(atPath: destination) {
           var isDirectory: ObjCBool = false
           guard fm.fileExists(atPath: destination, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Auto-resume destination is not a folder: \(destination)"])
@@ -7809,8 +9603,19 @@ final class CleanupViewModel: ObservableObject {
             throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Auto-resume will not merge through a symbolic-link destination: \(destination)"])
           }
         }
+        if fm.fileExists(atPath: destination),
+           let sourceIdentity = normalizedCodexGitRemoteIdentifier(project.remoteURL),
+           let destinationIdentity = codexDestinationIdentity(at: destination),
+           sourceIdentity != destinationIdentity {
+          throw NSError(
+            domain: appTitle,
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Destination identity changed or does not match \(project.name): \(destination)"]
+          )
+        }
       }
     }
+    return resolvedDestinations
   }
 
   private nonisolated static func codexRsyncExclusions(
@@ -7818,12 +9623,14 @@ final class CleanupViewModel: ObservableObject {
     includeFinderMetadata: Bool,
     includeDependencies: Bool
   ) -> [String] {
-    var exclusions: [String] = []
+    var exclusions: [String] = [
+      "--no-specials", "--no-devices", "--exclude=/.csa-iem-recovery/"
+    ]
     if !includeFinderMetadata {
       exclusions.append(contentsOf: ["--exclude=.DS_Store", "--exclude=._*"])
     }
     if !includeDependencies {
-      exclusions.append(contentsOf: ["--exclude=node_modules/", "--exclude=vendor/", "--exclude=.venv/", "--exclude=Pods/"])
+      exclusions.append(contentsOf: codexGeneratedFolderNames.map { "--exclude=\($0)/" })
     }
     if !includeGit {
       exclusions.append("--exclude=.git/")
@@ -7840,13 +9647,28 @@ final class CleanupViewModel: ObservableObject {
     let components = relativePath.split(separator: "/").map(String.init)
     guard !components.isEmpty else { return false }
     let name = components.last ?? ""
+    if components.contains(".csa-iem-recovery") { return false }
     if !includeGit && components.contains(".git") { return false }
     if !includeDependencies,
-       components.contains(where: { ["node_modules", "vendor", ".venv", "Pods"].contains($0) }) {
+       components.contains(where: { codexGeneratedFolderNameSet.contains($0) }) {
       return false
     }
     if !includeFinderMetadata && (name == ".DS_Store" || name.hasPrefix("._")) { return false }
     return true
+  }
+
+  private nonisolated static var codexGeneratedFolderNames: [String] {
+    [
+      "node_modules", "vendor", ".venv", "venv", "Pods", "DerivedData",
+      "dist", "build", ".build", "target", ".next", ".nuxt", ".output", ".turbo",
+      "coverage", ".nyc_output", ".cache", "Caches", ".parcel-cache", ".vite",
+      ".npm", ".pnpm-store", ".swiftpm", ".gradle", ".terraform", ".dart_tool",
+      ".pytest_cache", ".tox", "__pycache__"
+    ]
+  }
+
+  private nonisolated static var codexGeneratedFolderNameSet: Set<String> {
+    Set(codexGeneratedFolderNames)
   }
 
   private nonisolated static func isCodexManagedHandoffPath(_ relativePath: String) -> Bool {
@@ -7870,6 +9692,16 @@ final class CleanupViewModel: ObservableObject {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(value)
     try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+  }
+
+  private nonisolated static func readCodexIndexArtifact<T: Decodable>(
+    _ type: T.Type,
+    from path: String
+  ) -> T? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try? decoder.decode(type, from: data)
   }
 
   private nonisolated static func buildCodexFileIndex(
@@ -7964,12 +9796,14 @@ final class CleanupViewModel: ObservableObject {
         continue
       }
 
-      let kind: CodexFileIndexEntry.Kind = values?.isRegularFile == true ? .file : .other
+      // Live sockets, pipes, and device nodes are runtime endpoints rather
+      // than portable project content. Rsync omits the same special types.
+      guard values?.isRegularFile == true else { continue }
       let fileSize = Int64(values?.fileSize ?? 0)
       entries.append(
         CodexFileIndexEntry(
           relativePath: relativePath,
-          kind: kind,
+          kind: .file,
           byteCount: fileSize,
           modifiedAt: values?.contentModificationDate?.timeIntervalSince1970 ?? 0,
           symbolicLinkDestination: nil
@@ -8011,10 +9845,244 @@ final class CleanupViewModel: ObservableObject {
     return path
   }
 
+  private nonisolated static func writeCodexNullPathList(
+    _ paths: [String],
+    outputRoot: String,
+    projectName: String,
+    label: String
+  ) throws -> String {
+    guard paths.allSatisfy({ !$0.isEmpty && !$0.contains("\0") }) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "A cloud-backed project path cannot be represented safely for local download preparation."])
+    }
+    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: projectName)
+    let manifestDirectory = (indexDirectory as NSString).appendingPathComponent("Manifests")
+    try FileManager.default.createDirectory(atPath: manifestDirectory, withIntermediateDirectories: true, attributes: nil)
+    let safeLabel = label.replacingOccurrences(of: "/", with: "-")
+    let path = (manifestDirectory as NSString).appendingPathComponent("\(safeLabel)-\(UUID().uuidString).bin")
+    var data = Data()
+    for value in paths {
+      data.append(contentsOf: value.utf8)
+      data.append(0)
+    }
+    try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    return path
+  }
+
+  private nonisolated static func isCodexDatalessFile(atPath path: String) -> Bool {
+    // Darwin's UF_DATALESS (0x40000000) is present in st_flags but is not
+    // exposed by every Swift SDK overlay.
+    let datalessFlag: UInt32 = 0x40000000
+    var fileStatus = stat()
+    guard lstat(path, &fileStatus) == 0 else { return false }
+    return (fileStatus.st_flags & datalessFlag) != 0
+  }
+
+  @discardableResult
+  private nonisolated static func materializeCodexSourceFiles(
+    sourceRoot: String,
+    sourceIndex: CodexFileIndexSnapshot,
+    relativePaths: [String],
+    outputRoot: String,
+    projectName: String,
+    environment: [String: String],
+    progress: ((Int, Int, Int64) -> Void)? = nil
+  ) throws -> Int {
+    guard !relativePaths.isEmpty else { return 0 }
+    let selectedPaths = Set(relativePaths)
+    let candidates = sourceIndex.entries.filter {
+      $0.kind == .file && selectedPaths.contains($0.relativePath)
+    }
+    let datalessFiles = candidates.compactMap { entry -> (path: String, byteCount: Int64)? in
+      let path = (sourceRoot as NSString).appendingPathComponent(entry.relativePath)
+      return isCodexDatalessFile(atPath: path) ? (path, entry.byteCount) : nil
+    }
+    guard !datalessFiles.isEmpty else { return 0 }
+
+    let fileManager = FileManager.default
+    let workerCount = max(4, min(32, ProcessInfo.processInfo.activeProcessorCount * 2))
+    let batchSize = 32
+    var completedCount = 0
+    var completedBytes: Int64 = 0
+    progress?(0, datalessFiles.count, 0)
+
+    for start in stride(from: 0, to: datalessFiles.count, by: batchSize) {
+      let end = min(start + batchSize, datalessFiles.count)
+      let batch = Array(datalessFiles[start..<end])
+      for file in batch {
+        try? fileManager.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: file.path))
+      }
+      let manifest = try writeCodexNullPathList(
+        batch.map(\.path),
+        outputRoot: outputRoot,
+        projectName: projectName,
+        label: "cloud-materialize"
+      )
+      defer { try? fileManager.removeItem(atPath: manifest) }
+
+      let command = """
+      /usr/bin/xargs -0 -P \(workerCount) -n 1 /bin/cat < \(shellQuote(manifest)) > /dev/null &
+      worker_pid=$!
+      trap '/bin/kill -TERM "$worker_pid" 2>/dev/null || true; /usr/bin/pkill -TERM -P "$worker_pid" 2>/dev/null || true' TERM INT
+      wait "$worker_pid"
+      exit_code=$?
+      trap - TERM INT
+      exit "$exit_code"
+      """
+      var lastResult = CommandResult(status: 1, output: "Cloud-backed file preparation did not start.")
+      for attempt in 1...3 {
+        lastResult = runCommand(
+          executable: "/bin/zsh",
+          arguments: ["-lc", command],
+          environment: environment,
+          timeout: 180
+        )
+        if lastResult.status == 0 { break }
+        if attempt < 3 {
+          Thread.sleep(forTimeInterval: Double(attempt * 2))
+        }
+      }
+      guard lastResult.status == 0 else {
+        throw NSError(
+          domain: appTitle,
+          code: Int(lastResult.status),
+          userInfo: [NSLocalizedDescriptionKey: "iCloud could not download \(batch.count) planned file(s) for \(projectName) after three attempts: \(redactSensitiveText(lastResult.output))"]
+        )
+      }
+      completedCount += batch.count
+      completedBytes += batch.reduce(Int64(0)) { $0 + $1.byteCount }
+      progress?(completedCount, datalessFiles.count, completedBytes)
+    }
+    return datalessFiles.count
+  }
+
+  private nonisolated static let codexTransferCacheFormatVersion = 1
+
+  private nonisolated static func cachedCodexTransferPlanIfCurrent(
+    project: CodexProjectEntry,
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    destinationPath: String?,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool,
+    fullChecksumAudit: Bool,
+    environment: [String: String],
+    progress: ((String, Int, Int64) -> Void)?
+  ) -> CodexTransferPlan? {
+    let fileManager = FileManager.default
+    guard !fullChecksumAudit,
+          mode.writesDestination,
+          !mode.performsBidirectionalSync,
+          let destinationPath,
+          fileManager.fileExists(atPath: destinationPath),
+          let indexDirectory = try? codexIndexDirectory(outputRoot: outputRoot, projectName: project.name) else {
+      return nil
+    }
+
+    let sourceIndexPath = (indexDirectory as NSString).appendingPathComponent("source-index.json")
+    let destinationIndexPath = (indexDirectory as NSString).appendingPathComponent("destination-index.json")
+    let planPath = (indexDirectory as NSString).appendingPathComponent("transfer-plan.json")
+    guard let cachedPlan = readCodexIndexArtifact(CodexTransferPlan.self, from: planPath),
+          let sourceIndex = readCodexIndexArtifact(CodexFileIndexSnapshot.self, from: sourceIndexPath),
+          let destinationIndex = readCodexIndexArtifact(CodexFileIndexSnapshot.self, from: destinationIndexPath),
+          cachedPlan.cacheFormatVersion == codexTransferCacheFormatVersion,
+          cachedPlan.includeGitMetadata == includeGit,
+          cachedPlan.includeFinderMetadata == includeFinderMetadata,
+          cachedPlan.includeDependencies == includeDependencies,
+          cachedPlan.projectPath == project.path,
+          cachedPlan.destinationPath == destinationPath,
+          cachedPlan.typeConflictPaths.isEmpty,
+          NSString(string: sourceIndex.rootPath).standardizingPath == NSString(string: project.path).standardizingPath,
+          NSString(string: destinationIndex.rootPath).standardizingPath == NSString(string: destinationPath).standardizingPath else {
+      return nil
+    }
+
+    let sourceEntries = sourceIndex.entries.filter {
+      !isCodexManagedHandoffPath($0.relativePath) && shouldIndexCodexPath(
+        $0.relativePath,
+        includeGit: includeGit,
+        includeFinderMetadata: includeFinderMetadata,
+        includeDependencies: includeDependencies
+      )
+    }
+    progress?("Validating saved index", sourceEntries.count, sourceEntries.reduce(0) { $0 + $1.byteCount })
+    let exclusions = codexRsyncExclusions(
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies
+    )
+    guard let rawDifferences = try? rsyncChangedPaths(
+      source: project.path,
+      destination: destinationPath,
+      exclusions: exclusions,
+      protectedPaths: [],
+      environment: environment,
+      useChecksums: true
+    ) else {
+      return nil
+    }
+    let contentDifferences = codexContentDifferences(
+      Set(rawDifferences.filter { !isCodexManagedHandoffPath($0) }),
+      source: project.path,
+      destination: destinationPath
+    )
+    guard contentDifferences.isEmpty else { return nil }
+
+    let sourcePaths = Set(sourceEntries.map(\.relativePath))
+    let destinationOnlyEntries = destinationIndex.entries.filter {
+      !isCodexManagedHandoffPath($0.relativePath) &&
+        !sourcePaths.contains($0.relativePath) &&
+        shouldIndexCodexPath(
+          $0.relativePath,
+          includeGit: includeGit,
+          includeFinderMetadata: includeFinderMetadata,
+          includeDependencies: includeDependencies
+        )
+    }
+    let refreshedDestinationIndex = CodexFileIndexSnapshot(
+      formatVersion: 1,
+      rootPath: NSString(string: destinationPath).standardizingPath,
+      createdAt: Date(),
+      entries: (sourceEntries + destinationOnlyEntries).sorted { $0.relativePath < $1.relativePath }
+    )
+    let plan = CodexTransferPlan(
+      projectName: project.name,
+      projectPath: project.path,
+      destinationPath: destinationPath,
+      createdAt: Date(),
+      sourceFileCount: sourceEntries.count,
+      sourceByteCount: sourceEntries.reduce(0) { $0 + $1.byteCount },
+      destinationFileCount: refreshedDestinationIndex.entries.count,
+      destinationByteCount: refreshedDestinationIndex.byteCount,
+      requiresInitialMirror: false,
+      missingPaths: [],
+      metadataChangedPaths: [],
+      checksumChangedPaths: [],
+      destinationOnlyPaths: destinationOnlyEntries.map(\.relativePath).sorted(),
+      typeConflictPaths: [],
+      metadataMatchedCount: sourceEntries.count,
+      fullChecksumAudit: false,
+      sourceIndexPath: sourceIndexPath,
+      destinationIndexPath: destinationIndexPath,
+      planPath: planPath,
+      cacheFormatVersion: codexTransferCacheFormatVersion,
+      includeGitMetadata: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      usedVerifiedCache: true,
+      plannedEntryByteCount: 0
+    )
+    try? writeCodexIndexArtifact(refreshedDestinationIndex, to: destinationIndexPath)
+    try? writeCodexIndexArtifact(plan, to: planPath)
+    progress?("Verified saved index", sourceEntries.count, plan.sourceByteCount)
+    return plan
+  }
+
   private nonisolated static func buildCodexTransferPlan(
     project: CodexProjectEntry,
     outputRoot: String,
     mode: CodexProjectTransferMode,
+    destinationPath resolvedDestinationPath: String?,
     includeGit: Bool,
     includeFinderMetadata: Bool,
     includeDependencies: Bool,
@@ -8024,6 +10092,24 @@ final class CleanupViewModel: ObservableObject {
   ) throws -> CodexTransferPlan {
     let fm = FileManager.default
     let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name)
+    let destinationPath = mode.writesDestination ? resolvedDestinationPath : nil
+    if mode.writesDestination, destinationPath == nil {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer destination for \(project.name) was not resolved during preflight."])
+    }
+    if let cachedPlan = cachedCodexTransferPlanIfCurrent(
+      project: project,
+      outputRoot: outputRoot,
+      mode: mode,
+      destinationPath: destinationPath,
+      includeGit: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      fullChecksumAudit: fullChecksumAudit,
+      environment: environment,
+      progress: progress
+    ) {
+      return cachedPlan
+    }
     progress?("Indexing source", 0, 0)
     let sourceIndex = try buildCodexFileIndex(
       root: project.path,
@@ -8036,9 +10122,6 @@ final class CleanupViewModel: ObservableObject {
     let sourceIndexPath = (indexDirectory as NSString).appendingPathComponent("source-index.json")
     try writeCodexIndexArtifact(sourceIndex, to: sourceIndexPath)
 
-    let destinationPath = mode.writesDestination
-      ? (outputRoot as NSString).appendingPathComponent(project.name)
-      : nil
     let destinationExists = destinationPath.map { fm.fileExists(atPath: $0) } ?? false
     var destinationIndex: CodexFileIndexSnapshot?
     var destinationIndexPath: String?
@@ -8100,6 +10183,16 @@ final class CleanupViewModel: ObservableObject {
 
       if fullChecksumAudit, let destinationPath, !checksumAuditPaths.isEmpty {
         progress?("Checksum-auditing metadata matches", checksumAuditPaths.count, sourceIndex.byteCount)
+        _ = try materializeCodexSourceFiles(
+          sourceRoot: project.path,
+          sourceIndex: sourceIndex,
+          relativePaths: checksumAuditPaths,
+          outputRoot: outputRoot,
+          projectName: project.name,
+          environment: environment
+        ) { completed, total, bytes in
+          progress?("Downloading iCloud files \(completed)/\(total)", completed, bytes)
+        }
         let exclusions = codexRsyncExclusions(
           includeGit: includeGit,
           includeFinderMetadata: includeFinderMetadata,
@@ -8122,7 +10215,9 @@ final class CleanupViewModel: ObservableObject {
       }
     }
 
-    let plannedPaths = Array(Set(missingPaths + metadataChangedPaths + checksumChangedPaths))
+    let plannedPaths = Array(
+      Set(missingPaths + metadataChangedPaths + checksumChangedPaths + typeConflictPaths)
+    )
     let plannedEntryByteCount = plannedPaths.reduce(Int64(0)) { total, path in
       total + (sourceEntriesByPath[path]?.byteCount ?? 0)
     }
@@ -8147,10 +10242,69 @@ final class CleanupViewModel: ObservableObject {
       sourceIndexPath: sourceIndexPath,
       destinationIndexPath: destinationIndexPath,
       planPath: planPath,
+      cacheFormatVersion: codexTransferCacheFormatVersion,
+      includeGitMetadata: includeGit,
+      includeFinderMetadata: includeFinderMetadata,
+      includeDependencies: includeDependencies,
+      usedVerifiedCache: false,
       plannedEntryByteCount: plannedEntryByteCount
     )
     try writeCodexIndexArtifact(plan, to: planPath)
     return plan
+  }
+
+  private nonisolated static func writeCodexStage1Receipt(
+    project: CodexProjectEntry,
+    outcome: CodexProjectTransferOutcome,
+    transferPlan: CodexTransferPlan,
+    outputRoot: String,
+    mode: CodexProjectTransferMode,
+    includeGit: Bool,
+    includeFinderMetadata: Bool,
+    includeDependencies: Bool
+  ) throws -> String {
+    let receiptDirectory = ((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
+      .appendingPathComponent("Transfer-Receipts")
+    try FileManager.default.createDirectory(atPath: receiptDirectory, withIntermediateDirectories: true, attributes: nil)
+    let safeName = project.name
+      .replacingOccurrences(of: "/", with: "-")
+      .replacingOccurrences(of: "\n", with: " ")
+      .replacingOccurrences(of: "\r", with: " ")
+    let receiptPath = (receiptDirectory as NSString)
+      .appendingPathComponent("\(timestampStamp())-\(safeName)-\(UUID().uuidString).receipt")
+    let repository = casedCodexGitHubRepositoryIdentifier(project.remoteURL) ?? ""
+    let values: [(String, String)] = [
+      ("format", "1"),
+      ("stage", "1"),
+      ("status", outcome.currentSourcePath == nil ? "source-deleted" : "verified-source-kept"),
+      ("transaction", UUID().uuidString),
+      ("project_name", project.name),
+      ("repository", repository),
+      ("source_root", (project.path as NSString).deletingLastPathComponent),
+      ("original_source", outcome.originalSourcePath),
+      ("current_source", outcome.currentSourcePath ?? ""),
+      ("destination", outcome.destinationPath ?? ""),
+      ("backup", outcome.backupPath ?? ""),
+      ("archive", outcome.archivePath ?? ""),
+      ("mode", mode.rawValue),
+      ("include_git", includeGit ? "1" : "0"),
+      ("include_finder", includeFinderMetadata ? "1" : "0"),
+      ("include_dependencies", includeDependencies ? "1" : "0"),
+      ("content_verification", "full-checksum"),
+      ("deletion_eligible", (!project.hasGit || includeGit) ? "1" : "0"),
+      ("zip_authoritative", "0"),
+      ("cleanup_owner", "stage3"),
+      ("plan", transferPlan.planPath),
+      ("source_index", transferPlan.sourceIndexPath),
+      ("destination_index", transferPlan.destinationIndexPath ?? ""),
+      ("verified_at", ISO8601DateFormatter().string(from: Date()))
+    ]
+    guard values.allSatisfy({ !$0.1.contains("\n") && !$0.1.contains("\r") }) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "A Stage 1 receipt value contains an unsupported line break."])
+    }
+    let receipt = values.map { "\($0.0)=\($0.1)" }.joined(separator: "\n") + "\n"
+    try receipt.write(toFile: receiptPath, atomically: true, encoding: .utf8)
+    return receiptPath
   }
 
   private nonisolated static func performCodexTransfer(
@@ -8178,20 +10332,17 @@ final class CleanupViewModel: ObservableObject {
       .appendingPathComponent("backup") as NSString)
       .appendingPathComponent("\(safeName)-\(stamp)")
     var warnings: [String] = []
+    var archivePath: String?
+    var currentSourcePath: String? = project.path
 
-    try fm.createDirectory(atPath: stagedProject, withIntermediateDirectories: true, attributes: nil)
     let exclusions = codexRsyncExclusions(
       includeGit: includeGit,
       includeFinderMetadata: includeFinderMetadata,
       includeDependencies: includeDependencies
     )
 
-    let destination = mode.writesDestination
-      ? (outputRoot as NSString).appendingPathComponent(project.name)
-      : nil
-    let destinationPath = mode.writesDestination
-      ? (outputRoot as NSString).appendingPathComponent(project.name)
-      : nil
+    let destinationPath = mode.writesDestination ? transferPlan.destinationPath : nil
+    let destination = destinationPath
     if mode.performsBidirectionalSync,
        let destinationPath,
        fm.fileExists(atPath: destinationPath),
@@ -8229,6 +10380,8 @@ final class CleanupViewModel: ObservableObject {
       )
     }
 
+    try fm.createDirectory(atPath: stagedProject, withIntermediateDirectories: true, attributes: nil)
+
     // External APFS volumes with ownership disabled cannot faithfully apply
     // source uid/gid/mode metadata. Preserve file contents and Git data while
     // avoiding metadata stalls on iCloud-backed source trees.
@@ -8237,7 +10390,7 @@ final class CleanupViewModel: ObservableObject {
     copyArguments.append(stagedProject + "/")
     var copyEnvironment = environment
     copyEnvironment["COPYFILE_DISABLE"] = "1"
-    let copyResult = runCommand(executable: "/usr/bin/rsync", arguments: copyArguments, environment: copyEnvironment)
+    let copyResult = runCodexRsync(arguments: copyArguments, environment: copyEnvironment)
     guard copyResult.status == 0 else {
       throw NSError(domain: appTitle, code: Int(copyResult.status), userInfo: [NSLocalizedDescriptionKey: "Staging failed for \(project.name): \(redactSensitiveText(copyResult.output))"])
     }
@@ -8260,14 +10413,18 @@ final class CleanupViewModel: ObservableObject {
     try transferNote.write(toFile: (stagedProject as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
     try promptInject.write(toFile: (stagedProject as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
 
-    var verifyArguments = ["-rcn", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+    var verifyArguments = ["-rcln", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
     verifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
     verifyArguments.append(stagedProject + "/")
-    let verifyResult = runCommand(executable: "/usr/bin/rsync", arguments: verifyArguments, environment: copyEnvironment)
+    let verifyResult = runCodexRsync(arguments: verifyArguments, environment: copyEnvironment)
     let verifyOutput = verifyResult.output
       .split(whereSeparator: \.isNewline)
       .map(String.init)
-      .filter { !$0.hasSuffix("Transfer_Note.MD") && !$0.hasSuffix("Prompt_Inject.MD") }
+      .filter {
+        !$0.hasSuffix("Transfer_Note.MD") &&
+          !$0.hasSuffix("Prompt_Inject.MD") &&
+          !$0.hasPrefix("skipping non-regular file ")
+      }
       .joined(separator: "\n")
       .trimmingCharacters(in: .whitespacesAndNewlines)
     guard verifyResult.status == 0, verifyOutput.isEmpty else {
@@ -8291,6 +10448,7 @@ final class CleanupViewModel: ObservableObject {
       guard zipVerify.status == 0 else {
         throw NSError(domain: appTitle, code: Int(zipVerify.status), userInfo: [NSLocalizedDescriptionKey: "ZIP verification failed for \(project.name)."])
       }
+      archivePath = zipPath
 
       if includeGit && project.hasGit {
         let gitArchive = (backupRoot as NSString).appendingPathComponent("git-metadata.tar")
@@ -8306,11 +10464,20 @@ final class CleanupViewModel: ObservableObject {
     }
 
     if mode.writesDestination {
-      let destination = (outputRoot as NSString).appendingPathComponent(project.name)
+      guard let destination = destinationPath else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The planned destination for \(project.name) is missing."])
+      }
       guard !fm.fileExists(atPath: destination) else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination appeared during transfer: \(destination)"])
       }
       try fm.moveItem(atPath: stagedProject, toPath: destination)
+      _ = try preserveCodexSourceRecovery(
+        source: project.path,
+        destination: destination,
+        safeName: safeName,
+        stamp: stamp,
+        environment: environment
+      )
 
       if rearmGitMain {
         guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
@@ -8319,14 +10486,18 @@ final class CleanupViewModel: ObservableObject {
         try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
       }
 
-      var finalVerifyArguments = ["-rcn", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+      var finalVerifyArguments = ["-rcln", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
       finalVerifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
       finalVerifyArguments.append(destination + "/")
-      let finalVerify = runCommand(executable: "/usr/bin/rsync", arguments: finalVerifyArguments, environment: copyEnvironment)
+      let finalVerify = runCodexRsync(arguments: finalVerifyArguments, environment: copyEnvironment)
       let finalVerifyOutput = finalVerify.output
         .split(whereSeparator: \.isNewline)
         .map(String.init)
-        .filter { !$0.hasSuffix("Transfer_Note.MD") && !$0.hasSuffix("Prompt_Inject.MD") }
+        .filter {
+          !$0.hasSuffix("Transfer_Note.MD") &&
+            !$0.hasSuffix("Prompt_Inject.MD") &&
+            !$0.hasPrefix("skipping non-regular file ")
+        }
         .joined(separator: "\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
       guard finalVerify.status == 0, finalVerifyOutput.isEmpty else {
@@ -8336,6 +10507,7 @@ final class CleanupViewModel: ObservableObject {
       if mode.removesSource {
         let parkedSource = project.path + ".csa-iem-source-\(stamp)"
         try fm.moveItem(atPath: project.path, toPath: parkedSource)
+        currentSourcePath = parkedSource
         if createCompatibilityLink {
           do {
             try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
@@ -8344,19 +10516,18 @@ final class CleanupViewModel: ObservableObject {
             throw error
           }
         }
-        do {
-          try fm.removeItem(atPath: parkedSource)
-        } catch {
-          warnings.append("The verified destination is active, but the parked source remains at \(parkedSource).")
-        }
+        warnings.append("The verified source is parked at \(parkedSource) pending receipt-linked Stage 3 cleanup.")
       }
     }
 
     try? fm.removeItem(atPath: transactionRoot)
     return CodexProjectTransferOutcome(
       projectName: project.name,
+      originalSourcePath: project.path,
+      currentSourcePath: currentSourcePath,
       destinationPath: destinationPath,
       backupPath: createBackup ? backupRoot : nil,
+      archivePath: archivePath,
       warnings: warnings,
       resumedExistingDestination: false,
       reconciledFileCount: transferPlan.plannedPaths.count,
@@ -8386,6 +10557,7 @@ final class CleanupViewModel: ObservableObject {
     let conflictRoot = ((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
       .appendingPathComponent("CSA-iEM-conflicts-\(safeName)-\(stamp)")
     var warnings: [String] = []
+    var archivePath: String?
     guard transferPlan.projectPath == project.path, transferPlan.destinationPath == destination else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer plan no longer matches \(project.name). Run Preflight again before synchronizing both folders."])
     }
@@ -8395,14 +10567,16 @@ final class CleanupViewModel: ObservableObject {
       destination: destination,
       exclusions: exclusions,
       protectedPaths: [] as Set<String>,
-      environment: environment
+      environment: environment,
+      useChecksums: true
     )
     let destinationCandidates = try rsyncChangedPaths(
       source: destination,
       destination: project.path,
       exclusions: exclusions,
       protectedPaths: [] as Set<String>,
-      environment: environment
+      environment: environment,
+      useChecksums: true
     )
     let candidates = sourceCandidates.union(destinationCandidates)
 
@@ -8462,12 +10636,14 @@ final class CleanupViewModel: ObservableObject {
 
     if createBackup {
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+      let sourceArchive = (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-sync.zip")
       try createVerifiedCodexZip(
         source: project.path,
-        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-sync.zip"),
+        zipPath: sourceArchive,
         environment: environment,
         label: "source backup for \(project.name)"
       )
+      archivePath = sourceArchive
       try createVerifiedCodexZip(
         source: destination,
         zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-sync.zip"),
@@ -8501,19 +10677,15 @@ final class CleanupViewModel: ObservableObject {
       manifestProjectName: project.name
     )
 
-    // A deep audit is opt-in because it reads every metadata-matched file on
-    // both sides. The default index path is fast; the audit path detects the
-    // rare same-size, same-timestamp content mutation before it is accepted.
-    let exactDifferences = transferPlan.fullChecksumAudit
-      ? try rsyncChangedPaths(
-        source: project.path,
-        destination: destination,
-        exclusions: exclusions,
-        protectedPaths: conflicts,
-        environment: environment,
-        useChecksums: true
-      )
-      : Set<String>()
+    // Fast Mode may use metadata to build its transfer plan, but every merge
+    // is checksum-audited before conflicts are finalized or a receipt exists.
+    let exactDifferences = try codexFullChecksumDifferences(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: conflicts,
+      environment: environment
+    )
     conflicts.formUnion(exactDifferences)
 
     if !conflicts.isEmpty {
@@ -8558,28 +10730,6 @@ final class CleanupViewModel: ObservableObject {
       warnings.append("\(conflicts.count) conflict(s) were preserved at \(conflictRoot).")
     }
 
-    let forwardVerify = try rsyncChangedPaths(
-      source: project.path,
-      destination: destination,
-      exclusions: exclusions,
-      protectedPaths: conflicts,
-      environment: environment
-    )
-    let reverseVerify = try rsyncChangedPaths(
-      source: destination,
-      destination: project.path,
-      exclusions: exclusions,
-      protectedPaths: conflicts,
-      environment: environment
-    )
-    guard forwardVerify.isEmpty && reverseVerify.isEmpty else {
-      throw NSError(
-        domain: appTitle,
-        code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "Sync verification found unresolved non-conflict differences for \(project.name). Both folders were retained."]
-      )
-    }
-
     if rearmGitMain {
       guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
@@ -8605,15 +10755,72 @@ final class CleanupViewModel: ObservableObject {
       try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
     }
 
+    let forwardVerify = try codexFullChecksumDifferences(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: conflicts,
+      environment: environment
+    )
+    let reverseVerify = try codexFullChecksumDifferences(
+      source: destination,
+      destination: project.path,
+      exclusions: exclusions,
+      protectedPaths: conflicts,
+      environment: environment
+    )
+    guard forwardVerify.isEmpty && reverseVerify.isEmpty else {
+      throw NSError(
+        domain: appTitle,
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Full checksum sync verification found unresolved non-conflict differences for \(project.name). Both folders were retained and no deletion-capable receipt was written."]
+      )
+    }
+
     return CodexProjectTransferOutcome(
       projectName: project.name,
+      originalSourcePath: project.path,
+      currentSourcePath: project.path,
       destinationPath: destination,
       backupPath: createBackup ? backupRoot : nil,
+      archivePath: archivePath,
       warnings: warnings,
       resumedExistingDestination: true,
       reconciledFileCount: sourceWins.count + destinationWins.count,
       conflictCount: conflicts.count
     )
+  }
+
+  private nonisolated static func isTransientCodexRsyncFailure(_ output: String) -> Bool {
+    let lower = output.lowercased()
+    return lower.contains("operation canceled") ||
+      lower.contains("resource temporarily unavailable") ||
+      lower.contains("connection reset by peer") ||
+      lower.contains("connection unexpectedly closed") ||
+      lower.contains("rsync error: timeout") ||
+      lower.contains("mmap")
+  }
+
+  private nonisolated static func runCodexRsync(
+    arguments: [String],
+    environment: [String: String],
+    maxAttempts: Int = 3
+  ) -> CommandResult {
+    var result = CommandResult(status: 1, output: "Rsync did not start.")
+    for attempt in 1...max(1, maxAttempts) {
+      result = runCommand(
+        executable: "/usr/bin/rsync",
+        arguments: arguments,
+        environment: environment
+      )
+      guard result.status != 0,
+            attempt < maxAttempts,
+            isTransientCodexRsyncFailure(result.output) else {
+        return result
+      }
+      Thread.sleep(forTimeInterval: Double(attempt * 2))
+    }
+    return result
   }
 
   private nonisolated static func rsyncChangedPaths(
@@ -8655,7 +10862,7 @@ final class CleanupViewModel: ObservableObject {
     arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
     var commandEnvironment = environment
     commandEnvironment["COPYFILE_DISABLE"] = "1"
-    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    let result = runCodexRsync(arguments: arguments, environment: commandEnvironment)
     guard result.status == 0 else {
       throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Rsync scan failed between \(source) and \(destination): \(redactSensitiveText(result.output))"])
     }
@@ -8669,6 +10876,7 @@ final class CleanupViewModel: ObservableObject {
             !line.hasPrefix("sending incremental file list"),
             !line.hasPrefix("receiving incremental file list"),
             !line.hasPrefix("delta-transmission"),
+            !line.hasPrefix("skipping non-regular file "),
             !line.hasPrefix("sent "),
             !line.hasPrefix("received "),
             !line.hasPrefix("total size is ") else { continue }
@@ -8716,7 +10924,7 @@ final class CleanupViewModel: ObservableObject {
     arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
     var commandEnvironment = environment
     commandEnvironment["COPYFILE_DISABLE"] = "1"
-    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    let result = runCodexRsync(arguments: arguments, environment: commandEnvironment)
     guard result.status == 0 else {
       throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Targeted rsync failed during \(label): \(redactSensitiveText(result.output))"])
     }
@@ -8763,7 +10971,7 @@ final class CleanupViewModel: ObservableObject {
     arguments.append(destination.hasSuffix("/") ? destination : destination + "/")
     var commandEnvironment = environment
     commandEnvironment["COPYFILE_DISABLE"] = "1"
-    let result = runCommand(executable: "/usr/bin/rsync", arguments: arguments, environment: commandEnvironment)
+    let result = runCodexRsync(arguments: arguments, environment: commandEnvironment)
     guard result.status == 0 else {
       throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Sync failed during \(label): \(redactSensitiveText(result.output))"])
     }
@@ -8775,6 +10983,53 @@ final class CleanupViewModel: ObservableObject {
     environment: [String: String]
   ) -> Bool {
     runCommand(executable: "/usr/bin/cmp", arguments: ["-s", lhs, rhs], environment: environment).status == 0
+  }
+
+  private nonisolated static func codexFullChecksumDifferences(
+    source: String,
+    destination: String,
+    exclusions: [String],
+    protectedPaths: Set<String>,
+    environment: [String: String]
+  ) throws -> Set<String> {
+    let rawDifferences = try rsyncChangedPaths(
+      source: source,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: protectedPaths,
+      environment: environment,
+      useChecksums: true
+    )
+    return codexContentDifferences(
+      Set(rawDifferences.filter { !isCodexManagedHandoffPath($0) }),
+      source: source,
+      destination: destination
+    )
+  }
+
+  private nonisolated static func codexContentDifferences(
+    _ differences: Set<String>,
+    source: String,
+    destination: String
+  ) -> Set<String> {
+    let fm = FileManager.default
+    return Set(differences.filter { relativePath in
+      let sourcePath = (source as NSString).appendingPathComponent(relativePath)
+      let destinationPath = (destination as NSString).appendingPathComponent(relativePath)
+      var sourceIsDirectory: ObjCBool = false
+      var destinationIsDirectory: ObjCBool = false
+      let sourceExists = fm.fileExists(atPath: sourcePath, isDirectory: &sourceIsDirectory)
+      let destinationExists = fm.fileExists(atPath: destinationPath, isDirectory: &destinationIsDirectory)
+      let sourceIsSymbolicLink = (try? fm.destinationOfSymbolicLink(atPath: sourcePath)) != nil
+      let destinationIsSymbolicLink = (try? fm.destinationOfSymbolicLink(atPath: destinationPath)) != nil
+
+      // External filesystems can normalize directory timestamps when their
+      // retained children differ. Directory-only drift does not represent a
+      // content mismatch; symlinks and every non-directory path still do.
+      return !(sourceExists && destinationExists &&
+        sourceIsDirectory.boolValue && destinationIsDirectory.boolValue &&
+        !sourceIsSymbolicLink && !destinationIsSymbolicLink)
+    })
   }
 
   private nonisolated static func copyConflictSide(
@@ -8790,6 +11045,187 @@ final class CleanupViewModel: ObservableObject {
     let parent = (destinationPath as NSString).deletingLastPathComponent
     try fm.createDirectory(atPath: parent, withIntermediateDirectories: true, attributes: nil)
     try fm.copyItem(atPath: sourcePath, toPath: destinationPath)
+  }
+
+  private nonisolated static func validatedCodexRelativePath(_ relativePath: String) throws -> String {
+    let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    guard !relativePath.isEmpty,
+          !relativePath.hasPrefix("/"),
+          !components.contains(""),
+          !components.contains("."),
+          !components.contains(".."),
+          !components.contains(".csa-iem-recovery") else {
+      throw NSError(
+        domain: appTitle,
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Unsafe recovery-relative path: \(relativePath)"]
+      )
+    }
+    return components.joined(separator: "/")
+  }
+
+  private nonisolated static func codexPathExistsIncludingSymlink(_ path: String) -> Bool {
+    FileManager.default.fileExists(atPath: path) ||
+      (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
+  }
+
+  private nonisolated static func copyCodexRecoveryPathVerified(
+    sourcePath: String,
+    destinationPath: String,
+    environment: [String: String]
+  ) throws {
+    let fm = FileManager.default
+    guard codexPathExistsIncludingSymlink(sourcePath) else { return }
+    guard !codexPathExistsIncludingSymlink(destinationPath) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Recovery target already exists: \(destinationPath)"])
+    }
+    try fm.createDirectory(
+      atPath: (destinationPath as NSString).deletingLastPathComponent,
+      withIntermediateDirectories: true,
+      attributes: nil
+    )
+    let copy = runCommand(
+      executable: "/usr/bin/ditto",
+      arguments: [sourcePath, destinationPath],
+      environment: environment
+    )
+    guard copy.status == 0 else {
+      throw NSError(
+        domain: appTitle,
+        code: Int(copy.status),
+        userInfo: [NSLocalizedDescriptionKey: "Recovery preservation failed: \(redactSensitiveText(copy.output))"]
+      )
+    }
+
+    if let sourceTarget = try? fm.destinationOfSymbolicLink(atPath: sourcePath) {
+      let destinationTarget = try fm.destinationOfSymbolicLink(atPath: destinationPath)
+      guard sourceTarget == destinationTarget else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Recovery symlink verification failed: \(sourcePath)"])
+      }
+      return
+    }
+    var isDirectory: ObjCBool = false
+    guard fm.fileExists(atPath: sourcePath, isDirectory: &isDirectory) else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Recovery source disappeared: \(sourcePath)"])
+    }
+    if isDirectory.boolValue {
+      let forward = try codexFullChecksumDifferences(
+        source: sourcePath,
+        destination: destinationPath,
+        exclusions: [],
+        protectedPaths: [],
+        environment: environment
+      )
+      let reverse = try codexFullChecksumDifferences(
+        source: destinationPath,
+        destination: sourcePath,
+        exclusions: [],
+        protectedPaths: [],
+        environment: environment
+      )
+      guard forward.isEmpty && reverse.isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Recovery directory checksum verification failed: \(sourcePath)"])
+      }
+    } else {
+      guard codexFilesEqual(sourcePath, destinationPath, environment: environment) else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Recovery file checksum verification failed: \(sourcePath)"])
+      }
+    }
+  }
+
+  private nonisolated static func ensureCodexRecoveryExcluded(_ destination: String) throws {
+    let fm = FileManager.default
+    let excludePath = ((destination as NSString).appendingPathComponent(".git/info") as NSString)
+      .appendingPathComponent("exclude")
+    guard fm.fileExists(atPath: (destination as NSString).appendingPathComponent(".git")) else { return }
+    try fm.createDirectory(
+      atPath: (excludePath as NSString).deletingLastPathComponent,
+      withIntermediateDirectories: true,
+      attributes: nil
+    )
+    let existing = (try? String(contentsOfFile: excludePath, encoding: .utf8)) ?? ""
+    let entry = "/.csa-iem-recovery/"
+    guard !existing.split(whereSeparator: \.isNewline).map(String.init).contains(entry) else { return }
+    let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+    try (existing + separator + entry + "\n").write(
+      toFile: excludePath,
+      atomically: true,
+      encoding: .utf8
+    )
+  }
+
+  private nonisolated static func preserveCodexSourceRecovery(
+    source: String,
+    destination: String,
+    safeName: String,
+    stamp: String,
+    environment: [String: String]
+  ) throws -> String? {
+    let sourceRecovery = (source as NSString).appendingPathComponent(".csa-iem-recovery")
+    guard codexPathExistsIncludingSymlink(sourceRecovery) else { return nil }
+    let recoveryRoot = (((destination as NSString)
+      .appendingPathComponent(".csa-iem-recovery/prior-recovery") as NSString)
+      .appendingPathComponent("\(stamp)-\(UUID().uuidString)") as NSString)
+      .appendingPathComponent(safeName)
+    let snapshot = (recoveryRoot as NSString).appendingPathComponent("source-recovery")
+    try copyCodexRecoveryPathVerified(
+      sourcePath: sourceRecovery,
+      destinationPath: snapshot,
+      environment: environment
+    )
+    try ensureCodexRecoveryExcluded(destination)
+    return snapshot
+  }
+
+  private nonisolated static func preserveCodexDestinationPaths(
+    destination: String,
+    relativePaths: [String],
+    safeName: String,
+    stamp: String,
+    environment: [String: String]
+  ) throws -> (root: String?, preservedRoots: [String]) {
+    let fm = FileManager.default
+    let safePaths = try Array(Set(relativePaths.map(validatedCodexRelativePath))).sorted {
+      let leftCount = $0.split(separator: "/").count
+      let rightCount = $1.split(separator: "/").count
+      return leftCount == rightCount ? $0 < $1 : leftCount < rightCount
+    }
+    var roots: [String] = []
+    for relativePath in safePaths {
+      let sourcePath = (destination as NSString).appendingPathComponent(relativePath)
+      guard codexPathExistsIncludingSymlink(sourcePath) else { continue }
+      let isCovered = roots.contains { root in
+        relativePath == root || relativePath.hasPrefix(root + "/")
+      }
+      if !isCovered { roots.append(relativePath) }
+    }
+    guard !roots.isEmpty else { return (nil, []) }
+    let recoveryRoot = (((destination as NSString)
+      .appendingPathComponent(".csa-iem-recovery/variants") as NSString)
+      .appendingPathComponent("\(stamp)-\(UUID().uuidString)") as NSString)
+      .appendingPathComponent(safeName)
+    let snapshotRoot = (recoveryRoot as NSString).appendingPathComponent("destination-before-merge")
+    for relativePath in roots {
+      try copyCodexRecoveryPathVerified(
+        sourcePath: (destination as NSString).appendingPathComponent(relativePath),
+        destinationPath: (snapshotRoot as NSString).appendingPathComponent(relativePath),
+        environment: environment
+      )
+    }
+    let manifest: [String: Any] = [
+      "format": 1,
+      "destination": destination,
+      "preservedPaths": roots,
+      "contentVerification": "full-checksum"
+    ]
+    let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+    try fm.createDirectory(atPath: recoveryRoot, withIntermediateDirectories: true, attributes: nil)
+    try manifestData.write(
+      to: URL(fileURLWithPath: (recoveryRoot as NSString).appendingPathComponent("manifest.json")),
+      options: .atomic
+    )
+    try ensureCodexRecoveryExcluded(destination)
+    return (recoveryRoot, roots)
   }
 
   private nonisolated static func createVerifiedCodexZip(
@@ -8837,27 +11273,24 @@ final class CleanupViewModel: ObservableObject {
       .appendingPathComponent("backup")
     let backupRoot = (backupDirectory as NSString).appendingPathComponent("\(safeName)-\(stamp)")
     var warnings: [String] = []
+    var archivePath: String?
+    var currentSourcePath: String? = project.path
     let outputRoot = (destination as NSString).deletingLastPathComponent
     guard transferPlan.projectPath == project.path, transferPlan.destinationPath == destination else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer plan no longer matches \(project.name). Run Preflight again before modifying an existing destination."])
-    }
-    guard transferPlan.typeConflictPaths.isEmpty else {
-      throw NSError(
-        domain: appTitle,
-        code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "The file table found \(transferPlan.typeConflictPaths.count) file-versus-folder conflict(s). CSA-iEM preserved both sides and did not overwrite them. Review the saved plan at \(transferPlan.planPath)."]
-      )
     }
     if createBackup {
       // Capture both sides before reconciliation so an interrupted merge can
       // always roll back to the exact pre-run state.
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+      let sourceArchive = (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-merge.zip")
       try createVerifiedCodexZip(
         source: project.path,
-        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-merge.zip"),
+        zipPath: sourceArchive,
         environment: environment,
         label: "source backup for \(project.name)"
       )
+      archivePath = sourceArchive
       try createVerifiedCodexZip(
         source: destination,
         zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-merge.zip"),
@@ -8865,10 +11298,52 @@ final class CleanupViewModel: ObservableObject {
         label: "destination backup for \(project.name)"
       )
     }
+    _ = try preserveCodexSourceRecovery(
+      source: project.path,
+      destination: destination,
+      safeName: safeName,
+      stamp: stamp,
+      environment: environment
+    )
+    let preserved = try preserveCodexDestinationPaths(
+      destination: destination,
+      relativePaths: transferPlan.plannedPaths,
+      safeName: safeName,
+      stamp: stamp,
+      environment: environment
+    )
+    if let recoveryRoot = preserved.root {
+      warnings.append(
+        "\(preserved.preservedRoots.count) pre-merge destination path(s) were checksum-preserved at \(recoveryRoot)."
+      )
+    }
+    let typeConflictRoots = try Array(
+      Set(transferPlan.typeConflictPaths.map(validatedCodexRelativePath))
+    ).sorted {
+      let leftCount = $0.split(separator: "/").count
+      let rightCount = $1.split(separator: "/").count
+      return leftCount == rightCount ? $0 < $1 : leftCount < rightCount
+    }.reduce(into: [String]()) { roots, path in
+      if !roots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
+        roots.append(path)
+      }
+    }
+    for relativePath in typeConflictRoots {
+      let wasPreserved = preserved.preservedRoots.contains {
+        relativePath == $0 || relativePath.hasPrefix($0 + "/")
+      }
+      guard wasPreserved else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Type-conflict path was not preserved before replacement: \(relativePath)"])
+      }
+      let destinationPath = (destination as NSString).appendingPathComponent(relativePath)
+      if codexPathExistsIncludingSymlink(destinationPath) {
+        try fm.removeItem(atPath: destinationPath)
+      }
+    }
     // Existing destinations use the preflight file table as an rsync manifest.
     // That means the repeat path copies only missing, metadata-changed, or
     // deep-audit-failed entries rather than re-sending the entire project.
-    let reconciledFileCount = try applyTargetedCodexRsync(
+    var reconciledFileCount = try applyTargetedCodexRsync(
       source: project.path,
       destination: destination,
       plannedPaths: transferPlan.plannedPaths,
@@ -8878,7 +11353,7 @@ final class CleanupViewModel: ObservableObject {
       projectName: project.name,
       label: "resume-copy"
     )
-    let targetedDifferences = try rsyncChangedPaths(
+    let rawTargetedDifferences = try rsyncChangedPaths(
       source: project.path,
       destination: destination,
       exclusions: exclusions,
@@ -8889,6 +11364,11 @@ final class CleanupViewModel: ObservableObject {
       manifestOutputRoot: outputRoot,
       manifestProjectName: project.name,
       manifestLabel: "resume-verify"
+    )
+    let targetedDifferences = codexContentDifferences(
+      rawTargetedDifferences,
+      source: project.path,
+      destination: destination
     )
     guard targetedDifferences.isEmpty else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Targeted checksum verification found \(targetedDifferences.count) unresolved path(s) for \(project.name). The destination was retained for a later resume."])
@@ -8920,26 +11400,83 @@ final class CleanupViewModel: ObservableObject {
       try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
     }
 
-    if mode.removesSource {
-      // A destructive move still pays for one full checksum comparison. This
-      // is deliberately stricter than a copy/sync because the source cannot
-      // be retired based on metadata alone.
-      let fullDifferences = try rsyncChangedPaths(
+    var preservedPathCount = preserved.preservedRoots.count
+    var fullDifferences = try codexFullChecksumDifferences(
+      source: project.path,
+      destination: destination,
+      exclusions: exclusions,
+      protectedPaths: [],
+      environment: environment
+    )
+
+    // Fast Mode deliberately avoids checksumming metadata-matched files during
+    // planning. The mandatory final whole-tree checksum can therefore discover
+    // a rare same-size, same-timestamp mutation. Preserve the destination side,
+    // repair only those checksum-only misses, and verify the whole tree again.
+    // No cleanup-capable receipt can be written unless this second pass is clean.
+    if !fullDifferences.isEmpty {
+      let checksumRepairPaths = fullDifferences.sorted()
+      let checksumPreserved = try preserveCodexDestinationPaths(
+        destination: destination,
+        relativePaths: checksumRepairPaths,
+        safeName: safeName,
+        stamp: stamp,
+        environment: environment
+      )
+      preservedPathCount += checksumPreserved.preservedRoots.count
+      if let recoveryRoot = checksumPreserved.root {
+        warnings.append(
+          "Fast Mode found \(checksumRepairPaths.count) checksum-only difference(s); \(checksumPreserved.preservedRoots.count) prior destination path(s) were preserved at \(recoveryRoot) before repair."
+        )
+      }
+
+      reconciledFileCount += try applyTargetedCodexRsync(
+        source: project.path,
+        destination: destination,
+        plannedPaths: checksumRepairPaths,
+        exclusions: exclusions,
+        environment: environment,
+        outputRoot: outputRoot,
+        projectName: project.name,
+        label: "fast-mode-checksum-repair"
+      )
+
+      let checksumRepairDifferences = try rsyncChangedPaths(
         source: project.path,
         destination: destination,
         exclusions: exclusions,
         protectedPaths: [],
         environment: environment,
-        useChecksums: true
+        useChecksums: true,
+        filePaths: checksumRepairPaths,
+        manifestOutputRoot: outputRoot,
+        manifestProjectName: project.name,
+        manifestLabel: "fast-mode-checksum-repair-verify"
       )
-      guard fullDifferences.isEmpty else {
-        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Full checksum verification found \(fullDifferences.count) unresolved path(s) for \(project.name). The source was not removed."])
+      guard codexContentDifferences(
+        checksumRepairDifferences,
+        source: project.path,
+        destination: destination
+      ).isEmpty else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Fast Mode checksum repair did not converge for \(project.name). The source and preserved destination variants were retained and no deletion-capable receipt was written."])
       }
+
+      fullDifferences = try codexFullChecksumDifferences(
+        source: project.path,
+        destination: destination,
+        exclusions: exclusions,
+        protectedPaths: [],
+        environment: environment
+      )
+    }
+    guard fullDifferences.isEmpty else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Full checksum verification found \(fullDifferences.count) unresolved path(s) for \(project.name). The source was retained and no deletion-capable receipt was written."])
     }
 
     if mode.removesSource {
       let parkedSource = project.path + ".csa-iem-source-\(stamp)"
       try fm.moveItem(atPath: project.path, toPath: parkedSource)
+      currentSourcePath = parkedSource
       if createCompatibilityLink {
         do {
           try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
@@ -8948,21 +11485,20 @@ final class CleanupViewModel: ObservableObject {
           throw error
         }
       }
-      do {
-        try fm.removeItem(atPath: parkedSource)
-      } catch {
-        warnings.append("The verified resumed destination is active, but the parked source remains at \(parkedSource).")
-      }
+      warnings.append("The verified source is parked at \(parkedSource) pending receipt-linked Stage 3 cleanup.")
     }
 
     return CodexProjectTransferOutcome(
       projectName: project.name,
+      originalSourcePath: project.path,
+      currentSourcePath: currentSourcePath,
       destinationPath: destination,
       backupPath: createBackup ? backupRoot : nil,
+      archivePath: archivePath,
       warnings: warnings,
       resumedExistingDestination: true,
       reconciledFileCount: reconciledFileCount,
-      conflictCount: 0
+      conflictCount: preservedPathCount
     )
   }
 
@@ -9007,13 +11543,13 @@ final class CleanupViewModel: ObservableObject {
     - Git metadata included: \(includeGit ? "Yes" : "No")
     - Finder metadata included: \(includeFinderMetadata ? "Yes" : "No")
     - Git main branch re-armed after copy: \(rearmGitMain ? "Yes; origin/main fetched and index rebuilt without working-tree overwrite" : "No")
-    - Dependency trees included: \(includeDependencies ? "Yes" : "No; restore from lockfiles")
+    - Generated dependencies and build outputs included: \(includeDependencies ? "Yes" : "No; restore dependencies from lockfiles and rebuild outputs")
     - Git remote: \(project.remoteURL ?? "Not detected")
     - Git branch: \(project.branch ?? "Not detected")
 
     ## Verification
 
-    CSA-iEM saves a source and destination file table under the output folder's `_temp/Transfer-Indexes` directory before execution. Repeat transfers use the table to send only missing, metadata-changed, or deep-audit-failed paths, then checksum-verify those planned paths. Metadata comparison checks relative path, type, size, date, and symlink target; the optional deep checksum audit reads every metadata-matched file to detect rare silent content changes. New destinations are staged and fully verified before publication. Verified ZIP archives are created when backup is enabled. Sync and Move always runs a full checksum comparison before it can retire the source. When Git metadata is excluded, the destination can be re-armed from its detected remote without checking out or overwriting the copied working tree.
+    CSA-iEM saves a source and destination file table under the output folder's `_temp/Transfer-Indexes` directory before execution. Repeat transfers use the table to send only missing, metadata-changed, or deep-audit-failed paths. Metadata comparison checks relative path, type, size, date, and symlink target; the optional deep audit moves checksum detection into planning. Fast Mode still concludes every published, resumed, or bidirectionally synchronized destination with a whole-tree checksum verification. If that final audit discovers a rare same-size, same-date content mutation, CSA-iEM checksum-preserves the prior destination variant, repairs only the affected path, and repeats the whole-tree audit before a cleanup-capable receipt can be written. New destinations are staged and fully verified before publication. Verified ZIP archives are created when backup is enabled. When Git metadata is excluded, the destination can be re-armed from its detected remote without checking out or overwriting the copied working tree.
 
     ## Reconnect
 
@@ -9424,6 +11960,41 @@ private enum DashboardTheme {
   static let warningSurface = Color(red: 250 / 255, green: 239 / 255, blue: 219 / 255)
   static let warningText = Color(red: 74 / 255, green: 54 / 255, blue: 24 / 255)
   static let warningSubtle = Color(red: 107 / 255, green: 83 / 255, blue: 46 / 255)
+}
+
+private extension CodexIDEProjectState {
+  var dashboardTint: Color {
+    switch self {
+    case .active: return DashboardTheme.success
+    case .linked: return DashboardTheme.deepBlue
+    case .unlinked: return DashboardTheme.subtle
+    case .unavailable: return DashboardTheme.warning
+    }
+  }
+
+  var dashboardHelp: String {
+    switch self {
+    case .active:
+      return "This folder is the selected local project in the Codex desktop app."
+    case .linked:
+      return "This folder is linked to a local Codex desktop project but is not selected now."
+    case .unlinked:
+      return "This folder was found on disk but is not in Codex's current local-project registry."
+    case .unavailable:
+      return "CSA-iEM could not read the local Codex desktop project registry."
+    }
+  }
+}
+
+private extension CodexGitWorkspaceStatus {
+  var dashboardTint: Color {
+    if hasLocalChanges { return DashboardTheme.warning }
+    switch mainState {
+    case .synchronized: return DashboardTheme.success
+    case .noGit: return DashboardTheme.subtle
+    case .ahead, .behind, .diverged, .noOriginMain, .unavailable: return DashboardTheme.warning
+    }
+  }
 }
 
 private extension View {
@@ -10883,6 +13454,9 @@ struct ContentView: View {
         codexProjectSelectionPanel
         codexTransferPanel
       }
+
+      codexStage2Panel
+      codexLifecyclePanel
     }
   }
 
@@ -10982,7 +13556,7 @@ struct ContentView: View {
         kind: model.codexProjects.isEmpty ? .warning : .ready
       )
 
-      Text("Discovery reads local paths only. It offers a folder only when it sees Git, a manifest, or enough source, editor, Docker/config, or transfer-note context, so ordinary Documents folders are not treated as projects. An unlinked Codex project can still be found without uploading history, Git metadata, account data, prompts, or credentials.")
+      Text("Discovery reads local paths and the Codex desktop project's local link registry. It offers a folder only when it sees Git, a manifest, or enough source, editor, Docker/config, or transfer-note context, so ordinary Documents folders are not treated as projects. Git status compares against the locally stored origin/main reference and does not fetch, upload history, or read prompts, credentials, or account data.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -11059,10 +13633,26 @@ struct ContentView: View {
                       .font(.system(size: 11, weight: .medium, design: .monospaced))
                       .foregroundStyle(DashboardTheme.muted)
                       .textSelection(.enabled)
-                    Text([project.discoveredBy, project.branch, project.remoteURL].compactMap { $0 }.joined(separator: " · "))
+                    Text([
+                      project.discoveredBy,
+                      project.branch.map { "branch \($0)" },
+                      project.remoteURL
+                    ].compactMap { $0 }.joined(separator: " · "))
                       .font(.system(size: 11, weight: .medium, design: .rounded))
                       .foregroundStyle(DashboardTheme.muted)
                       .lineLimit(2)
+                  }
+                  Spacer(minLength: 8)
+                }
+
+                HStack(spacing: 8) {
+                  PillBadge(text: project.ideState.rawValue, tint: project.ideState.dashboardTint)
+                    .help(project.ideState.dashboardHelp)
+                  PillBadge(text: project.gitStatus.mainLabel, tint: project.gitStatus.dashboardTint)
+                    .help(project.gitStatus.mainDetail + " No network fetch was performed.")
+                  if project.gitStatus.hasLocalChanges {
+                    PillBadge(text: "Local changes", tint: DashboardTheme.warning)
+                      .help("Tracked or untracked working-tree changes are present in this local folder.")
                   }
                   Spacer(minLength: 8)
                 }
@@ -11093,6 +13683,21 @@ struct ContentView: View {
                   }
                   .buttonStyle(.plain)
                   .help("Open in Visual Studio Code")
+                  Button {
+                    model.openCodexProject(project, inApplication: "GitHub Copilot")
+                  } label: {
+                    Image(systemName: "wand.and.stars")
+                  }
+                  .buttonStyle(.plain)
+                  .help("Open in GitHub Copilot")
+                  Button {
+                    model.openCodexProjectDevcontainer(project)
+                  } label: {
+                    Image(systemName: "shippingbox")
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(!project.hasDevcontainer)
+                  .help(project.hasDevcontainer ? "Start the project devcontainer" : "No devcontainer configuration detected")
                 }
               }
               .padding(12)
@@ -11167,7 +13772,7 @@ struct ContentView: View {
         .toggleStyle(.switch)
         .tint(DashboardTheme.deepBlue)
 
-      Toggle("Include generated dependency folders", isOn: $model.codexIncludeDependencies)
+      Toggle("Include generated dependencies and build outputs", isOn: $model.codexIncludeDependencies)
         .toggleStyle(.switch)
         .tint(DashboardTheme.warning)
 
@@ -11175,7 +13780,7 @@ struct ContentView: View {
         .toggleStyle(.switch)
         .tint(DashboardTheme.warning)
 
-      Text("Fast preflight compares path, type, size, date, and symlink target. Turn on the deep audit when you need to detect a rare same-size, same-date content mutation; it reads every metadata-matched file before execution.")
+      Text("Fast Mode uses path, type, size, date, and symlink target to minimize copying, then requires a whole-tree checksum verification before any cleanup-capable receipt. A checksum-only miss is repaired only after the prior destination version is preserved; Deep Audit performs that detection earlier, during planning.")
         .font(.system(size: 11, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -11240,7 +13845,7 @@ struct ContentView: View {
               VStack(alignment: .leading, spacing: 2) {
                 Text(plan.projectName)
                   .lineLimit(1)
-                Text(plan.requiresInitialMirror ? "Initial baseline" : plan.fullChecksumAudit ? "Deep audit" : "Fast index")
+                Text(plan.requiresInitialMirror ? "Initial baseline" : plan.usedVerifiedCache == true ? "Verified cache" : plan.fullChecksumAudit ? "Deep audit" : "Fast index")
                   .font(.system(size: 10, weight: .medium, design: .rounded))
                   .foregroundStyle(DashboardTheme.muted)
               }
@@ -11286,9 +13891,283 @@ struct ContentView: View {
 
       BannerCard(
         title: "Transfer safety",
-        detail: "Preflight saves source, destination, and plan JSON under the output folder's _temp/Transfer-Indexes directory. Repeat transfers use only the planned paths; initial mirrors and optional ZIP archives still read full project content. Sync and Move always performs a full checksum verification before it can retire a source.",
+        detail: "Preflight saves source, destination, and plan JSON under the output folder's _temp/Transfer-Indexes directory. Repeat transfers use only planned paths for copying, while every published, resumed, or synchronized destination receives a final whole-tree checksum verification before cleanup is allowed. Initial mirrors and optional ZIP archives still read full project content.",
         kind: .ready
       )
+    }
+  }
+
+  private var codexStage2Panel: some View {
+    PanelCard(
+      title: "Stage 2: Managed Workspace Merge",
+      subtitle: "Resolve Stage 1 backups into the canonical Code / Import / Runtime workspace by GitHub repository identity."
+    ) {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Stage 1 Source")
+        TextField("CODEX PROJECTS folder", text: $model.stage2SourceRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button {
+          model.chooseStage2SourceRoot()
+        } label: {
+          Label("Choose Source", systemImage: "folder")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+        Button {
+          model.scanStage2Projects()
+        } label: {
+          Label("Scan Stage 2", systemImage: "magnifyingglass")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+        .disabled(model.isScanningCodexProjects || model.isBuildingCodexTransferPlan || model.isRunningCodexTransfer)
+
+        Button {
+          model.revealStage2SourceRoot()
+        } label: {
+          Image(systemName: "arrow.up.forward.app")
+        }
+        .buttonStyle(.plain)
+        .help("Open the Stage 1 source")
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Managed CSA-iEM Root")
+        TextField("CSA-iEM workspace base", text: $model.stage2ManagedRootDraft)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+      }
+
+      HStack(spacing: 10) {
+        Button {
+          model.chooseStage2ManagedRoot()
+        } label: {
+          Label("Choose Root", systemImage: "externaldrive")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+
+        Button {
+          model.revealStage2ManagedRoot()
+        } label: {
+          Label("Open Root", systemImage: "arrow.up.forward.app")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "GitHub Owner-Account Bindings (Optional)")
+        TextEditor(text: $model.stage2GitHubOwnerAccountsDraft)
+          .font(.system(size: 13, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.text)
+          .scrollContentBackground(.hidden)
+          .padding(10)
+          .frame(minHeight: 58, maxHeight: 96)
+          .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(DashboardTheme.field)
+              .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .stroke(DashboardTheme.border, lineWidth: 1)
+              )
+          )
+        Text("Enter OWNER=LOGIN entries on separate lines or separated by semicolons. Leave empty to use the selected single-account fallback.")
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+
+      Divider()
+
+      Toggle("Create missing GitHub repositories as private and empty", isOn: $model.stage2CreateMissingRepos)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+
+      Toggle("Prepare Runtime/Repos mirrors", isOn: $model.stage2PrepareRuntime)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.deepBlue)
+
+      Toggle("Create and verify a Stage 2 ZIP before cleanup", isOn: $model.stage2ArchiveSources)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+
+      Picker("Stage 1 Input Policy", selection: $model.stage2SourceRetention) {
+        ForEach(Stage2SourceRetention.allCases) { option in
+          Text(option.label).tag(option)
+        }
+      }
+      .pickerStyle(.menu)
+
+      Toggle("Clean this verified Stage 2 transaction", isOn: $model.stage2CleanupTransactionTemp)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+
+      Picker("After Apply", selection: $model.stage2OpenAfterApply) {
+        ForEach(Stage2OpenOption.allCases) { option in
+          Text(option.label).tag(option)
+        }
+      }
+      .pickerStyle(.menu)
+
+      Toggle("Arm Stage 2 workspace writes", isOn: $model.stage2SafetyArmed)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(model.isCodexPortalBusy)
+
+      BannerCard(
+        title: model.stage2SelectionSummary,
+        detail: model.stage2Status,
+        kind: model.stage2SafetyArmed ? .warning : .ready
+      )
+
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
+        Button {
+          model.runStage2PreflightSelected()
+        } label: {
+          Label("Preflight Selected", systemImage: "checkmark.shield")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.stage2SelectedProjects.isEmpty || model.isCodexPortalBusy)
+
+        Button {
+          model.runStage2ApplySelected()
+        } label: {
+          Label("Apply Selected", systemImage: "play.fill")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.stage2SelectedProjects.isEmpty || !model.stage2SafetyArmed || model.isCodexPortalBusy)
+
+        Button {
+          model.runStage2PreflightAll()
+        } label: {
+          Label("Preflight All", systemImage: "list.bullet.clipboard")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isCodexPortalBusy)
+
+        Button {
+          model.runStage2FullAuto()
+        } label: {
+          Label("Stage 2 Full Auto", systemImage: "bolt.horizontal.circle.fill")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(!model.stage2SafetyArmed || model.isCodexPortalBusy)
+      }
+
+      Text("GitHub checks use repository ID, canonical owner/name, default branch, remote HEAD, and local ancestry. Active CSA-iEM, dirty destinations, staged work, identity conflicts, archived repositories, and diverged history remain blocked. Reports are saved under Runtime/Reports/Stage2.")
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var codexLifecyclePanel: some View {
+    PanelCard(
+      title: "Stage 3: Full Auto Lifecycle",
+      subtitle: "Run Stage 1, Stage 2, and receipt-linked cleanup as one selected-project or all-project transaction."
+    ) {
+      Picker("Scope", selection: $model.codexLifecycleScope) {
+        ForEach(CodexLifecycleScope.allCases) { scope in
+          Text(scope.label).tag(scope)
+        }
+      }
+      .pickerStyle(.segmented)
+
+      Toggle("Stage 1 verified ZIP", isOn: $model.codexCreateBackup)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(model.codexTransferMode == .backupOnly || model.codexTransferMode.performsScanAndBackup)
+
+      Toggle("Delete Stage 1 originals after receipt verification", isOn: $model.codexLifecycleDeleteStage1Originals)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+        .disabled(!model.codexTransferMode.writesDestination)
+
+      Toggle("Continue into Stage 2 managed workspace", isOn: $model.codexLifecycleRunStage2)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.deepBlue)
+        .disabled(!model.codexTransferMode.writesDestination)
+
+      if model.codexLifecycleRunStage2 {
+        Toggle("Stage 2 verified ZIP", isOn: $model.stage2ArchiveSources)
+          .toggleStyle(.switch)
+          .tint(DashboardTheme.success)
+
+        Picker("Stage 2 Input Policy", selection: $model.stage2SourceRetention) {
+          ForEach(Stage2SourceRetention.allCases) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        .pickerStyle(.menu)
+
+        Toggle("Create missing GitHub repositories as private and empty", isOn: $model.stage2CreateMissingRepos)
+          .toggleStyle(.switch)
+          .tint(DashboardTheme.warning)
+
+        Toggle("Prepare Runtime/Repos mirrors", isOn: $model.stage2PrepareRuntime)
+          .toggleStyle(.switch)
+          .tint(DashboardTheme.deepBlue)
+      }
+
+      Picker("Stage 3 Cleanup", selection: $model.codexLifecycleCleanupScope) {
+        ForEach(CodexLifecycleCleanupScope.allCases) { option in
+          Text(option.label).tag(option)
+        }
+      }
+      .pickerStyle(.menu)
+
+      Toggle("Arm selected Full Auto lifecycle", isOn: $model.codexLifecycleSafetyArmed)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.success)
+        .disabled(model.isCodexPortalBusy)
+
+      BannerCard(
+        title: "\(model.codexLifecycleScope.label) · \(model.selectedCodexProjects.count) selected",
+        detail: model.codexLifecycleStatus,
+        kind: model.codexLifecycleSafetyArmed ? .warning : .ready
+      )
+
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10)], spacing: 10) {
+        Button {
+          model.preflightCodexLifecycle()
+        } label: {
+          Label("Preflight Lifecycle", systemImage: "checkmark.shield")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan || model.isScanningCodexProjects)
+
+        Button {
+          model.runCodexLifecycle()
+        } label: {
+          Label(model.isRunningCodexTransfer ? "Lifecycle Running" : "Run Full Auto", systemImage: "bolt.horizontal.circle.fill")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(!model.codexLifecycleSafetyArmed || model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan || model.isScanningCodexProjects)
+
+        Button {
+          model.runStage3Preflight()
+        } label: {
+          Label("Preflight Stage 3", systemImage: "doc.text.magnifyingglass")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan || model.isScanningCodexProjects)
+
+        Button {
+          model.runStage3Cleanup()
+        } label: {
+          Label("Apply Stage 3 Only", systemImage: "trash.slash")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(!model.codexLifecycleSafetyArmed || model.isRunningCodexTransfer || model.isBuildingCodexTransferPlan || model.isScanningCodexProjects)
+      }
+
+      Text("Permanent cleanup requires Stage 1 and Stage 2 receipts, a live source-to-destination verification, same-volume quarantine, a second verification, and explicit Stage 2/Stage 3 confirmation tokens. All Verified Temp removes only receipt-linked index and transaction paths; archives, reports, receipts, canonical repositories, and the active CSA-iEM workspace remain protected.")
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
     }
   }
 
@@ -14622,6 +17501,60 @@ struct CSAiEMMenuBarView: View {
 
       Divider()
 
+      Menu("CODEX ~ GPT Stage 2") {
+        Text("Source: \(model.stage2SourceRootDraft)")
+        Text("Root: \(model.stage2ManagedRootDraft)")
+        Divider()
+        Button("Scan Stage 1 Projects") { model.scanStage2Projects() }
+          .disabled(model.isCodexPortalBusy)
+        Button("Preflight All") { model.runStage2PreflightAll() }
+          .disabled(model.isCodexPortalBusy)
+        Toggle("Arm Workspace Writes", isOn: $model.stage2SafetyArmed)
+          .disabled(model.isCodexPortalBusy)
+        Button("Stage 2 Full Auto") { model.runStage2FullAuto() }
+          .disabled(!model.stage2SafetyArmed || model.isCodexPortalBusy)
+        Divider()
+        Button("Open Stage 1 Source") { model.revealStage2SourceRoot() }
+        Button("Open Managed Root") { model.revealStage2ManagedRoot() }
+      }
+
+      Menu("CODEX ~ GPT Full Lifecycle") {
+        Picker("Scope", selection: $model.codexLifecycleScope) {
+          ForEach(CodexLifecycleScope.allCases) { scope in
+            Text(scope.label).tag(scope)
+          }
+        }
+        Toggle("Stage 1 ZIP", isOn: $model.codexCreateBackup)
+        Toggle("Delete Stage 1 Originals", isOn: $model.codexLifecycleDeleteStage1Originals)
+          .disabled(!model.codexTransferMode.writesDestination)
+        Toggle("Run Stage 2", isOn: $model.codexLifecycleRunStage2)
+        Toggle("Stage 2 ZIP", isOn: $model.stage2ArchiveSources)
+          .disabled(!model.codexLifecycleRunStage2)
+        Picker("Stage 2 Inputs", selection: $model.stage2SourceRetention) {
+          ForEach(Stage2SourceRetention.allCases) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        Picker("Stage 3 Cleanup", selection: $model.codexLifecycleCleanupScope) {
+          ForEach(CodexLifecycleCleanupScope.allCases) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        Divider()
+        Button("Preflight Lifecycle") { model.preflightCodexLifecycle() }
+          .disabled(model.isCodexPortalBusy)
+        Button("Preflight Stage 3 Only") { model.runStage3Preflight() }
+          .disabled(model.isCodexPortalBusy)
+        Toggle("Arm Full Auto", isOn: $model.codexLifecycleSafetyArmed)
+          .disabled(model.isCodexPortalBusy)
+        Button("Run Full Auto") { model.runCodexLifecycle() }
+          .disabled(!model.codexLifecycleSafetyArmed || model.isCodexPortalBusy)
+        Button("Apply Stage 3 Only") { model.runStage3Cleanup() }
+          .disabled(!model.codexLifecycleSafetyArmed || model.isCodexPortalBusy)
+      }
+
+      Divider()
+
       Menu("GitHub Action Runners") {
         if model.runnerServices.isEmpty {
           Text("No runner services detected")
@@ -14786,6 +17719,48 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(actionItem("Open Project Browser", action: #selector(openProjectBrowser)))
     menu.addItem(actionItem("Refresh Workspace State", action: #selector(refreshWorkspaceState)))
 
+    let stage2Menu = NSMenu()
+    stage2Menu.addItem(disabledItem("Source: \(model.stage2SourceRootDraft)"))
+    stage2Menu.addItem(disabledItem("Root: \(model.stage2ManagedRootDraft)"))
+    stage2Menu.addItem(.separator())
+    let scanStage2Item = actionItem("Scan Stage 1 Projects", action: #selector(scanStage2Projects))
+    scanStage2Item.isEnabled = !model.isCodexPortalBusy
+    stage2Menu.addItem(scanStage2Item)
+    let preflightStage2Item = actionItem("Preflight All", action: #selector(preflightStage2All))
+    preflightStage2Item.isEnabled = !model.isCodexPortalBusy
+    stage2Menu.addItem(preflightStage2Item)
+    let runStage2Item = actionItem("Stage 2 Full Auto", action: #selector(runStage2FullAuto))
+    runStage2Item.isEnabled = model.stage2SafetyArmed && !model.isCodexPortalBusy
+    stage2Menu.addItem(runStage2Item)
+    stage2Menu.addItem(.separator())
+    stage2Menu.addItem(actionItem("Open Stage 1 Source", action: #selector(revealStage2Source)))
+    stage2Menu.addItem(actionItem("Open Managed Root", action: #selector(revealStage2Root)))
+    let stage2Item = NSMenuItem(title: "CODEX ~ GPT Stage 2", action: nil, keyEquivalent: "")
+    stage2Item.submenu = stage2Menu
+    menu.addItem(stage2Item)
+
+    let lifecycleMenu = NSMenu()
+    lifecycleMenu.addItem(disabledItem("Scope: \(model.codexLifecycleScope.label)"))
+    lifecycleMenu.addItem(disabledItem("Stage 2 inputs: \(model.stage2SourceRetention.label)"))
+    lifecycleMenu.addItem(disabledItem("Stage 3: \(model.codexLifecycleCleanupScope.label)"))
+    lifecycleMenu.addItem(.separator())
+    let preflightLifecycleItem = actionItem("Preflight Full Lifecycle", action: #selector(preflightFullLifecycle))
+    preflightLifecycleItem.isEnabled = !model.isCodexPortalBusy
+    lifecycleMenu.addItem(preflightLifecycleItem)
+    let preflightStage3Item = actionItem("Preflight Stage 3 Only", action: #selector(preflightStage3Only))
+    preflightStage3Item.isEnabled = !model.isCodexPortalBusy
+    lifecycleMenu.addItem(preflightStage3Item)
+    let runLifecycleItem = actionItem("Run Armed Full Auto", action: #selector(runFullLifecycle))
+    runLifecycleItem.isEnabled = model.codexLifecycleSafetyArmed && !model.isCodexPortalBusy
+    lifecycleMenu.addItem(runLifecycleItem)
+    let runStage3Item = actionItem("Apply Armed Stage 3 Only", action: #selector(runStage3Only))
+    runStage3Item.isEnabled = model.codexLifecycleSafetyArmed && !model.isCodexPortalBusy
+    lifecycleMenu.addItem(runStage3Item)
+    lifecycleMenu.addItem(actionItem("Open App to Change Options", action: #selector(openMainWindow)))
+    let lifecycleItem = NSMenuItem(title: "CODEX ~ GPT Full Lifecycle", action: nil, keyEquivalent: "")
+    lifecycleItem.submenu = lifecycleMenu
+    menu.addItem(lifecycleItem)
+
     let rootsMenu = NSMenu()
     rootsMenu.addItem(actionItem("Reveal Code Root", action: #selector(revealCodeRoot)))
     rootsMenu.addItem(actionItem("Reveal Import Root", action: #selector(revealImportRoot)))
@@ -14907,6 +17882,60 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     model?.refreshOperatorState()
     rebuildStatusMenu()
     scheduleMenuRebuild()
+  }
+
+  @objc private func scanStage2Projects() {
+    model?.scanStage2Projects()
+  }
+
+  @objc private func preflightStage2All() {
+    model?.runStage2PreflightAll()
+  }
+
+  @objc private func runStage2FullAuto() {
+    guard let model else { return }
+    if !model.stage2SafetyArmed {
+      model.stage2Status = "Open the CODEX ~ GPT Portal, review Stage 2 paths and options, then arm workspace writes before Full Auto."
+      openMainWindow()
+      return
+    }
+    model.runStage2FullAuto()
+  }
+
+  @objc private func preflightFullLifecycle() {
+    model?.preflightCodexLifecycle()
+  }
+
+  @objc private func runFullLifecycle() {
+    guard let model else { return }
+    if !model.codexLifecycleSafetyArmed {
+      model.codexLifecycleStatus = "Open the CODEX ~ GPT Portal, review every lifecycle option, then arm Full Auto."
+      openMainWindow()
+      return
+    }
+    model.runCodexLifecycle()
+  }
+
+  @objc private func preflightStage3Only() {
+    model?.runStage3Preflight()
+  }
+
+  @objc private func runStage3Only() {
+    guard let model else { return }
+    if !model.codexLifecycleSafetyArmed {
+      model.codexLifecycleStatus = "Open the CODEX ~ GPT Portal, review Stage 3 cleanup options, then arm Full Auto."
+      openMainWindow()
+      return
+    }
+    model.runStage3Cleanup()
+  }
+
+  @objc private func revealStage2Source() {
+    model?.revealStage2SourceRoot()
+  }
+
+  @objc private func revealStage2Root() {
+    model?.revealStage2ManagedRoot()
   }
 
   @objc private func revealCodeRoot() {

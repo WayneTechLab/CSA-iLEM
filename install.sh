@@ -17,6 +17,7 @@ INSTALL_GUI_APP=1
 OPEN_GUI_APP=1
 
 FILES=(
+  ".gitignore"
   "VERSION"
   "README.md"
   "LICENSE.txt"
@@ -32,12 +33,18 @@ FILES=(
   "Package.swift"
   "install-remote.sh"
   "CSA-iEM.ps1"
+  "stage2-workspace.ps1"
+  "stage3-cleanup.ps1"
   "install.ps1"
   "csa-iem-tray.ps1"
   "install-remote.ps1"
   "update-win.ps1"
   "uninstall.ps1"
   "CSA-iLEM.sh"
+  "stage2-workspace.sh"
+  "stage3-cleanup.sh"
+  "repo-consolidation-recovery.py"
+  "repo-consolidation-local-cleanup.py"
   "CSA-iLEM-Open.sh"
   "build-gui-app.sh"
   "run-gui.sh"
@@ -57,6 +64,8 @@ FILES=(
 )
 
 DIRS=(
+  ".SYSTEMX"
+  ".vscode"
   "Sources"
   "assets"
   "docs"
@@ -307,6 +316,10 @@ install_gui_app_bundle() {
   local app_install_dir=""
   local built_app="$INSTALL_DIR/dist/$APP_NAME.app"
   local target_app=""
+  local app_stage_root=""
+  local staged_app=""
+  local rollback_root=""
+  local rollback_app=""
   local build_log="${TMPDIR:-/tmp}/csa-iem-install-gui-build.log"
 
   if [[ "$INSTALL_GUI_APP" -ne 1 ]]; then
@@ -316,36 +329,75 @@ install_gui_app_bundle() {
   if ! command -v swift >/dev/null 2>&1; then
     warn "Swift was not found, so $APP_NAME.app could not be built automatically."
     warn "Install Xcode Command Line Tools or Xcode, then run: csa-iem-build-gui"
-    return 0
+    return 1
   fi
 
   if [[ ! -x "$INSTALL_DIR/build-gui-app.sh" ]]; then
     warn "GUI builder was not found, so $APP_NAME.app could not be installed."
-    return 0
+    return 1
   fi
 
   info "Building native $APP_NAME.app for the menu-bar toolbar..."
   if ! "$INSTALL_DIR/build-gui-app.sh" >"$build_log" 2>&1; then
     warn "GUI app build failed. See log: $build_log"
     tail -n 30 "$build_log" >&2 || true
-    return 0
+    return 1
   fi
 
   if [[ ! -d "$built_app" ]]; then
     warn "GUI builder finished but did not create $built_app."
-    return 0
+    return 1
   fi
 
   app_install_dir="$(default_app_install_dir)"
   mkdir -p "$app_install_dir"
   target_app="$app_install_dir/$APP_NAME.app"
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-  rm -rf "$target_app"
-  ditto --norsrc "$built_app" "$target_app"
-  xattr -rc "$target_app" >/dev/null 2>&1 || true
-  if command -v codesign >/dev/null 2>&1; then
-    codesign --verify --deep --strict "$target_app" >/dev/null 2>&1 || warn "Installed GUI bundle signature verification failed: $target_app"
+  app_stage_root="$(mktemp -d "$app_install_dir/.csa-iem-install.XXXXXX")"
+  staged_app="$app_stage_root/$APP_NAME.app"
+  if ! ditto --norsrc "$built_app" "$staged_app"; then
+    rm -rf -- "$app_stage_root"
+    printf 'Could not stage the verified GUI bundle for installation: %s\n' "$staged_app" >&2
+    return 1
   fi
+  xattr -rc "$staged_app" >/dev/null 2>&1 || true
+  if command -v codesign >/dev/null 2>&1; then
+    if ! codesign --force --deep --sign - --timestamp=none "$staged_app" >/dev/null 2>&1 \
+      || ! codesign --verify --deep --strict "$staged_app" >/dev/null 2>&1; then
+      rm -rf -- "$app_stage_root"
+      printf 'Staged GUI bundle signature verification failed: %s\n' "$staged_app" >&2
+      return 1
+    fi
+  fi
+
+  rollback_root="$(mktemp -d "$app_install_dir/.csa-iem-rollback.XXXXXX")"
+  rollback_app="$rollback_root/$APP_NAME.app"
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  if [[ -e "$target_app" || -L "$target_app" ]]; then
+    if ! mv -- "$target_app" "$rollback_app"; then
+      rm -rf -- "$app_stage_root" "$rollback_root"
+      printf 'Could not preserve the currently installed GUI bundle: %s\n' "$target_app" >&2
+      return 1
+    fi
+  fi
+  if ! mv -- "$staged_app" "$target_app"; then
+    if [[ -e "$rollback_app" || -L "$rollback_app" ]]; then
+      mv -- "$rollback_app" "$target_app" || true
+    fi
+    rm -rf -- "$app_stage_root" "$rollback_root"
+    printf 'Could not publish the staged GUI bundle: %s\n' "$target_app" >&2
+    return 1
+  fi
+  if command -v codesign >/dev/null 2>&1 \
+    && ! codesign --verify --deep --strict "$target_app" >/dev/null 2>&1; then
+    rm -rf -- "$target_app"
+    if [[ -e "$rollback_app" || -L "$rollback_app" ]]; then
+      mv -- "$rollback_app" "$target_app" || true
+    fi
+    rm -rf -- "$app_stage_root" "$rollback_root"
+    printf 'Installed GUI bundle signature verification failed; the prior app was restored: %s\n' "$target_app" >&2
+    return 1
+  fi
+  rm -rf -- "$app_stage_root" "$rollback_root"
   remove_stale_gui_app_bundles "$target_app"
   install_login_toolbar_agent "$target_app"
 
@@ -637,6 +689,15 @@ if [[ "$BOOTSTRAP_DEPS" -eq 1 ]]; then
   bootstrap_dependencies
 fi
 
+if ! command -v shasum >/dev/null 2>&1; then
+  printf 'shasum is required to verify the install payload.\n' >&2
+  exit 1
+fi
+if ! (cd "$SCRIPT_DIR" && shasum -a 256 -c --strict SHA256SUMS >/dev/null); then
+  printf 'Install payload checksum verification failed.\n' >&2
+  exit 1
+fi
+
 INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
@@ -667,6 +728,12 @@ done
 
 chmod +x \
   "$INSTALL_DIR/CSA-iLEM.sh" \
+  "$INSTALL_DIR/stage2-workspace.sh" \
+  "$INSTALL_DIR/stage2-workspace.ps1" \
+  "$INSTALL_DIR/stage3-cleanup.sh" \
+  "$INSTALL_DIR/stage3-cleanup.ps1" \
+  "$INSTALL_DIR/repo-consolidation-recovery.py" \
+  "$INSTALL_DIR/repo-consolidation-local-cleanup.py" \
   "$INSTALL_DIR/CSA-iLEM-Open.sh" \
   "$INSTALL_DIR/build-gui-app.sh" \
   "$INSTALL_DIR/run-gui.sh" \

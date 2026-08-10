@@ -21,6 +21,10 @@ APP_DIR="$BUILD_ROOT/$APP_NAME.app"
 CLI_FILES=(
   "VERSION"
   "CSA-iLEM.sh"
+  "stage2-workspace.sh"
+  "stage3-cleanup.sh"
+  "repo-consolidation-recovery.py"
+  "repo-consolidation-local-cleanup.py"
   "CSA-iLEM-Open.sh"
   "csa-ilem"
   "csa-ilem-open"
@@ -34,6 +38,8 @@ CLI_FILES=(
   "SHA256SUMS"
   "install-remote.sh"
   "CSA-iEM.ps1"
+  "stage2-workspace.ps1"
+  "stage3-cleanup.ps1"
   "install.ps1"
   "csa-iem-tray.ps1"
   "install-remote.ps1"
@@ -107,6 +113,15 @@ if ! command -v swift >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v shasum >/dev/null 2>&1; then
+  echo "shasum is required to verify the GUI build payload." >&2
+  exit 1
+fi
+if ! (cd "$SCRIPT_DIR" && shasum -a 256 -c --strict SHA256SUMS >/dev/null); then
+  echo "Source checksum verification failed; refresh SHA256SUMS only after reviewing every payload change." >&2
+  exit 1
+fi
+
 echo "Building $GUI_TARGET..."
 swift build --scratch-path "$SCRATCH_PATH" -c release --package-path "$SCRIPT_DIR" --product "$GUI_TARGET"
 
@@ -177,6 +192,10 @@ fi
 
 chmod +x \
   "$APP_DIR/Contents/Resources/CLI/CSA-iLEM.sh" \
+  "$APP_DIR/Contents/Resources/CLI/stage2-workspace.sh" \
+  "$APP_DIR/Contents/Resources/CLI/stage3-cleanup.sh" \
+  "$APP_DIR/Contents/Resources/CLI/repo-consolidation-recovery.py" \
+  "$APP_DIR/Contents/Resources/CLI/repo-consolidation-local-cleanup.py" \
   "$APP_DIR/Contents/Resources/CLI/CSA-iLEM-Open.sh" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem-open" \
@@ -189,6 +208,8 @@ chmod +x \
   "$APP_DIR/Contents/Resources/CLI/openproj" \
   "$APP_DIR/Contents/Resources/CLI/install-remote.sh" \
   "$APP_DIR/Contents/Resources/CLI/CSA-iEM.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/stage2-workspace.ps1" \
+  "$APP_DIR/Contents/Resources/CLI/stage3-cleanup.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install.ps1" \
   "$APP_DIR/Contents/Resources/CLI/csa-iem-tray.ps1" \
   "$APP_DIR/Contents/Resources/CLI/install-remote.ps1" \
@@ -255,9 +276,24 @@ fi
 
 # Documents may be iCloud/File Provider-backed. Publish a clean copy only
 # after signing so Finder metadata cannot invalidate the bundle mid-build.
+for stale_app in \
+  "$DIST_DIR/$APP_NAME "*".app" \
+  "$DIST_DIR/CSA-iLEM "*".app" \
+  "$DIST_DIR/$APP_NAME-"*".app" \
+  "$DIST_DIR/CSA-iLEM-"*".app"; do
+  [[ -e "$stale_app" ]] || continue
+  rm -rf -- "$stale_app"
+done
 rm -rf "$DIST_APP_DIR"
 ditto --norsrc "$APP_DIR" "$DIST_APP_DIR"
 xattr -rc "$DIST_APP_DIR" >/dev/null 2>&1 || true
+if command -v codesign >/dev/null 2>&1; then
+  if ! codesign --force --deep --sign - --timestamp=none "$DIST_APP_DIR" >/dev/null 2>&1 \
+    || ! codesign --verify --deep --strict "$DIST_APP_DIR" >/dev/null 2>&1; then
+    echo "Published GUI bundle signature verification failed: $DIST_APP_DIR" >&2
+    exit 1
+  fi
+fi
 
 echo
 echo "$APP_NAME GUI bundle created:"

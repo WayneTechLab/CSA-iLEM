@@ -1,3 +1,11 @@
 .DS_Store
 .build/
 dist/
+
+# Machine-local repository consolidation state and generated artifacts.
+__pycache__/
+repo-consolidation-source-map.json
+SHA256SUMS 2
+SHA256SUMS 3
+codex-project-move-test.zsh
+move-music-exchange-source.zsh

@@ -14,12 +14,31 @@ function Get-CsaIemWorkspaceSummary {
     $CodeRoot = Join-Path $LocalRoot "Code"
     $ImportRoot = Join-Path $LocalRoot "Import"
     $RuntimeRoot = Join-Path $LocalRoot "Runtime"
+    $SettingsPath = Join-Path (Join-Path $env:LOCALAPPDATA "CSA-iEM") "windows-settings.json"
+
+    if (Test-Path $SettingsPath) {
+        try {
+            $Settings = Get-Content -Path $SettingsPath -Raw | ConvertFrom-Json
+            if ($Settings.CodeRoot) { $CodeRoot = [string]$Settings.CodeRoot }
+            if ($Settings.ImportRoot) { $ImportRoot = [string]$Settings.ImportRoot }
+            if ($Settings.RuntimeRoot) { $RuntimeRoot = [string]$Settings.RuntimeRoot }
+        } catch { }
+    }
+
+    $ManagedRoot = Split-Path $CodeRoot -Parent
+    $Stage2Source = if ((Split-Path $ManagedRoot -Leaf) -eq "CSA-iEM") {
+        Join-Path (Split-Path $ManagedRoot -Parent) "CODEX PROJECTS"
+    } else {
+        Join-Path $env:USERPROFILE "CODEX PROJECTS"
+    }
 
     return [ordered]@{
         Install = $InstallRoot
         Code = $CodeRoot
         Import = $ImportRoot
         Runtime = $RuntimeRoot
+        Stage2Source = $Stage2Source
+        ManagedRoot = $ManagedRoot
     }
 }
 
@@ -152,6 +171,95 @@ function Build-CsaIemContextMenu {
     [void]$Menu.Items.Add((New-MenuItem -Text "Open CSA-iEM CLI" -OnClick { Start-CsaIemPowerShell }))
     [void]$Menu.Items.Add((New-MenuItem -Text "Open Project Browser" -OnClick { Start-CsaIemPowerShell -Arguments @("--browse-projects", "--use-current-root") }))
     [void]$Menu.Items.Add((New-MenuItem -Text "Reveal Install Folder" -OnClick { Open-CsaIemFolder -Path $InstallRoot }))
+
+    $Stage2Item = [System.Windows.Forms.ToolStripMenuItem]::new("CODEX ~ GPT Stage 2")
+    [void]$Stage2Item.DropDownItems.Add((New-MenuItem -Text "Source: $($Workspace.Stage2Source)" -Enabled $false))
+    [void]$Stage2Item.DropDownItems.Add((New-MenuItem -Text "Root: $($Workspace.ManagedRoot)" -Enabled $false))
+    [void]$Stage2Item.DropDownItems.Add([System.Windows.Forms.ToolStripSeparator]::new())
+    $Stage2Payload = [pscustomobject]@{ Source = [string]$Workspace.Stage2Source; Root = [string]$Workspace.ManagedRoot }
+    $Stage2PreflightItem = New-MenuItem -Text "Preflight All" -OnClick {
+        param($Sender)
+        $Payload = $Sender.Tag
+        Start-CsaIemPowerShell -Arguments @("stage2", "--source", "`"$($Payload.Source)`"", "--managed-root", "`"$($Payload.Root)`"", "--preflight", "--all")
+    }
+    $Stage2PreflightItem.Tag = $Stage2Payload
+    [void]$Stage2Item.DropDownItems.Add($Stage2PreflightItem)
+    $Stage2FullAutoItem = New-MenuItem -Text "Stage 2 Full Auto" -OnClick {
+        param($Sender)
+        $Payload = $Sender.Tag
+        $Choice = [System.Windows.Forms.MessageBox]::Show(
+            "Run Stage 2 Full Auto? Dirty, staged, divergent, ambiguous, archived, and active projects remain blocked. Stage 1 folders stay in place.",
+            "$AppName Stage 2",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($Choice -eq [System.Windows.Forms.DialogResult]::Yes) {
+            Start-CsaIemPowerShell -Arguments @("stage2", "--source", "`"$($Payload.Source)`"", "--managed-root", "`"$($Payload.Root)`"", "--full-auto", "--yes")
+        }
+    }
+    $Stage2FullAutoItem.Tag = $Stage2Payload
+    [void]$Stage2Item.DropDownItems.Add($Stage2FullAutoItem)
+    [void]$Stage2Item.DropDownItems.Add((New-MenuItem -Text "Open Stage 2 CLI" -OnClick { Start-CsaIemPowerShell -Arguments @("stage2", "--help") }))
+    [void]$Stage2Item.DropDownItems.Add([System.Windows.Forms.ToolStripSeparator]::new())
+    $OpenStage2SourceItem = New-MenuItem -Text "Open Stage 1 Source" -OnClick { param($Sender) Open-CsaIemFolder -Path ([string]$Sender.Tag) }
+    $OpenStage2SourceItem.Tag = [string]$Workspace.Stage2Source
+    [void]$Stage2Item.DropDownItems.Add($OpenStage2SourceItem)
+    $OpenStage2RootItem = New-MenuItem -Text "Open Managed Root" -OnClick { param($Sender) Open-CsaIemFolder -Path ([string]$Sender.Tag) }
+    $OpenStage2RootItem.Tag = [string]$Workspace.ManagedRoot
+    [void]$Stage2Item.DropDownItems.Add($OpenStage2RootItem)
+    [void]$Menu.Items.Add($Stage2Item)
+
+    $Stage3Item = [System.Windows.Forms.ToolStripMenuItem]::new("CODEX ~ GPT Stage 3")
+    [void]$Stage3Item.DropDownItems.Add((New-MenuItem -Text "Receipt source: $($Workspace.Stage2Source)" -Enabled $false))
+    [void]$Stage3Item.DropDownItems.Add((New-MenuItem -Text "Managed root: $($Workspace.ManagedRoot)" -Enabled $false))
+    [void]$Stage3Item.DropDownItems.Add([System.Windows.Forms.ToolStripSeparator]::new())
+    $Stage3Payload = [pscustomobject]@{ Source = [string]$Workspace.Stage2Source; Root = [string]$Workspace.ManagedRoot }
+    $Stage3PreflightItem = New-MenuItem -Text "Preflight Verified Temp Cleanup" -OnClick {
+        param($Sender)
+        $Payload = $Sender.Tag
+        Start-CsaIemPowerShell -Arguments @("stage3", "--source", "`"$($Payload.Source)`"", "--managed-root", "`"$($Payload.Root)`"", "--preflight", "--all", "--cleanup-all-verified-temp")
+    }
+    $Stage3PreflightItem.Tag = $Stage3Payload
+    [void]$Stage3Item.DropDownItems.Add($Stage3PreflightItem)
+    $Stage3TempItem = New-MenuItem -Text "Clean Receipt-Linked Temp" -OnClick {
+        param($Sender)
+        $Payload = $Sender.Tag
+        $Choice = [System.Windows.Forms.MessageBox]::Show(
+            "Delete only receipt-linked Stage 1 indexes and Stage 2 transaction data? Backups, reports, receipts, canonical repositories, and unreferenced temp folders stay protected.",
+            "$AppName Stage 3",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($Choice -eq [System.Windows.Forms.DialogResult]::Yes) {
+            Start-CsaIemPowerShell -Arguments @("stage3", "--source", "`"$($Payload.Source)`"", "--managed-root", "`"$($Payload.Root)`"", "--apply", "--all", "--cleanup-all-verified-temp", "--yes", "--confirm-delete", "VERIFIED-STAGE3")
+        }
+    }
+    $Stage3TempItem.Tag = $Stage3Payload
+    [void]$Stage3Item.DropDownItems.Add($Stage3TempItem)
+    $Stage3FullItem = New-MenuItem -Text "Full Verified Source + Temp Cleanup" -OnClick {
+        param($Sender)
+        $Payload = $Sender.Tag
+        $First = [System.Windows.Forms.MessageBox]::Show(
+            "This can permanently delete receipt-verified Stage 1 originals, Stage 2 inputs, and linked temporary data after live verification. Continue to the second confirmation?",
+            "$AppName Stage 3",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($First -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+        $Second = [System.Windows.Forms.MessageBox]::Show(
+            "Final confirmation: run Stage 3 Full Verified Cleanup now?",
+            "$AppName Stage 3 Final Confirmation",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Stop
+        )
+        if ($Second -eq [System.Windows.Forms.DialogResult]::Yes) {
+            Start-CsaIemPowerShell -Arguments @("stage3", "--source", "`"$($Payload.Source)`"", "--managed-root", "`"$($Payload.Root)`"", "--apply", "--all", "--delete-stage1-originals", "--delete-stage2-inputs", "--cleanup-all-verified-temp", "--yes", "--confirm-delete", "VERIFIED-STAGE3")
+        }
+    }
+    $Stage3FullItem.Tag = $Stage3Payload
+    [void]$Stage3Item.DropDownItems.Add($Stage3FullItem)
+    [void]$Stage3Item.DropDownItems.Add((New-MenuItem -Text "Open Stage 3 CLI" -OnClick { Start-CsaIemPowerShell -Arguments @("stage3", "--help") }))
+    [void]$Menu.Items.Add($Stage3Item)
 
     $BillingItem = [System.Windows.Forms.ToolStripMenuItem]::new("GitHub Billing")
     [void]$BillingItem.DropDownItems.Add((New-MenuItem -Text "$($Billing.Account): $($Billing.Actions)" -Enabled $false))
