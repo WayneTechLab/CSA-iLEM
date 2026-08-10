@@ -27,6 +27,7 @@ token printed by ``--help`` and can only retire receipt-bound sources to managed
 from __future__ import annotations
 
 import argparse
+import atexit
 import base64
 import concurrent.futures
 import ctypes
@@ -41,6 +42,7 @@ import os
 import plistlib
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -123,6 +125,7 @@ REPRESENTATION_FORMAT = 1
 FINAL_RECEIPT_STATUS = "finalized-after-destination-group-proof"
 TREE_ALGORITHM = "csa-iem-stable-tree-sha256-v1"
 VERIFICATION_CACHE_SIZE = 131_072
+PERSISTENT_HASH_INDEX_FORMAT = 1
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 CRITICAL_RUNNER_FILES = {
     ".credentials",
@@ -140,6 +143,19 @@ class RecoveryError(RuntimeError):
 
 class MissingRepositoryError(RecoveryError):
     """A reviewed GitHub repository does not exist for the bound account."""
+
+
+_PERSISTENT_HASH_INDEX: sqlite3.Connection | None = None
+_PERSISTENT_HASH_INDEX_PATH: Path | None = None
+_PERSISTENT_HASH_INDEX_TRANSACTION = "unbound"
+_PERSISTENT_HASH_INDEX_EXCLUDED_ROOTS: tuple[Path, ...] = ()
+_PERSISTENT_HASH_INDEX_LOCK = threading.RLock()
+_PERSISTENT_HASH_INDEX_STATS = {
+    "hits": 0,
+    "misses": 0,
+    "writes": 0,
+    "errors": 0,
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2439,6 +2455,171 @@ def verification_cache_path(path: Path) -> str:
     return os.path.abspath(os.fspath(path))
 
 
+def close_persistent_hash_index() -> None:
+    global _PERSISTENT_HASH_INDEX
+    with _PERSISTENT_HASH_INDEX_LOCK:
+        connection = _PERSISTENT_HASH_INDEX
+        _PERSISTENT_HASH_INDEX = None
+        if connection is None:
+            return
+        try:
+            connection.commit()
+            connection.close()
+        except sqlite3.Error:
+            _PERSISTENT_HASH_INDEX_STATS["errors"] += 1
+
+
+def configure_persistent_hash_index(
+    path: Path,
+    transaction: str,
+    *,
+    excluded_roots: Sequence[Path] = (),
+) -> None:
+    """Open the cross-transaction stat-bound SHA-256 index.
+
+    A cached checksum is reusable only for the same absolute path and complete
+    mutation-sensitive stat key. Callers still lstat before and after lookup.
+    Cache failure is an optimization failure, never verification success.
+    """
+    global _PERSISTENT_HASH_INDEX, _PERSISTENT_HASH_INDEX_PATH
+    global _PERSISTENT_HASH_INDEX_TRANSACTION
+    global _PERSISTENT_HASH_INDEX_EXCLUDED_ROOTS
+    index_path = Path(os.path.abspath(path))
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    if index_path.parent.is_symlink():
+        raise RecoveryError(f"Hash-index parent is a symlink: {index_path.parent}")
+    with _PERSISTENT_HASH_INDEX_LOCK:
+        close_persistent_hash_index()
+        try:
+            connection = sqlite3.connect(
+                index_path,
+                timeout=30.0,
+                check_same_thread=False,
+            )
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA temp_store=MEMORY")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stable_hash_v1 (
+                    path TEXT NOT NULL,
+                    stat_key TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    last_seen_transaction TEXT NOT NULL,
+                    PRIMARY KEY (path, stat_key)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS stable_hash_v1_path ON stable_hash_v1(path)"
+            )
+            connection.commit()
+        except sqlite3.Error as error:
+            _PERSISTENT_HASH_INDEX_STATS["errors"] += 1
+            raise RecoveryError(f"Could not open persistent checksum index {index_path}: {error}") from error
+        _PERSISTENT_HASH_INDEX = connection
+        _PERSISTENT_HASH_INDEX_PATH = index_path
+        _PERSISTENT_HASH_INDEX_TRANSACTION = transaction
+        _PERSISTENT_HASH_INDEX_EXCLUDED_ROOTS = tuple(
+            Path(os.path.abspath(root)) for root in excluded_roots
+        )
+
+
+def persistent_hash_index_key(expected_stat_key: tuple[int, ...]) -> str:
+    return json.dumps(expected_stat_key, separators=(",", ":"))
+
+
+def persistent_hash_lookup(
+    path_text: str,
+    expected_stat_key: tuple[int, ...],
+) -> str | None:
+    path = Path(path_text)
+    if any(lexical_path_within(path, root) for root in _PERSISTENT_HASH_INDEX_EXCLUDED_ROOTS):
+        _PERSISTENT_HASH_INDEX_STATS["misses"] += 1
+        return None
+    with _PERSISTENT_HASH_INDEX_LOCK:
+        connection = _PERSISTENT_HASH_INDEX
+        if connection is None:
+            _PERSISTENT_HASH_INDEX_STATS["misses"] += 1
+            return None
+        try:
+            row = connection.execute(
+                "SELECT sha256 FROM stable_hash_v1 WHERE path = ? AND stat_key = ?",
+                (path_text, persistent_hash_index_key(expected_stat_key)),
+            ).fetchone()
+        except sqlite3.Error:
+            _PERSISTENT_HASH_INDEX_STATS["errors"] += 1
+            _PERSISTENT_HASH_INDEX_STATS["misses"] += 1
+            return None
+        if row is None or not isinstance(row[0], str) or not SHA256_RE.fullmatch(row[0]):
+            _PERSISTENT_HASH_INDEX_STATS["misses"] += 1
+            return None
+        _PERSISTENT_HASH_INDEX_STATS["hits"] += 1
+        return row[0]
+
+
+def persistent_hash_store(
+    path_text: str,
+    expected_stat_key: tuple[int, ...],
+    digest: str,
+    transaction: str,
+) -> None:
+    if not SHA256_RE.fullmatch(digest):
+        raise RecoveryError(f"Refused invalid SHA-256 cache value for {path_text}")
+    path = Path(path_text)
+    if any(lexical_path_within(path, root) for root in _PERSISTENT_HASH_INDEX_EXCLUDED_ROOTS):
+        return
+    with _PERSISTENT_HASH_INDEX_LOCK:
+        connection = _PERSISTENT_HASH_INDEX
+        if connection is None:
+            return
+        try:
+            stat_key = persistent_hash_index_key(expected_stat_key)
+            connection.execute(
+                "DELETE FROM stable_hash_v1 WHERE path = ? AND stat_key <> ?",
+                (path_text, stat_key),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO stable_hash_v1
+                    (path, stat_key, sha256, last_seen_transaction)
+                VALUES (?, ?, ?, ?)
+                """,
+                (path_text, stat_key, digest, transaction),
+            )
+            _PERSISTENT_HASH_INDEX_STATS["writes"] += 1
+            if _PERSISTENT_HASH_INDEX_STATS["writes"] % 512 == 0:
+                connection.commit()
+        except sqlite3.Error:
+            _PERSISTENT_HASH_INDEX_STATS["errors"] += 1
+
+
+def persistent_hash_index_report() -> dict[str, object]:
+    with _PERSISTENT_HASH_INDEX_LOCK:
+        connection = _PERSISTENT_HASH_INDEX
+        entry_count = 0
+        if connection is not None:
+            try:
+                connection.commit()
+                row = connection.execute(
+                    "SELECT COUNT(*) FROM stable_hash_v1"
+                ).fetchone()
+                entry_count = int(row[0]) if row else 0
+            except (sqlite3.Error, TypeError, ValueError):
+                _PERSISTENT_HASH_INDEX_STATS["errors"] += 1
+        return {
+            "format": PERSISTENT_HASH_INDEX_FORMAT,
+            "path": display_path(_PERSISTENT_HASH_INDEX_PATH)
+            if _PERSISTENT_HASH_INDEX_PATH
+            else "",
+            "entryCount": entry_count,
+            **_PERSISTENT_HASH_INDEX_STATS,
+        }
+
+
+atexit.register(close_persistent_hash_index)
+
+
 @functools.lru_cache(maxsize=VERIFICATION_CACHE_SIZE)
 def _stable_file_hash_cached(
     path_text: str,
@@ -2450,6 +2631,12 @@ def _stable_file_hash_cached(
         raise RecoveryError(f"File changed before checksum cache read: {path}")
     if not stat.S_ISREG(before.st_mode):
         raise RecoveryError(f"Expected regular file while hashing: {path}")
+    indexed_digest = persistent_hash_lookup(path_text, expected_stat_key)
+    if indexed_digest is not None:
+        after_index = path.lstat()
+        if verification_stat_key(after_index) != expected_stat_key:
+            raise RecoveryError(f"File changed during persistent checksum lookup: {path}")
+        return indexed_digest
     digest = hashlib.sha256()
     with path.open("rb", buffering=1024 * 1024) as handle:
         while True:
@@ -2460,7 +2647,14 @@ def _stable_file_hash_cached(
     after = path.lstat()
     if verification_stat_key(after) != expected_stat_key:
         raise RecoveryError(f"File changed while being checksum-audited: {path}")
-    return digest.hexdigest()
+    value = digest.hexdigest()
+    persistent_hash_store(
+        path_text,
+        expected_stat_key,
+        value,
+        _PERSISTENT_HASH_INDEX_TRANSACTION,
+    )
+    return value
 
 
 def stable_file_hash(path: Path) -> tuple[str, os.stat_result]:
@@ -9909,6 +10103,32 @@ def run_self_test() -> int:
     with tempfile.TemporaryDirectory(prefix="csa-iem-recovery-self-test-") as temporary:
         fixture = Path(temporary)
 
+        # Persistent checksum indexes may skip a repeat file read only while
+        # the complete mutation-sensitive stat identity is unchanged.
+        configure_persistent_hash_index(
+            fixture / "indexes" / "stable-hash-v1.sqlite3",
+            "fixture-transaction",
+        )
+        indexed_file = fixture / "indexed.bin"
+        indexed_file.write_bytes(b"first-index-value")
+        first_digest, _first_stat = stable_file_hash(indexed_file)
+        clear_verification_caches()
+        hits_before = _PERSISTENT_HASH_INDEX_STATS["hits"]
+        repeated_digest, _repeated_stat = stable_file_hash(indexed_file)
+        self_test_require(
+            repeated_digest == first_digest
+            and _PERSISTENT_HASH_INDEX_STATS["hits"] == hits_before + 1,
+            "persistent checksum index did not serve an unchanged stat-bound file",
+        )
+        indexed_file.write_bytes(b"other-index-value")
+        clear_verification_caches()
+        changed_digest, _changed_stat = stable_file_hash(indexed_file)
+        self_test_require(
+            changed_digest != first_digest,
+            "persistent checksum index reused a digest after file mutation",
+        )
+        close_persistent_hash_index()
+
         # A nested non-Git folder must not inherit a parent repository identity.
         parent_repository = fixture / "parent-repository"
         parent_repository.mkdir()
@@ -10761,6 +10981,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     report_dir = managed_root / "Runtime" / "Reports" / "RepoConsolidation" / transaction
     report_dir.mkdir(parents=True, exist_ok=True)
+    checksum_index = (
+        managed_root
+        / "Runtime"
+        / "Indexes"
+        / "RepoConsolidation"
+        / "stable-hash-v1.sqlite3"
+    )
+    configure_persistent_hash_index(
+        checksum_index,
+        transaction,
+        excluded_roots=(managed_root / "_temp" / "Repo-Consolidation",),
+    )
+    print(
+        f"CHECKSUM INDEX | format={PERSISTENT_HASH_INDEX_FORMAT} | {checksum_index}",
+        flush=True,
+    )
     contract_bindings: ContractBindings | None = None
     contract_errors: list[str] = []
     workspace_requirements_for_run: list[WorkspaceRootRequirement] = []
@@ -11310,9 +11546,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         audit,
         compatibility_links_removed,
     )
+    checksum_index_report = persistent_hash_index_report()
+    write_fsynced_json(report_dir / "checksum-index.json", checksum_index_report)
     print(
         f"FINAL | completed={len(completed)} failed={len(failures)} "
         f"stage_duplicates={audit['stageDuplicateCount']} stage1_exists={audit['stage1RootExists']} "
+        f"hash_hits={checksum_index_report['hits']} "
+        f"hash_misses={checksum_index_report['misses']} "
         f"| {final_report}",
         flush=True,
     )

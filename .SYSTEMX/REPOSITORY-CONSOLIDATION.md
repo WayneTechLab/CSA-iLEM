@@ -116,6 +116,19 @@ source retirement, transaction success, local deletion, and external temporary
 cleanup always remain single-coordinator phases. A worker failure retains all
 sources and blocks every cleanup authorization.
 
+Repeated scans use a persistent SHA-256 index in managed `Runtime/Indexes`.
+Index keys bind the absolute path to device, inode, type, links, ownership,
+size, mode, flags, mtime, and ctime. Recovery re-stats before and after every
+lookup; a changed or unindexed path is fully read and hashed. Index failures
+fall back to direct hashing and never count as verification. Every transaction
+writes hit, miss, write, error, and entry counts into its report.
+
+The operator loop is `scan -> review identity -> plan -> execute deltas ->
+verify receipts -> retire proven copies -> clean receipt-linked temp -> sweep
+original roots`. Any newly discovered project or changed path begins another
+scan pass. Success requires zero eligible missed sources, zero staging copies,
+one canonical folder per repository, and preserved reports/receipts.
+
 ## Interrupted Transactions
 
 An apply transaction may resume only from destination groups that emitted a
