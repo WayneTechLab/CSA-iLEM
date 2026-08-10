@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import ctypes
 import ctypes.util
 import dataclasses
@@ -5995,7 +5996,6 @@ def process_destination_group(
     repository_identities: dict[str, dict[str, str]],
     runner_drain_proofs: dict[str, RunnerDrainProof],
 ) -> DestinationGroupResult:
-    clear_verification_caches()
     group_sources = [mapping.source for mapping in mappings]
     revalidate_runtime_roots_for_sources(group_sources, runner_drain_proofs)
     destination_volume = volume_identity(destination.parent)
@@ -6654,7 +6654,6 @@ def resume_destination_group(
     if not isinstance(original_backup_text, str):
         raise RecoveryError(f"Resume checkpoint backup path is invalid: {destination}")
     original_backup = Path(original_backup_text) if original_backup_text else None
-    clear_verification_caches()
     revalidate_runtime_roots_for_sources(
         [item.mapping.source for item in prepared], runner_drain_proofs
     )
@@ -10374,6 +10373,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable the native deep-checksum fast path and use the per-file verifier for every source.",
     )
+    parser.add_argument(
+        "--group-workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Process disjoint destination-repository groups concurrently. "
+            "Default: 1. Maximum: 2. Promotion receipts remain group-isolated; "
+            "global retirement and cleanup remain coordinator-only."
+        ),
+    )
     return parser
 
 
@@ -10416,6 +10426,163 @@ def group_mappings_by_destination(
     ]
 
 
+def validate_parallel_group_isolation(
+    groups: Sequence[tuple[Path, Sequence[Mapping]]],
+) -> list[str]:
+    """Return reasons destination groups cannot safely share a worker pool.
+
+    Each group already has a unique transaction stage, rollback, receipt, and
+    checkpoint lane.  This extra audit blocks concurrency when reviewed source
+    trees overlap one another, cross another group's canonical destination, or
+    resolve to duplicate source/report identities.  The caller safely falls
+    back to one worker instead of weakening the transaction.
+    """
+    errors: list[str] = []
+    destination_keys: dict[str, Path] = {}
+    group_keys: dict[str, Path] = {}
+    source_ids: dict[str, tuple[int, Path]] = {}
+    source_paths: dict[str, tuple[int, Path]] = {}
+    physical_sources: dict[tuple[int, int], tuple[int, Path]] = {}
+    git_common_dirs: dict[str, tuple[int, Path]] = {}
+
+    for group_index, (destination, group) in enumerate(groups):
+        destination_key = os.path.normcase(os.path.abspath(destination))
+        previous_destination = destination_keys.get(destination_key)
+        if previous_destination is not None:
+            errors.append(
+                f"duplicate canonical destination {destination} and {previous_destination}"
+            )
+        destination_keys[destination_key] = destination
+
+        group_key = group_key_for_destination(destination)
+        previous_group = group_keys.get(group_key)
+        if previous_group is not None:
+            errors.append(
+                f"duplicate destination-group lane {group_key}: "
+                f"{destination} and {previous_group}"
+            )
+        group_keys[group_key] = destination
+
+        for mapping in group:
+            source_key = os.path.normcase(os.path.abspath(mapping.source))
+            previous_source = source_paths.get(source_key)
+            if previous_source is not None and previous_source[0] != group_index:
+                errors.append(
+                    f"source belongs to multiple destination groups: {mapping.source}"
+                )
+            source_paths[source_key] = (group_index, mapping.source)
+
+            source_stat = mapping.source.lstat()
+            physical_key = (int(source_stat.st_dev), int(source_stat.st_ino))
+            previous_physical = physical_sources.get(physical_key)
+            if previous_physical is not None and previous_physical[0] != group_index:
+                errors.append(
+                    f"physical source belongs to multiple groups: "
+                    f"{mapping.source} and {previous_physical[1]}"
+                )
+            physical_sources[physical_key] = (group_index, mapping.source)
+
+            source_git_dir = resolve_git_dir(mapping.source)
+            if source_git_dir is not None:
+                common_dir = resolve_git_common_dir(mapping.source, source_git_dir)
+                common_key = os.path.normcase(os.path.realpath(common_dir))
+                previous_common = git_common_dirs.get(common_key)
+                if previous_common is not None and previous_common[0] != group_index:
+                    errors.append(
+                        f"Git common directory is shared across destination groups: "
+                        f"{mapping.source} and {previous_common[1]}"
+                    )
+                git_common_dirs[common_key] = (group_index, mapping.source)
+
+            source_id = source_id_for(mapping)
+            previous_source_id = source_ids.get(source_id)
+            if previous_source_id is not None and previous_source_id[0] != group_index:
+                errors.append(
+                    f"source report lane belongs to multiple groups: {source_id}"
+                )
+            source_ids[source_id] = (group_index, mapping.source)
+
+    indexed_sources = list(source_paths.values())
+    for left_index, (left_group, left_source) in enumerate(indexed_sources):
+        left_destination = groups[left_group][0]
+        for right_group, right_source in indexed_sources[left_index + 1 :]:
+            if left_group == right_group:
+                continue
+            if path_within(left_source, right_source) or path_within(right_source, left_source):
+                errors.append(
+                    f"cross-group source trees overlap: {left_source} and {right_source}"
+                )
+            right_destination = groups[right_group][0]
+            if path_within(left_source, right_destination) or path_within(
+                right_destination, left_source
+            ):
+                errors.append(
+                    f"source/destination overlap across groups: "
+                    f"{left_source} and {right_destination}"
+                )
+            if path_within(right_source, left_destination) or path_within(
+                left_destination, right_source
+            ):
+                errors.append(
+                    f"source/destination overlap across groups: "
+                    f"{right_source} and {left_destination}"
+                )
+            if len(errors) >= 20:
+                return errors
+    return errors
+
+
+def execute_destination_group(
+    destination: Path,
+    group: Sequence[Mapping],
+    *,
+    resume: bool,
+    live_repositories: dict[str, LiveRepository],
+    transaction: str,
+    transaction_temp: Path,
+    report_dir: Path,
+    plan_sha256: str,
+    fast_mode: bool,
+    bindings: ContractBindings,
+    owner_account_bindings: dict[str, str],
+    repository_identities: dict[str, dict[str, str]],
+    runner_drain_proofs: dict[str, RunnerDrainProof],
+) -> DestinationGroupResult:
+    repository = repository_for_group(group, destination)
+    live = live_repositories.get(normalize_remote(f"https://github.com/{repository}"))
+    if live is None:
+        raise RecoveryError(f"No finalized live identity for destination group {repository}")
+
+    if resume:
+        resumed = resume_destination_group(
+            group,
+            destination=destination,
+            live=live,
+            transaction=transaction,
+            report_dir=report_dir,
+            plan_sha256=plan_sha256,
+            bindings=bindings,
+            runner_drain_proofs=runner_drain_proofs,
+        )
+        if resumed is not None:
+            return resumed
+
+    return process_destination_group(
+        group,
+        destination=destination,
+        live=live,
+        transaction=transaction,
+        transaction_temp=transaction_temp,
+        report_dir=report_dir,
+        plan_sha256=plan_sha256,
+        fast_mode=fast_mode,
+        bindings=bindings,
+        owner_account_bindings=owner_account_bindings,
+        repository_identities=repository_identities,
+        runner_drain_proofs=runner_drain_proofs,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     if argv is not None and list(argv) == ["--self-test"]:
         return run_self_test()
@@ -10424,6 +10591,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.resume and (not args.apply or not args.transaction_id):
         raise RecoveryError("--resume requires --apply and an exact --transaction-id")
+    if not 1 <= args.group_workers <= 2:
+        raise RecoveryError("--group-workers must be 1 or 2")
     canonical_root = canonical(args.canonical_root)
     canonical_repos_root = canonical_root.parent
     managed_root = canonical(args.managed_root)
@@ -10771,38 +10940,109 @@ def main(argv: Sequence[str] | None = None) -> int:
     completed: list[ProcessResult] = []
     failures: list[ProcessResult] = []
     groups = group_mappings_by_destination(mappings)
-    for index, (destination, group) in enumerate(groups, 1):
-        print(
-            f"GROUP | {index}/{len(groups)} | {destination.parent.name}/{destination.name} "
-            f"sources={len(group)}",
-            flush=True,
+    requested_group_workers = min(args.group_workers, max(1, len(groups)))
+    if requested_group_workers > 1:
+        isolation_errors = validate_parallel_group_isolation(groups)
+        if isolation_errors:
+            requested_group_workers = 1
+            print(
+                "GROUP WORKERS | downgraded-to=1 | "
+                f"reason={isolation_errors[0]}",
+                flush=True,
+            )
+    print(
+        f"GROUP WORKERS | active={requested_group_workers} | "
+        "retirement=coordinator-only",
+        flush=True,
+    )
+
+    def record_group_failure(
+        destination: Path,
+        group: Sequence[Mapping],
+        error: BaseException,
+    ) -> None:
+        traceback_path = (
+            report_dir
+            / "failures"
+            / f"group-{group_key_for_destination(destination)}.txt"
         )
-        try:
-            repository = repository_for_group(group, destination)
-            live = live_repositories.get(
-                normalize_remote(f"https://github.com/{repository}")
-            )
-            if live is None:
-                raise RecoveryError(f"No finalized live identity for destination group {repository}")
-            result = (
-                resume_destination_group(
-                    group,
-                    destination=destination,
-                    live=live,
-                    transaction=transaction,
-                    report_dir=report_dir,
-                    plan_sha256=plan_sha256,
-                    bindings=contract_bindings,
-                    runner_drain_proofs=runner_drain_proofs,
+        traceback_path.parent.mkdir(parents=True, exist_ok=True)
+        traceback_path.write_text(
+            "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+            encoding="utf-8",
+        )
+        for mapping in group:
+            failures.append(ProcessResult(mapping, "failed-source-retained", str(error)))
+        print(f"FAILED GROUP | {destination} | {error}", file=sys.stderr, flush=True)
+
+    def record_group_success(result: DestinationGroupResult) -> None:
+        group_results.append(result)
+        for item in result.prepared:
+            completed.append(
+                ProcessResult(
+                    mapping=item.mapping,
+                    status="completed",
+                    detail=result.detail,
+                    variant_root=display_path(
+                        item.mapping.destination / item.variant_relative
+                    ),
+                    tree=item.tree,
+                    git=item.git,
                 )
-                if args.resume
-                else None
             )
-            if result is None:
-                result = process_destination_group(
+
+    clear_verification_caches()
+    if requested_group_workers == 1:
+        for index, (destination, group) in enumerate(groups, 1):
+            print(
+                f"GROUP | {index}/{len(groups)} | "
+                f"{destination.parent.name}/{destination.name} sources={len(group)}",
+                flush=True,
+            )
+            clear_verification_caches()
+            try:
+                record_group_success(
+                    execute_destination_group(
+                        destination,
+                        group,
+                        resume=args.resume,
+                        live_repositories=live_repositories,
+                        transaction=transaction,
+                        transaction_temp=transaction_temp,
+                        report_dir=report_dir,
+                        plan_sha256=plan_sha256,
+                        fast_mode=not args.no_fast_mode,
+                        bindings=contract_bindings,
+                        owner_account_bindings=owner_account_bindings,
+                        repository_identities=repository_identities,
+                        runner_drain_proofs=runner_drain_proofs,
+                    )
+                )
+            except Exception as error:
+                record_group_failure(destination, group, error)
+                break
+    else:
+        indexed_results: dict[int, DestinationGroupResult] = {}
+        future_groups: dict[
+            concurrent.futures.Future[DestinationGroupResult],
+            tuple[int, Path, Sequence[Mapping]],
+        ] = {}
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=requested_group_workers,
+            thread_name_prefix="repo-group",
+        ) as executor:
+            for index, (destination, group) in enumerate(groups, 1):
+                print(
+                    f"GROUP QUEUED | {index}/{len(groups)} | "
+                    f"{destination.parent.name}/{destination.name} sources={len(group)}",
+                    flush=True,
+                )
+                future = executor.submit(
+                    execute_destination_group,
+                    destination,
                     group,
-                    destination=destination,
-                    live=live,
+                    resume=args.resume,
+                    live_repositories=live_repositories,
                     transaction=transaction,
                     transaction_temp=transaction_temp,
                     report_dir=report_dir,
@@ -10813,34 +11053,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                     repository_identities=repository_identities,
                     runner_drain_proofs=runner_drain_proofs,
                 )
-            group_results.append(result)
-            for item in result.prepared:
-                completed.append(
-                    ProcessResult(
-                        mapping=item.mapping,
-                        status="completed",
-                        detail=result.detail,
-                        variant_root=display_path(
-                            item.mapping.destination / item.variant_relative
-                        ),
-                        tree=item.tree,
-                        git=item.git,
+                future_groups[future] = (index, destination, group)
+
+            for future in concurrent.futures.as_completed(future_groups):
+                index, destination, group = future_groups[future]
+                try:
+                    result = future.result()
+                    indexed_results[index] = result
+                    print(
+                        f"GROUP COMPLETE | {index}/{len(groups)} | "
+                        f"{destination.parent.name}/{destination.name}",
+                        flush=True,
                     )
-                )
-        except Exception as error:
-            traceback_path = report_dir / "failures" / f"group-{group_key_for_destination(destination)}.txt"
-            traceback_path.parent.mkdir(parents=True, exist_ok=True)
-            traceback_path.write_text(traceback.format_exc(), encoding="utf-8")
-            for mapping in group:
-                failures.append(
-                    ProcessResult(mapping, "failed-source-retained", str(error))
-                )
-            print(f"FAILED GROUP | {destination} | {error}", file=sys.stderr, flush=True)
-            break
+                except Exception as error:
+                    record_group_failure(destination, group, error)
+
+        for index in sorted(indexed_results):
+            record_group_success(indexed_results[index])
 
     compatibility_links_removed = 0
     if not failures and not scoped_run:
         try:
+            if len(group_results) != len(groups):
+                raise RecoveryError(
+                    "Global retirement blocked: not every destination group finalized"
+                )
+            for result in group_results:
+                if (
+                    result.status != "completed"
+                    or result.live_repository is None
+                    or not result.group_receipt
+                    or not result.group_receipt_sha256
+                ):
+                    raise RecoveryError(
+                        f"Global retirement blocked by incomplete group: {result.destination}"
+                    )
+                receipt_path = Path(result.group_receipt)
+                if (
+                    not receipt_path.is_file()
+                    or stable_file_hash(receipt_path)[0] != result.group_receipt_sha256
+                ):
+                    raise RecoveryError(
+                        f"Global retirement blocked by changed receipt: {receipt_path}"
+                    )
             retirement_moves = execute_global_retirement(
                 group_results,
                 managed_root=managed_root,

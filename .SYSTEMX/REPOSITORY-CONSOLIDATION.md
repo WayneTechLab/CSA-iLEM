@@ -96,6 +96,24 @@ inventory -> identity bind -> stage -> merge -> verify canonical result
 Any missing proof stops the lifecycle at its current phase with sources and
 cleanup evidence retained.
 
+## Bounded Parallel Recovery
+
+Large inventories may use two repository-group workers. A worker owns exactly
+one canonical destination and its transaction-specific staging, rollback,
+report, receipt, and checkpoint lanes. Copies that target the same repository
+remain serialized so no two streams write one project tree. Before enabling
+the second worker, recovery audits normalized destinations, group keys, source
+IDs, source paths, and cross-group source/destination containment. Any overlap
+automatically reduces the run to one worker.
+
+Repository creation completes before workers start. Workers may assemble,
+verify, promote, and finalize only their own destination group. The coordinator
+joins all workers, requires the exact planned group count, and rehashes every
+final group receipt before it can enter global retirement. Workspace swaps,
+source retirement, transaction success, local deletion, and external temporary
+cleanup always remain single-coordinator phases. A worker failure retains all
+sources and blocks every cleanup authorization.
+
 ## Interrupted Transactions
 
 An apply transaction may resume only from destination groups that emitted a
