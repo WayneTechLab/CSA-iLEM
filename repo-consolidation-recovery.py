@@ -3284,6 +3284,11 @@ def copy_exact(source: Path, destination: Path, allowed_root: Path) -> None:
         try:
             if hasattr(os, "lchown"):
                 os.lchown(destination, source_stat.st_uid, source_stat.st_gid)
+            os.chmod(
+                destination,
+                stat.S_IMODE(source_stat.st_mode),
+                follow_symlinks=False,
+            )
             if hasattr(os, "chflags"):
                 os.chflags(
                     destination,
@@ -10239,8 +10244,13 @@ def run_self_test() -> int:
             flagged_link = fixture / "flagged-link"
             flagged_copy = fixture / "flagged-link-copy"
             os.symlink("missing-target", flagged_link)
+            os.chmod(flagged_link, 0o700, follow_symlinks=False)
             os.chflags(flagged_link, stat.UF_HIDDEN, follow_symlinks=False)
             copy_exact(flagged_link, flagged_copy, fixture)
+            self_test_require(
+                stat.S_IMODE(flagged_copy.lstat().st_mode) == 0o700,
+                "symlink mode was not preserved",
+            )
             self_test_require(
                 int(getattr(flagged_copy.lstat(), "st_flags", 0)) & stat.UF_HIDDEN,
                 "symlink Finder flags were not preserved",
