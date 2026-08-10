@@ -3284,6 +3284,12 @@ def copy_exact(source: Path, destination: Path, allowed_root: Path) -> None:
         try:
             if hasattr(os, "lchown"):
                 os.lchown(destination, source_stat.st_uid, source_stat.st_gid)
+            if hasattr(os, "chflags"):
+                os.chflags(
+                    destination,
+                    int(getattr(source_stat, "st_flags", 0)),
+                    follow_symlinks=False,
+                )
             os.utime(
                 destination,
                 ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns),
@@ -10226,6 +10232,19 @@ def run_self_test() -> int:
             "com.apple.provenance" in SYSTEM_MANAGED_RECORD_ONLY_XATTRS,
             "macOS provenance xattr is not record-only",
         )
+
+        # Individually copied symlinks must preserve Finder/user flags. ditto
+        # cannot be used because it dereferences an individual link.
+        if sys.platform == "darwin" and hasattr(os, "chflags"):
+            flagged_link = fixture / "flagged-link"
+            flagged_copy = fixture / "flagged-link-copy"
+            os.symlink("missing-target", flagged_link)
+            os.chflags(flagged_link, stat.UF_HIDDEN, follow_symlinks=False)
+            copy_exact(flagged_link, flagged_copy, fixture)
+            self_test_require(
+                int(getattr(flagged_copy.lstat(), "st_flags", 0)) & stat.UF_HIDDEN,
+                "symlink Finder flags were not preserved",
+            )
 
         # Persistent checksum indexes may skip a repeat file read only while
         # the complete mutation-sensitive stat identity is unchanged.
