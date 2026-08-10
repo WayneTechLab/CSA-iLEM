@@ -3655,6 +3655,13 @@ def tree_merge_or_verify(
             variant_root.mkdir(parents=True, exist_ok=False)
         if not variant_root.is_dir() or variant_root.is_symlink():
             raise RecoveryError(f"Invalid source-root metadata representative: {variant_root}")
+        variant_root_stat = variant_root.lstat()
+        if (
+            not merge
+            and metadata_signature(variant_root, variant_root_stat)
+            != source_root_metadata
+        ):
+            raise RecoveryError(f"Source root metadata variant is not preserved: {source}")
         root_representative = variant_root
         directory_repairs.append((source, variant_root))
     representatives["."] = root_representative
@@ -3796,9 +3803,51 @@ def tree_merge_or_verify(
                         stats_result.identical += 1
                     elif primary_path == destination_path:
                         if not merge:
-                            raise RecoveryError(
-                                f"Directory metadata conflict is not preserved: {source_path}"
+                            variant_stat = lstat_or_none(variant_path)
+                            if (
+                                variant_stat is None
+                                or not stat.S_ISDIR(variant_stat.st_mode)
+                                or metadata_signature(variant_path, variant_stat)
+                                != source_metadata
+                            ):
+                                raise RecoveryError(
+                                    f"Directory metadata conflict is not preserved: {source_path}"
+                                )
+                            primary_path = variant_path
+                            representative = primary_path
+                            stats_result.metadata_conflicts += 1
+                            if (
+                                conflict_policy != "source-wins-after-preserve"
+                                and not preserve_canonical_directory_children
+                            ):
+                                forced_variant_prefixes.append(relative)
+                            reason = (
+                                "directory-metadata-preserved-without-blocking-source-wins-children"
+                                if conflict_policy == "source-wins-after-preserve"
+                                and not recovery_only
+                                else "directory-metadata-conflict"
                             )
+                            content_identity = "directory"
+                            if reason:
+                                append_conflict_record(
+                                    conflict_handle,
+                                    relative=relative,
+                                    kind=kind,
+                                    reason=reason,
+                                    source_identity=content_identity,
+                                    representative=representative,
+                                )
+                            representatives[relative] = representative
+                            update_root_digest(
+                                root_digest,
+                                relative,
+                                kind,
+                                source_stat,
+                                content_identity,
+                                source_metadata,
+                                hardlink_group,
+                            )
+                            continue
                         if conflict_policy == "source-wins-after-preserve" and not recovery_only:
                             primary_path = variant_path
                             if os.path.lexists(primary_path):
@@ -3828,6 +3877,10 @@ def tree_merge_or_verify(
                             stats_result.metadata_conflicts += 1
                             reason = "directory-metadata-conflict"
                     else:
+                        if not merge:
+                            raise RecoveryError(
+                                f"Directory metadata variant is not preserved: {source_path}"
+                            )
                         representative = primary_path
                         directory_repairs.append((source_path, primary_path))
                 content_identity = "directory"
