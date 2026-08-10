@@ -25,6 +25,7 @@ These major product areas are built into the app now:
 - Stage 1 and Stage 2 verification receipts, Stage 3 receipt-linked cleanup, and selected/all end-to-end Full Auto lifecycle controls
 - identity-bound repository consolidation from reviewed legacy sources into one canonical folder per GitHub repository, with complete representation proofs and fail-closed global retirement
 - exact-transaction recovery resume from fully finalized destination-group checkpoints, including fresh source, Git, GitHub, receipt, remote, and representation revalidation
+- native no-ACL fast-path verification that preserves the existing receipt digest for files carrying extended ACL entries
 - receipt-bound local retirement and exact allowlisted external `_temp` payload cleanup after a successful recovery and fresh canonical audit
 - custom local scan roots that can be entered, selected, or dropped into the portal and persist only in the local app profile
 - mounted-drive Default workspace, backup, relocation, migration, and recovery flows

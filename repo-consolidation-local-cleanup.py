@@ -37,8 +37,11 @@ never deletion targets.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import dataclasses
 import errno
+import functools
 import hashlib
 import json
 import os
@@ -3223,9 +3226,50 @@ def destructive_tree_blockers(root: Path) -> list[str]:
     return blockers
 
 
+@functools.lru_cache(maxsize=1)
+def acl_library() -> ctypes.CDLL:
+    library_name = ctypes.util.find_library("System")
+    if not library_name:
+        raise CleanupError("Could not locate the macOS ACL library.")
+    library = ctypes.CDLL(library_name, use_errno=True)
+    for function_name in ("acl_get_file", "acl_get_link_np"):
+        function = getattr(library, function_name)
+        function.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        function.restype = ctypes.c_void_p
+    library.acl_free.argtypes = [ctypes.c_void_p]
+    library.acl_free.restype = ctypes.c_int
+    return library
+
+
+def has_extended_acl(path: Path) -> bool:
+    """Avoid a process spawn for the ordinary no-ACL case."""
+    if sys.platform != "darwin":
+        return False
+    mode = os.lstat(path).st_mode
+    library = acl_library()
+    getter = library.acl_get_link_np if stat.S_ISLNK(mode) else library.acl_get_file
+    ctypes.set_errno(0)
+    acl = getter(os.fsencode(path), 0x00000100)  # ACL_TYPE_EXTENDED
+    if acl:
+        library.acl_free(acl)
+        return True
+    error_number = ctypes.get_errno()
+    no_acl_errors = {
+        errno.ENOENT,
+        getattr(errno, "ENODATA", errno.ENOENT),
+        errno.ENOTSUP,
+        errno.EOPNOTSUPP,
+    }
+    if error_number in no_acl_errors:
+        return False
+    raise CleanupError(f"Could not probe ACL metadata for {path}: errno {error_number}")
+
+
 def acl_digest(path: Path) -> str:
     if sys.platform != "darwin":
         return ""
+    if not has_extended_acl(path):
+        return sha256_bytes(b"")
     result = run_command(["/bin/ls", "-lde", path], timeout=30)
     if result.returncode != 0:
         raise CleanupError(f"Could not read ACL metadata for {path}")
