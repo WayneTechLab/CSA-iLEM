@@ -2807,18 +2807,22 @@ def acl_signature(path: Path) -> str:
 def _metadata_signature_cached(
     path_text: str,
     expected_stat_key: tuple[int, ...],
+    expected_xattrs: tuple[tuple[str, str], ...],
 ) -> ExactMetadata:
     path = Path(path_text)
     before = path.lstat()
     if verification_stat_key(before) != expected_stat_key:
         raise RecoveryError(f"Path changed before metadata cache read: {path}")
+    observed_xattrs = xattr_signature(path)
+    if observed_xattrs != expected_xattrs:
+        raise RecoveryError(f"Extended attributes changed before metadata cache read: {path}")
     result = ExactMetadata(
         mode=stat.S_IMODE(before.st_mode),
         uid=int(before.st_uid),
         gid=int(before.st_gid),
         flags=int(getattr(before, "st_flags", 0)),
         mtime_ns=int(before.st_mtime_ns),
-        xattrs=xattr_signature(path),
+        xattrs=observed_xattrs,
         acl_digest=acl_signature(path),
     )
     after = path.lstat()
@@ -2832,9 +2836,14 @@ def metadata_signature(path: Path, file_stat: os.stat_result) -> ExactMetadata:
     current = path.lstat()
     if verification_stat_key(current) != expected_stat_key:
         raise RecoveryError(f"Path changed before metadata verification: {path}")
+    # APFS security provenance can appear without a reliable stat-key change.
+    # Bind the cache key to a freshly read xattr signature so a later source
+    # cannot reuse metadata measured before provenance changed.
+    current_xattrs = xattr_signature(path)
     result = _metadata_signature_cached(
         verification_cache_path(path),
         expected_stat_key,
+        current_xattrs,
     )
     after = path.lstat()
     if verification_stat_key(after) != expected_stat_key:

@@ -131,6 +131,12 @@ lookup; a changed or unindexed path is fully read and hashed. Index failures
 fall back to direct hashing and never count as verification. Every transaction
 writes hit, miss, write, error, and entry counts into its report.
 
+Metadata-cache keys additionally include a freshly read extended-attribute
+signature. APFS security provenance may change independently of ordinary file
+content; a changed signature forces a fresh metadata decision and routes the
+older exact form to its source-specific recovery variant instead of allowing a
+stale canonical representative into a cleanup proof.
+
 The operator loop is `scan -> review identity -> plan -> execute deltas ->
 verify receipts -> retire proven copies -> clean receipt-linked temp -> sweep
 original roots`. Any newly discovered project or changed path begins another
