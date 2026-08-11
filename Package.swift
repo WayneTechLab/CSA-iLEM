@@ -17,5 +17,10 @@ let package = Package(
                 .unsafeFlags(["-parse-as-library"])
             ]
         ),
+        .testTarget(
+            name: "CSAiEMMacAppTests",
+            dependencies: ["CSAiEMMacApp"],
+            path: "Tests/CSAiEMMacAppTests"
+        ),
     ]
 )
