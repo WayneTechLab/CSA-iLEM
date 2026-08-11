@@ -68,6 +68,7 @@ HELP_FILES=(
   "docs/Brand-System.md"
   "docs/macOS-App-Notes.md"
   "docs/Windows-11-Notes.md"
+  "docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md"
 )
 
 print_help() {

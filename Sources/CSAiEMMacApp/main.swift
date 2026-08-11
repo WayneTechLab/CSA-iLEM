@@ -44,7 +44,7 @@ private func resolvedAppVersion() -> String {
 private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
-private let appVersion = resolvedAppVersion()
+let appVersion = resolvedAppVersion()
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
@@ -68,6 +68,8 @@ private let codexIncludeGitMetadataKey = "com.waynetechlab.csa-iem.codex-include
 private let codexIncludeFinderMetadataKey = "com.waynetechlab.csa-iem.codex-include-finder-metadata"
 private let codexIncludeDependenciesKey = "com.waynetechlab.csa-iem.codex-include-generated-content"
 private let codexFullChecksumAuditKey = "com.waynetechlab.csa-iem.codex-full-checksum-audit"
+private let codexSmartScanModeKey = "com.waynetechlab.csa-iem.codex-smart-scan-mode"
+private let codexBackupMediumKey = "com.waynetechlab.csa-iem.codex-backup-medium"
 private let codexCreateCompatibilityLinkKey = "com.waynetechlab.csa-iem.codex-create-compatibility-link"
 private let codexRearmGitMainKey = "com.waynetechlab.csa-iem.codex-rearm-git-main"
 private let codexAutoResumeExistingKey = "com.waynetechlab.csa-iem.codex-auto-resume-existing"
@@ -302,6 +304,41 @@ enum CodexProjectTransferMode: String, CaseIterable, Identifiable {
   }
 }
 
+enum CodexSmartScanMode: String, CaseIterable, Identifiable {
+  case fastIndex
+  case verified
+  case yolo
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .fastIndex: return "Fast Index"
+    case .verified: return "Full Verification"
+    case .yolo: return "YOLO · Skip Deep Preflight"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .fastIndex:
+      return "Use path, type, size, date, and link metadata first; the existing final verification gate still protects writes."
+    case .verified:
+      return "Checksum-audit metadata matches during planning before the transfer or lifecycle can proceed."
+    case .yolo:
+      return "Move quickly through the decision scan for a non-destructive copy or backup. Final write verification and all deletion gates remain enforced."
+    }
+  }
+
+  var icon: String {
+    switch self {
+    case .fastIndex: return "speedometer"
+    case .verified: return "checkmark.shield"
+    case .yolo: return "bolt.horizontal.circle"
+    }
+  }
+}
+
 enum Stage2OpenOption: String, CaseIterable, Identifiable {
   case none
   case codex
@@ -472,6 +509,7 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
   let hasPackageManifest: Bool
   let hasDevcontainer: Bool
   let hasSystemX: Bool
+  let localDevProfile: CodexLocalDevProfile?
   let remoteURL: String?
   let branch: String?
   let ideState: CodexIDEProjectState
@@ -485,13 +523,24 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
     if hasPackageManifest { values.append("manifest") }
     if hasDevcontainer { values.append("devcontainer") }
     if hasSystemX { values.append("SYSTEMX") }
+    if let localDevProfile { values.append(localDevProfile.badge) }
     return values
   }
 
   var searchableText: String {
-    ([name, path, discoveredBy, remoteURL ?? "", branch ?? "", ideState.rawValue, gitStatus.mainLabel] + badges)
+    ([name, path, discoveredBy, remoteURL ?? "", branch ?? "", ideState.rawValue, gitStatus.mainLabel, localDevProfile?.commandLabel ?? ""] + badges)
       .joined(separator: " ")
       .lowercased()
+  }
+}
+
+struct CodexLocalDevProfile: Hashable, Sendable {
+  let script: String
+  let label: String
+  let badge: String
+
+  var commandLabel: String {
+    "npm run \(script)"
   }
 }
 
@@ -1111,6 +1160,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   case imports
   case projects
   case codexPortal
+  case projectBackups
   case localFiles
   case cleanup
   case workspace
@@ -1134,6 +1184,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .imports: return "Import"
     case .projects: return "Projects"
     case .codexPortal: return "CODEX ~ GPT PORTAL"
+    case .projectBackups: return "Project Backups"
     case .localFiles: return "Local Files"
     case .cleanup: return "Cleanup"
     case .workspace: return "Workspace"
@@ -1164,6 +1215,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Browse imported local projects on-screen, search them, and open them without dropping into Terminal."
     case .codexPortal:
       return "Discover Codex workspaces, preserve project data, and transfer one or many projects through a verified workflow."
+    case .projectBackups:
+      return "Back up one project or a complete local workflow through the same import, index, merge, verify, archive, and recovery stages."
     case .localFiles:
       return "Move workspace roots, export selected projects, and back up local data to another location or external drive."
     case .cleanup:
@@ -1198,6 +1251,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .imports: return "square.and.arrow.down.on.square"
     case .projects: return "shippingbox"
     case .codexPortal: return "terminal"
+    case .projectBackups: return "externaldrive.badge.timemachine"
     case .localFiles: return "folder.badge.gearshape"
     case .cleanup: return "trash"
     case .workspace: return "internaldrive"
@@ -1221,6 +1275,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .imports: return DashboardTheme.success
     case .projects: return DashboardTheme.deepBlue
     case .codexPortal: return DashboardTheme.success
+    case .projectBackups: return DashboardTheme.deepBlue
     case .localFiles: return DashboardTheme.warning
     case .cleanup: return DashboardTheme.warning
     case .workspace: return DashboardTheme.success
@@ -1243,7 +1298,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -1259,7 +1314,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -1347,6 +1402,24 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexTransferMode: CodexProjectTransferMode = .backupOnly {
     didSet {
       UserDefaults.standard.set(codexTransferMode.rawValue, forKey: codexTransferModeKey)
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexSmartScanMode: CodexSmartScanMode = .fastIndex {
+    didSet {
+      UserDefaults.standard.set(codexSmartScanMode.rawValue, forKey: codexSmartScanModeKey)
+      switch codexSmartScanMode {
+      case .fastIndex, .yolo:
+        codexFullChecksumAudit = false
+      case .verified:
+        codexFullChecksumAudit = true
+      }
+      codexLifecycleSafetyArmed = false
+    }
+  }
+  @Published var codexBackupMedium: CodexBackupMedium = .rawDirectory {
+    didSet {
+      UserDefaults.standard.set(codexBackupMedium.rawValue, forKey: codexBackupMediumKey)
       codexLifecycleSafetyArmed = false
     }
   }
@@ -1539,11 +1612,16 @@ final class CleanupViewModel: ObservableObject {
     didSet {
       guard selectedCodexProjectPaths != oldValue else { return }
       codexTransferPlans.removeAll()
+      codexCanonicalSourceByGroup.removeAll()
       stage2SafetyArmed = false
       codexLifecycleSafetyArmed = false
     }
   }
   @Published var codexTransferPlans: [CodexTransferPlan] = []
+  @Published var codexSmartDecisions: [CodexSmartDecision] = []
+  @Published var codexCanonicalSourceByGroup: [String: String] = [:]
+  @Published var codexCatalogStatus = "SQLite catalog will be created on the first decision scan."
+  @Published var codexActiveSessionID = ""
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
@@ -1583,9 +1661,12 @@ final class CleanupViewModel: ObservableObject {
   @Published var repoCatalogStatus = "Load repositories for the selected GitHub account or owner."
   @Published var importStatus = "Select one or more repositories, choose the import mode, and run the import in the background."
   @Published var localProjectStatus = "Scan local imported projects for the current workspace roots."
-  @Published var codexPortalStatus = "Add a parent folder or scan the saved source roots. CSA-iEM offers only folders with project evidence."
+  @Published var codexPortalStatus = "Choose one source set and one final destination. Smart Logic will index first, then show what needs review."
   @Published var codexPortalProgressText = "Ready to scan."
   @Published var codexPortalProgress = 0.0
+  @Published var codexLocalDevStatus = "Select one discovered project with a supported local development script."
+  @Published var codexLocalDevProjectPath: String?
+  @Published var codexLocalDevCommand = ""
   @Published var liveServicesStatus = "Scan active local devcontainers and runner services for the current workspace."
   @Published var githubAccountStatus = "Refresh the connected account to load organizations and account-level details."
   @Published var localFilesStatus = "Choose a destination and move or export local files from the current workspace."
@@ -1629,9 +1710,12 @@ final class CleanupViewModel: ObservableObject {
   @Published var isLoadingProjectSync = false
   @Published var isLoadingPorts = false
   @Published var isRunningTask = false
+  @Published var isRunningCodexLocalDev = false
 
   private var hostConfigs: [AuthHostConfig] = []
   private var runningProcess: Process?
+  private var codexLocalDevProcess: Process?
+  private var codexLocalDevJobID: String?
   private var activeJobID: String?
   private var pendingRepoTargets: [String] = []
   private var completedRepoTargets: [String] = []
@@ -1640,6 +1724,7 @@ final class CleanupViewModel: ObservableObject {
   private var totalRepoTargets = 0
   private var cancellationRequested = false
   private var isAutoRecoveringWorkspace = false
+  private var codexCatalogStore: CodexCatalogStore?
   private let processQueue = DispatchQueue(label: "com.waynetechlab.csaiem.process", qos: .userInitiated)
 
   init() {
@@ -1830,6 +1915,7 @@ final class CleanupViewModel: ObservableObject {
     if isRunningLocalFileOperation { return "Moving or exporting local files…" }
     if isLoadingLocalProjects { return "Scanning local folders for Git and Docker projects…" }
     if isLoadingLiveServices { return "Checking Docker containers and runner services…" }
+    if isRunningCodexLocalDev { return "Running the selected local development session…" }
     if isRunningTask { return "Running the selected project task…" }
     if isRunning { return "Running GitHub cleanup…" }
     if isLoadingGitHubBilling { return "Loading GitHub usage and billing reports…" }
@@ -1938,6 +2024,106 @@ final class CleanupViewModel: ObservableObject {
       prefix = "Index ready"
     }
     return "\(prefix) · \(plannedPathCount) path(s) planned · \(ByteCountFormatter.string(fromByteCount: plannedByteCount, countStyle: .file)) · \(destinationOnly) destination-only"
+  }
+
+  var codexSmartIndexPath: String {
+    let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    return (outputRoot as NSString).appendingPathComponent("_temp/Transfer-Indexes")
+  }
+
+  var codexSmartIndexStatus: String {
+    if let codexCatalogStore {
+      return codexCatalogStore.status
+    }
+    let indexPath = codexSmartIndexPath
+    return FileManager.default.fileExists(atPath: indexPath) ? "Saved transfer index available" : "No saved index yet"
+  }
+
+  var codexSmartArchivePath: String {
+    let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
+    return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
+  }
+
+  var codexSmartReadyCount: Int {
+    if !codexSmartDecisions.isEmpty {
+      return codexSmartDecisions.filter { $0.classification == .canonical }.count
+    }
+    return codexProjects.filter { project in
+      project.hasGit &&
+        project.remoteURL?.isEmpty == false &&
+        project.ideState != .unlinked &&
+        project.gitStatus.isMainSynchronized &&
+        !project.gitStatus.hasLocalChanges
+    }.count
+  }
+
+  var codexSmartReviewCount: Int {
+    if !codexSmartDecisions.isEmpty {
+      return codexSmartDecisions.filter { $0.classification.isReview }.count
+    }
+    return codexProjects.filter { project in
+      project.ideState == .unlinked ||
+        project.remoteURL?.isEmpty != false ||
+        project.gitStatus.hasLocalChanges ||
+        !project.gitStatus.isMainSynchronized
+    }.count
+  }
+
+  var codexSmartOutputCount: Int {
+    codexTransferPlans.isEmpty ? selectedCodexProjectPaths.count : codexTransferPlans.count
+  }
+
+  var codexCanonicalGroupCount: Int {
+    Set(codexSmartDecisions.map(\.groupKey)).count
+  }
+
+  var codexCanonicalSelectionSummary: String {
+    guard codexCanonicalGroupCount > 0 else { return "Choose one canonical source per verified identity group before merge or move." }
+    let selected = codexCanonicalSourceByGroup.count
+    return "Canonical source selection \(selected)/\(codexCanonicalGroupCount) identity group(s)"
+  }
+
+  var codexMissingCanonicalGroupCount: Int {
+    let eligibleGroups = Set(codexSmartDecisions.filter { decision in
+      decision.classification == .canonical || decision.classification == .mergeCandidate
+    }.map(\.groupKey))
+    return eligibleGroups.subtracting(codexCanonicalSourceByGroup.keys).count
+  }
+
+  var codexSmartDecisionSummary: String {
+    if codexProjects.isEmpty {
+      return "Start with a bounded source scan. The first pass reads folder evidence and does not copy or delete anything."
+    }
+    if !codexSmartDecisions.isEmpty {
+      let grouped = Set(codexSmartDecisions.map(\.groupKey)).count
+      if codexSmartReviewCount == 0 {
+        return "Smart Logic grouped \(codexSmartDecisions.count) source(s) into \(grouped) verified project identity group(s). One destination can be prepared without a review blocker."
+      }
+      return "Smart Logic grouped \(codexSmartDecisions.count) source(s) into \(grouped) identity group(s); \(codexSmartReviewCount) source(s) remain review-only until their identity or destination is confirmed."
+    }
+    if codexSmartReviewCount == 0 {
+      return "Smart Logic sees a clean candidate set. One destination can be prepared for the selected projects; no ambiguity is currently visible."
+    }
+    return "Smart Logic found \(codexSmartReviewCount) project(s) that need review before an automatic merge. Unlinked, dirty, missing-remote, or unsynchronized sources remain visible instead of being silently merged."
+  }
+
+  var codexSmartSafetySummary: String {
+    switch codexSmartScanMode {
+    case .fastIndex:
+      return "Fast Index is the default: reuse a saved file table when it still matches, then verify before any cleanup-capable receipt."
+    case .verified:
+      return "Full Verification reads checksum evidence during planning. It is slower, but gives the strongest early answer for ambiguous sources."
+    case .yolo:
+      return "YOLO is intentionally limited in this release: it skips deep preflight only. It never authorizes deletion, Stage 2 retirement, or a write without the existing final verification gate."
+    }
+  }
+
+  var codexBridgeSummary: String {
+    let bridgeIDs: Set<String> = ["github-cli", "vscode", "devcontainer", "docker"]
+    let bridges = startupReadiness.filter { bridgeIDs.contains($0.id) }
+    guard !bridges.isEmpty else { return "Bridge readiness pending" }
+    let ready = bridges.filter { $0.kind == .ready }.count
+    return "\(ready)/\(bridges.count) local bridges ready"
   }
 
   var localProjectSummary: String {
@@ -2184,12 +2370,88 @@ final class CleanupViewModel: ObservableObject {
     adoptDetectedWorkspaceIfNeeded()
     syncWorkspaceDraftsFromResolvedRoots()
     configureStage2DefaultsIfNeeded()
+    refreshCodexCatalogStore()
     reloadAuthInventory()
     refreshAuthStatus()
     refreshLocalProjects()
     refreshStartupReadiness()
     scanExternalVolumes()
     scanLegacyWorkspaces()
+  }
+
+  private func refreshCodexCatalogStore() {
+    let root = normalizeWorkspacePath(codexOutputRootDraft)
+    guard !root.isEmpty else {
+      codexCatalogStore = nil
+      codexCatalogStatus = "Choose a local output root before saving a Smart Logic catalog."
+      return
+    }
+    codexCatalogStore = CodexCatalogStore(rootPath: root)
+    codexCatalogStatus = codexCatalogStore?.status ?? "SQLite catalog unavailable"
+  }
+
+  private func recordCodexSmartDecisions(_ projects: [CodexProjectEntry], sourceRoots: [String], profile: CodexSmartScanMode) {
+    refreshCodexCatalogStore()
+    let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let decisions = CodexSmartLogicEngine.evaluate(projects, destinationRoot: destinationRoot)
+    codexSmartDecisions = decisions
+    let validGroups = Set(decisions.map(\.groupKey))
+    codexCanonicalSourceByGroup = codexCanonicalSourceByGroup.filter { entry in
+      validGroups.contains(entry.key) && decisions.contains { decision in
+        decision.groupKey == entry.key && decision.sourcePath == entry.value
+      }
+    }
+    let session = CodexScanSession(
+      id: UUID().uuidString,
+      profile: profile.rawValue,
+      sourceRoots: sourceRoots,
+      createdAt: Date(),
+      ruleVersion: CodexSmartLogicEngine.ruleVersion,
+      decisionCount: decisions.count
+    )
+    codexActiveSessionID = session.id
+    do {
+      _ = try codexCatalogStore?.save(session: session, decisions: decisions)
+      codexCatalogStatus = "Catalog saved · session \(session.id.prefix(8)) · JSON/CSV exports ready"
+    } catch {
+      codexCatalogStatus = "Catalog warning: \(error.localizedDescription)"
+      appendLog("[codex] Smart Logic catalog warning: \(error.localizedDescription)\n")
+    }
+  }
+
+  func chooseCodexCanonicalSource(_ decision: CodexSmartDecision) {
+    guard decision.classification != .sameNameReview,
+          decision.classification != .brokenMetadataReview,
+          decision.classification != .fatalIdentityConflict else {
+      codexPortalStatus = "This source has no safe identity proof and cannot be selected as canonical."
+      return
+    }
+    codexCanonicalSourceByGroup[decision.groupKey] = decision.sourcePath
+    codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
+    codexLifecycleSafetyArmed = false
+    codexPortalStatus = "Canonical source selected for \(decision.evidence.name). Rebuild the decision scan before any merge or move."
+  }
+
+  private func recordCodexTransferCheckpoints(_ plans: [CodexTransferPlan]) {
+    guard !codexActiveSessionID.isEmpty, let codexCatalogStore else { return }
+    let checkpoints = plans.map { plan in
+      CodexSessionCheckpoint(
+        sessionID: codexActiveSessionID,
+        sourcePath: plan.projectPath,
+        stage: "stage1-preflight",
+        state: "indexed",
+        updatedAt: Date(),
+        detail: plan.summaryLine
+      )
+    }
+    do {
+      try codexCatalogStore.saveCheckpoints(checkpoints)
+      codexCatalogStatus = "Catalog and Stage 1 checkpoints saved · session \(codexActiveSessionID.prefix(8))"
+    } catch {
+      codexCatalogStatus = "Catalog checkpoint warning: \(error.localizedDescription)"
+      appendLog("[codex] Catalog checkpoint warning: \(error.localizedDescription)\n")
+    }
   }
 
   private func loadPersistentState() {
@@ -2225,6 +2487,16 @@ final class CleanupViewModel: ObservableObject {
     }
     if defaults.object(forKey: codexFullChecksumAuditKey) != nil {
       codexFullChecksumAudit = defaults.bool(forKey: codexFullChecksumAuditKey)
+    }
+    if let savedSmartMode = defaults.string(forKey: codexSmartScanModeKey),
+       let smartMode = CodexSmartScanMode(rawValue: savedSmartMode) {
+      codexSmartScanMode = smartMode
+    } else {
+      codexSmartScanMode = codexFullChecksumAudit ? .verified : .fastIndex
+    }
+    if let savedBackupMedium = defaults.string(forKey: codexBackupMediumKey),
+       let backupMedium = CodexBackupMedium(rawValue: savedBackupMedium) {
+      codexBackupMedium = backupMedium
     }
     if defaults.object(forKey: codexCreateCompatibilityLinkKey) != nil {
       codexCreateCompatibilityLink = defaults.bool(forKey: codexCreateCompatibilityLinkKey)
@@ -3957,6 +4229,117 @@ final class CleanupViewModel: ObservableObject {
     openTerminalCommand(command)
   }
 
+  func runCodexLocalDev(_ project: CodexProjectEntry) {
+    guard !isRunningCodexLocalDev else {
+      codexLocalDevStatus = "A local development session is already running. Stop it before starting another project."
+      return
+    }
+    guard let profile = project.localDevProfile else {
+      codexLocalDevStatus = "No supported local development script was detected in \(project.name)'s package.json."
+      return
+    }
+    guard let npmPath = executablePath(named: "npm") else {
+      codexLocalDevStatus = "npm was not found in the configured local tool paths. Install Node.js before starting local development."
+      return
+    }
+    guard FileManager.default.fileExists(atPath: project.path) else {
+      codexLocalDevStatus = "The project path is not mounted or no longer exists: \(project.path)"
+      return
+    }
+
+    var environment = baseEnvironment()
+    environment["BROWSER"] = "none"
+    let process = Process()
+    let pipe = Pipe()
+    let jobID = createJob(
+      kind: "Local Dev",
+      title: profile.label,
+      target: project.name,
+      detail: "Starting \(profile.commandLabel)…",
+      initialState: .running
+    )
+    process.executableURL = URL(fileURLWithPath: npmPath)
+    process.arguments = ["run", profile.script]
+    process.currentDirectoryURL = URL(fileURLWithPath: project.path, isDirectory: true)
+    process.environment = environment
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    codexLocalDevProcess = process
+    codexLocalDevJobID = jobID
+    codexLocalDevProjectPath = project.path
+    codexLocalDevCommand = profile.commandLabel
+    isRunningCodexLocalDev = true
+    codexLocalDevStatus = "Starting \(profile.label.lowercased()) in \(project.path)."
+    appendLog("[local-dev] Starting \(profile.commandLabel) in \(project.path)\n")
+
+    pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+      let data = handle.availableData
+      guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
+      DispatchQueue.main.async {
+        self?.appendLog(chunk)
+        self?.updateJob(id: jobID, appendLog: chunk)
+      }
+    }
+
+    process.terminationHandler = { [weak self] terminated in
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
+      pipe.fileHandleForReading.readabilityHandler = nil
+      let tailText = String(data: tail, encoding: .utf8) ?? ""
+      DispatchQueue.main.async {
+        guard let self else { return }
+        if !tailText.isEmpty {
+          self.appendLog(tailText)
+          self.updateJob(id: jobID, appendLog: tailText)
+        }
+
+        let stopping = self.codexLocalDevStatus.hasPrefix("Stopping")
+        self.codexLocalDevProcess = nil
+        self.codexLocalDevJobID = nil
+        self.isRunningCodexLocalDev = false
+
+        if stopping {
+          self.codexLocalDevStatus = "Local development session stopped."
+          self.finishJob(id: jobID, state: .succeeded, detail: self.codexLocalDevStatus)
+        } else if terminated.terminationStatus == 0 {
+          self.codexLocalDevStatus = "Local development session exited successfully."
+          self.finishJob(id: jobID, state: .succeeded, detail: self.codexLocalDevStatus)
+        } else {
+          self.codexLocalDevStatus = "Local development session stopped with exit code \(terminated.terminationStatus). See Jobs for output."
+          self.finishJob(id: jobID, state: .failed, detail: self.codexLocalDevStatus)
+        }
+        self.loadPortMonitor()
+      }
+    }
+
+    do {
+      try process.run()
+      for delay in [2.0, 8.0] {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+          guard let self, self.isRunningCodexLocalDev else { return }
+          self.loadPortMonitor()
+        }
+      }
+    } catch {
+      codexLocalDevProcess = nil
+      codexLocalDevJobID = nil
+      isRunningCodexLocalDev = false
+      codexLocalDevStatus = "Could not start \(profile.commandLabel): \(error.localizedDescription)"
+      finishJob(id: jobID, state: .failed, detail: codexLocalDevStatus)
+    }
+  }
+
+  func stopCodexLocalDev() {
+    guard let process = codexLocalDevProcess else {
+      codexLocalDevStatus = "No local development session is running."
+      isRunningCodexLocalDev = false
+      return
+    }
+    codexLocalDevStatus = "Stopping local development session…"
+    process.terminate()
+  }
+
   func runStage2PreflightSelected() {
     runStage2InTerminal(action: "preflight", fullAuto: false)
   }
@@ -4156,6 +4539,10 @@ final class CleanupViewModel: ObservableObject {
       stage2Status = "Arm Stage 2 writes after reviewing the source, managed root, GitHub account, and options."
       return
     }
+    if action == "apply" && codexMissingCanonicalGroupCount > 0 {
+      stage2Status = "Choose one canonical source for each verified identity group before applying Stage 2. Missing (codexMissingCanonicalGroupCount) canonical choice(s)."
+      return
+    }
 
     var arguments = ["stage2", "--source", sourceRoot, "--managed-root", managedRoot]
     if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4321,6 +4708,7 @@ final class CleanupViewModel: ObservableObject {
       : "Scanning \(roots.count) selected source root(s) from on-disk project context..."
     codexPortalStatus = "Project discovery is running. Selected folders are scanned first and do not depend on a linked Codex project record."
     let environment = baseEnvironment()
+    let smartProfile = codexSmartScanMode
 
     processQueue.async { [weak self] in
       var projects = Self.discoverCodexProjects(scanRoots: roots, environment: environment)
@@ -4335,6 +4723,7 @@ final class CleanupViewModel: ObservableObject {
       DispatchQueue.main.async {
         guard let self else { return }
         self.codexProjects = projects
+        self.recordCodexSmartDecisions(projects, sourceRoots: roots, profile: smartProfile)
         self.selectedCodexProjectPaths = self.selectedCodexProjectPaths.intersection(Set(projects.map(\.path)))
         self.codexTransferPlans.removeAll()
         self.isScanningCodexProjects = false
@@ -4430,6 +4819,7 @@ final class CleanupViewModel: ObservableObject {
           return
         }
         self.codexTransferPlans = plans
+        self.recordCodexTransferCheckpoints(plans)
         self.codexPortalProgress = 1
         self.codexPortalProgressText = "Preflight complete: \(plans.count) project index table(s) saved under the output _temp folder."
         self.codexPortalStatus = "Preflight passed for \(projects.count) project(s). \(self.codexTransferPlanSummary)"
@@ -4481,6 +4871,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func validateCodexLifecycleConfiguration() -> Bool {
+    if codexSmartScanMode == .yolo {
+      codexLifecycleStatus = "YOLO mode is limited to a non-destructive Stage 1 Backup or Copy. Use Fast Index or Full Verification before Stage 2, Stage 3, source retirement, or Full Auto."
+      return false
+    }
     let outputRoot = normalizeWorkspacePath(codexOutputRootDraft)
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     do {
@@ -4522,6 +4916,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func runCodexTransfer(runLifecycle: Bool) {
     guard !isRunningCodexTransfer, !isScanningCodexProjects, !isBuildingCodexTransferPlan else { return }
+    if codexSmartScanMode == .yolo && (runLifecycle || codexTransferMode.removesSource || codexTransferMode.performsBidirectionalSync || codexTransferMode.performsScanAndBackup) {
+      codexPortalStatus = "YOLO mode is limited to a non-destructive Backup or Copy. It cannot run Sync and Move, bidirectional sync, Scan & Backup, Stage 2, or Stage 3."
+      return
+    }
     let projects = selectedCodexProjects
     guard !projects.isEmpty else {
       codexPortalStatus = "Select at least one discovered project before running."
@@ -4543,7 +4941,8 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let mode = codexTransferMode
-    let createBackup = codexCreateBackup || mode == .backupOnly || mode.performsScanAndBackup
+    let backupMedium = codexBackupMedium
+    let createBackup = codexCreateBackup || codexBackupMedium == .verifiedZip || mode == .backupOnly || mode.performsScanAndBackup
     let includeGit = codexIncludeGitMetadata
     let includeFinderMetadata = codexIncludeFinderMetadata
     let includeDependencies = codexIncludeDependencies
@@ -4667,6 +5066,7 @@ final class CleanupViewModel: ObservableObject {
             outputRoot: outputRoot,
             mode: mode,
             createBackup: createBackup,
+            backupMedium: backupMedium,
             includeGit: includeGit,
             includeFinderMetadata: includeFinderMetadata,
             includeDependencies: includeDependencies,
@@ -8770,6 +9170,37 @@ final class CleanupViewModel: ObservableObject {
     return evidence
   }
 
+  private nonisolated static func readCodexLocalDevProfile(projectPath: String) -> CodexLocalDevProfile? {
+    let packagePath = (projectPath as NSString).appendingPathComponent("package.json")
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: packagePath)),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let package = object as? [String: Any],
+          let scripts = package["scripts"] as? [String: Any] else {
+      return nil
+    }
+
+    let candidates: [(script: String, label: String, badge: String)] = [
+      ("dev:firebase", "Imported Firebase session", "Firebase dev"),
+      ("dev:systemx", "Imported Firebase session", "Firebase dev"),
+      ("dev:firebase:raw", "Firebase emulator session", "Firebase dev"),
+      ("dev", "Local development server", "Local dev")
+    ]
+
+    for candidate in candidates {
+      guard let command = scripts[candidate.script] as? String,
+            !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        continue
+      }
+      return CodexLocalDevProfile(
+        script: candidate.script,
+        label: candidate.label,
+        badge: candidate.badge
+      )
+    }
+
+    return nil
+  }
+
   private nonisolated static func discoverCodexProjects(
     scanRoots: [String],
     environment: [String: String]
@@ -8935,6 +9366,7 @@ final class CleanupViewModel: ObservableObject {
             .contains { fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent($0)) },
           hasDevcontainer: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".devcontainer")),
           hasSystemX: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".SYSTEMX")),
+          localDevProfile: readCodexLocalDevProfile(projectPath: candidate.path),
           remoteURL: metadata.remoteURL,
           branch: gitStatus.branch ?? metadata.branch,
           ideState: codexRegistry.state(for: candidate.path),
@@ -9675,15 +10107,35 @@ final class CleanupViewModel: ObservableObject {
     relativePath == "Transfer_Note.MD" || relativePath == "Prompt_Inject.MD"
   }
 
-  private nonisolated static func codexIndexDirectory(outputRoot: String, projectName: String) throws -> String {
+  private nonisolated static func codexIndexDirectory(
+    outputRoot: String,
+    projectName: String,
+    projectPath: String? = nil
+  ) throws -> String {
     let safeName = projectName
       .replacingOccurrences(of: "/", with: "-")
       .replacingOccurrences(of: ":", with: "-")
+    let storageName: String
+    if let projectPath, !projectPath.isEmpty {
+      storageName = "\(safeName)-\(codexStablePathSuffix(projectPath))"
+    } else {
+      storageName = safeName
+    }
     let directory = (((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
       .appendingPathComponent("Transfer-Indexes") as NSString)
-      .appendingPathComponent(safeName)
+      .appendingPathComponent(storageName)
     try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: nil)
     return directory
+  }
+
+  private nonisolated static func codexStablePathSuffix(_ path: String) -> String {
+    let bytes = Array(NSString(string: path).standardizingPath.utf8)
+    var hash: UInt64 = 1469598103934665603
+    for byte in bytes {
+      hash ^= UInt64(byte)
+      hash = hash &* 1099511628211
+    }
+    return String(format: "%016llx", hash)
   }
 
   private nonisolated static func writeCodexIndexArtifact<T: Encodable>(_ value: T, to path: String) throws {
@@ -9975,7 +10427,7 @@ final class CleanupViewModel: ObservableObject {
           !mode.performsBidirectionalSync,
           let destinationPath,
           fileManager.fileExists(atPath: destinationPath),
-          let indexDirectory = try? codexIndexDirectory(outputRoot: outputRoot, projectName: project.name) else {
+          let indexDirectory = try? codexIndexDirectory(outputRoot: outputRoot, projectName: project.name, projectPath: project.path) else {
       return nil
     }
 
@@ -10091,7 +10543,7 @@ final class CleanupViewModel: ObservableObject {
     progress: ((String, Int, Int64) -> Void)? = nil
   ) throws -> CodexTransferPlan {
     let fm = FileManager.default
-    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name)
+    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name, projectPath: project.path)
     let destinationPath = mode.writesDestination ? resolvedDestinationPath : nil
     if mode.writesDestination, destinationPath == nil {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer destination for \(project.name) was not resolved during preflight."])
@@ -10312,6 +10764,7 @@ final class CleanupViewModel: ObservableObject {
     outputRoot: String,
     mode: CodexProjectTransferMode,
     createBackup: Bool,
+    backupMedium: CodexBackupMedium,
     includeGit: Bool,
     includeFinderMetadata: Bool,
     includeDependencies: Bool,
@@ -10352,6 +10805,7 @@ final class CleanupViewModel: ObservableObject {
         project: project,
         destination: destinationPath,
         createBackup: createBackup,
+        backupMedium: backupMedium,
         includeGit: includeGit,
         includeFinderMetadata: includeFinderMetadata,
         includeDependencies: includeDependencies,
@@ -10369,6 +10823,7 @@ final class CleanupViewModel: ObservableObject {
         destination: destination,
         mode: mode,
         createBackup: createBackup,
+        backupMedium: backupMedium,
         includeGit: includeGit,
         includeFinderMetadata: includeFinderMetadata,
         includeDependencies: includeDependencies,
@@ -10435,7 +10890,15 @@ final class CleanupViewModel: ObservableObject {
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
       try transferNote.write(toFile: (backupRoot as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
       try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
-      let zipPath = (backupRoot as NSString).appendingPathComponent("\(safeName)-source.zip")
+      archivePath = try createCodexBackup(
+        source: stagedProject,
+        backupRoot: backupRoot,
+        baseName: "\(safeName)-source",
+        medium: backupMedium,
+        environment: environment,
+        label: "source backup for \(project.name)"
+      )
+      /*
       let zipResult = runCommand(
         executable: "/usr/bin/ditto",
         arguments: ["-c", "-k", "--keepParent", stagedProject, zipPath],
@@ -10448,7 +10911,7 @@ final class CleanupViewModel: ObservableObject {
       guard zipVerify.status == 0 else {
         throw NSError(domain: appTitle, code: Int(zipVerify.status), userInfo: [NSLocalizedDescriptionKey: "ZIP verification failed for \(project.name)."])
       }
-      archivePath = zipPath
+      */
 
       if includeGit && project.hasGit {
         let gitArchive = (backupRoot as NSString).appendingPathComponent("git-metadata.tar")
@@ -10539,6 +11002,7 @@ final class CleanupViewModel: ObservableObject {
     project: CodexProjectEntry,
     destination: String,
     createBackup: Bool,
+    backupMedium: CodexBackupMedium,
     includeGit: Bool,
     includeFinderMetadata: Bool,
     includeDependencies: Bool,
@@ -10636,17 +11100,20 @@ final class CleanupViewModel: ObservableObject {
 
     if createBackup {
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
-      let sourceArchive = (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-sync.zip")
-      try createVerifiedCodexZip(
+      let sourceArchive = try createCodexBackup(
         source: project.path,
-        zipPath: sourceArchive,
+        backupRoot: backupRoot,
+        baseName: "\(safeName)-source-before-sync",
+        medium: backupMedium,
         environment: environment,
         label: "source backup for \(project.name)"
       )
       archivePath = sourceArchive
-      try createVerifiedCodexZip(
+      _ = try createCodexBackup(
         source: destination,
-        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-sync.zip"),
+        backupRoot: backupRoot,
+        baseName: "\(safeName)-destination-before-sync",
+        medium: backupMedium,
         environment: environment,
         label: "destination backup for \(project.name)"
       )
@@ -11228,6 +11695,80 @@ final class CleanupViewModel: ObservableObject {
     return (recoveryRoot, roots)
   }
 
+  private nonisolated static func createCodexBackup(
+    source: String,
+    backupRoot: String,
+    baseName: String,
+    medium: CodexBackupMedium,
+    environment: [String: String],
+    label: String
+  ) throws -> String {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
+    let artifact: String
+    switch medium {
+    case .rawDirectory:
+      artifact = (backupRoot as NSString).appendingPathComponent(baseName)
+      let result = runCommand(executable: "/usr/bin/ditto", arguments: [source, artifact], environment: environment)
+      guard result.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Raw directory backup failed for \(label): \(redactSensitiveText(result.output))"])
+      }
+    case .apfsClone:
+      artifact = (backupRoot as NSString).appendingPathComponent(baseName)
+      let result = runCommand(executable: "/bin/cp", arguments: ["-cR", source, artifact], environment: environment)
+      guard result.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "APFS clone failed for \(label): \(redactSensitiveText(result.output))"])
+      }
+    case .sparseImage:
+      artifact = (backupRoot as NSString).appendingPathComponent(baseName + ".sparseimage")
+      let result = runCommand(executable: "/usr/bin/hdiutil", arguments: ["create", "-srcfolder", source, "-format", "UDSP", "-ov", artifact], environment: environment)
+      guard result.status == 0 else {
+        throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: "Sparse image backup failed for \(label): \(redactSensitiveText(result.output))"])
+      }
+    case .verifiedZip:
+      artifact = (backupRoot as NSString).appendingPathComponent(baseName + ".zip")
+      try createVerifiedCodexZip(source: source, zipPath: artifact, environment: environment, label: label)
+      return artifact
+    }
+
+    if medium == .sparseImage {
+      let mountPoint = (backupRoot as NSString).appendingPathComponent(".verify-\(UUID().uuidString)")
+      try fm.createDirectory(atPath: mountPoint, withIntermediateDirectories: true, attributes: nil)
+      let attach = runCommand(executable: "/usr/bin/hdiutil", arguments: ["attach", "-readonly", "-nobrowse", "-mountpoint", mountPoint, artifact], environment: environment)
+      guard attach.status == 0 else {
+        try? fm.removeItem(atPath: mountPoint)
+        throw NSError(domain: appTitle, code: Int(attach.status), userInfo: [NSLocalizedDescriptionKey: "Sparse image verification mount failed for \(label)."])
+      }
+      defer {
+        _ = runCommand(executable: "/usr/bin/hdiutil", arguments: ["detach", mountPoint, "-force"], environment: environment)
+        try? fm.removeItem(atPath: mountPoint)
+      }
+      try verifyCodexBackupTree(source: source, backup: mountPoint, environment: environment, label: label)
+    } else {
+      try verifyCodexBackupTree(source: source, backup: artifact, environment: environment, label: label)
+    }
+    return artifact
+  }
+
+  private nonisolated static func verifyCodexBackupTree(
+    source: String,
+    backup: String,
+    environment: [String: String],
+    label: String
+  ) throws {
+    let arguments = ["-rcln", "--no-owner", "--no-group", "--no-perms", "--delete", source.hasSuffix("/") ? source : source + "/", backup.hasSuffix("/") ? backup : backup + "/"]
+    let result = runCodexRsync(arguments: arguments, environment: environment)
+    let output = result.output
+      .split(whereSeparator: \.isNewline)
+      .map(String.init)
+      .filter { !$0.hasPrefix("skipping non-regular file ") }
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard result.status == 0, output.isEmpty else {
+      throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Backup verification failed for \(label). The artifact was retained."])
+    }
+  }
+
   private nonisolated static func createVerifiedCodexZip(
     source: String,
     zipPath: String,
@@ -11257,6 +11798,7 @@ final class CleanupViewModel: ObservableObject {
     destination: String,
     mode: CodexProjectTransferMode,
     createBackup: Bool,
+    backupMedium: CodexBackupMedium,
     includeGit: Bool,
     includeFinderMetadata: Bool,
     includeDependencies: Bool,
@@ -11283,17 +11825,20 @@ final class CleanupViewModel: ObservableObject {
       // Capture both sides before reconciliation so an interrupted merge can
       // always roll back to the exact pre-run state.
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
-      let sourceArchive = (backupRoot as NSString).appendingPathComponent("\(safeName)-source-before-merge.zip")
-      try createVerifiedCodexZip(
+      let sourceArchive = try createCodexBackup(
         source: project.path,
-        zipPath: sourceArchive,
+        backupRoot: backupRoot,
+        baseName: "\(safeName)-source-before-merge",
+        medium: backupMedium,
         environment: environment,
         label: "source backup for \(project.name)"
       )
       archivePath = sourceArchive
-      try createVerifiedCodexZip(
+      _ = try createCodexBackup(
         source: destination,
-        zipPath: (backupRoot as NSString).appendingPathComponent("\(safeName)-destination-before-merge.zip"),
+        backupRoot: backupRoot,
+        baseName: "\(safeName)-destination-before-merge",
+        medium: backupMedium,
         environment: environment,
         label: "destination backup for \(project.name)"
       )
@@ -12053,6 +12598,110 @@ struct PanelCard<Content: View>: View {
   }
 }
 
+private struct ModuleMatrixStrip: View {
+  let destination: AppDestination?
+
+  private var primaryCount: Int {
+    CSAiEMModuleTag.catalog.filter { $0.state == "primary" }.count
+  }
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "point.3.connected.trianglepath.dotted")
+        .foregroundStyle(DashboardTheme.accent)
+      Text("Unified module matrix")
+        .font(.system(size: 12, weight: .bold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      Text("v\(appVersion) · \(CSAiEMModuleTag.matrixVersion) · \(primaryCount) tagged modules")
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineLimit(1)
+        .truncationMode(.middle)
+      Spacer(minLength: 0)
+      if let destination {
+        PillBadge(text: destination.title, tint: destination.tint)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(DashboardTheme.panelStrong)
+        .overlay(
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(DashboardTheme.accent.opacity(0.22), lineWidth: 1)
+        )
+    )
+  }
+}
+
+private struct ModuleMatrixCard: View {
+  let width: CGFloat
+
+  var body: some View {
+    PanelCard(
+      title: "Module and runtime matrix",
+      subtitle: "Every dashboard page, engine, bridge, runtime, and install surface carries one searchable version/tag identity."
+    ) {
+      if width >= 1100 {
+        LazyVGrid(columns: [
+          GridItem(.flexible(minimum: 220), alignment: .leading),
+          GridItem(.flexible(minimum: 120), alignment: .leading),
+          GridItem(.flexible(minimum: 180), alignment: .leading),
+          GridItem(.flexible(minimum: 120), alignment: .leading)
+        ], alignment: .leading, spacing: 9) {
+          matrixHeader("Module")
+          matrixHeader("Area")
+          matrixHeader("Tag")
+          matrixHeader("Version")
+          ForEach(CSAiEMModuleTag.catalog) { module in
+            Text(module.name)
+              .font(.system(size: 12, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            Text(module.area)
+              .font(.system(size: 11, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+            Text(module.tag)
+              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.link)
+            Text(module.version)
+              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(CSAiEMModuleTag.catalog) { module in
+            HStack(spacing: 10) {
+              Text(module.name)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(DashboardTheme.text)
+                .lineLimit(1)
+              Spacer(minLength: 0)
+              Text(module.tag)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.link)
+                .lineLimit(1)
+              Text(module.version)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.muted)
+            }
+            if module.id != CSAiEMModuleTag.catalog.last?.id {
+              Divider().overlay(DashboardTheme.border)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func matrixHeader(_ text: String) -> some View {
+    Text(text.uppercased())
+      .font(.system(size: 10, weight: .bold, design: .rounded))
+      .foregroundStyle(DashboardTheme.subtle)
+  }
+}
+
 struct PillBadge: View {
   let text: String
   let tint: Color
@@ -12212,6 +12861,7 @@ struct DashboardShell<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
+      ModuleMatrixStrip(destination: nil)
       content
     }
     .padding(18)
@@ -13165,6 +13815,262 @@ struct LogConsoleView: NSViewRepresentable {
   }
 }
 
+private struct TopNavigationBar: View {
+  let selection: AppDestination
+  let menuVisible: Bool
+  let onSelect: (AppDestination) -> Void
+  let toggleMenu: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Label("CSA-iEM", systemImage: "square.stack.3d.up.fill")
+        .font(.system(size: 13, weight: .bold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+
+      Text("Native operator console")
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+
+      PillBadge(text: selection.title, tint: selection.tint)
+
+      Spacer(minLength: 8)
+
+      Button(menuVisible ? "Hide Navigation" : "Show Navigation") {
+        toggleMenu()
+      }
+      .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+      Menu {
+        Section("Workspace") {
+          ForEach(workspaceDestinations) { destination in
+            Button {
+              onSelect(destination)
+            } label: {
+              Label(destination.title, systemImage: destination.icon)
+            }
+          }
+        }
+
+        Section("Reference") {
+          ForEach(knowledgeDestinations) { destination in
+            Button {
+              onSelect(destination)
+            } label: {
+              Label(destination.title, systemImage: destination.icon)
+            }
+          }
+        }
+      } label: {
+        Image(systemName: "line.3.horizontal")
+          .font(.system(size: 15, weight: .bold))
+          .foregroundStyle(DashboardTheme.text)
+          .frame(width: 40, height: 34)
+          .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .fill(DashboardTheme.field)
+              .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                  .stroke(DashboardTheme.accent.opacity(0.65), lineWidth: 1)
+              )
+          )
+      }
+      .menuStyle(.borderlessButton)
+      .help("Open the persistent CSA-iEM navigation menu")
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(DashboardTheme.panelAlt)
+        .overlay(
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(DashboardTheme.border, lineWidth: 1)
+        )
+    )
+  }
+}
+
+private struct CodexFlowStageCard: View {
+  let stage: String
+  let title: String
+  let detail: String
+  let rows: [String]
+  let icon: String
+  let tint: Color
+  let actionTitle: String
+  let action: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: icon)
+          .font(.system(size: 17, weight: .bold))
+          .foregroundStyle(tint)
+          .frame(width: 38, height: 38)
+          .background(tint.opacity(0.16))
+          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 4) {
+          Text(stage.uppercased())
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+          Text(title)
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .foregroundStyle(DashboardTheme.text)
+          Text(detail)
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineLimit(3)
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 7) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+          HStack(alignment: .top, spacing: 8) {
+            Circle()
+              .fill(tint)
+              .frame(width: 6, height: 6)
+              .padding(.top, 5)
+            Text(row)
+              .font(.system(size: 11, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+              .lineLimit(2)
+          }
+        }
+      }
+
+      Button(actionTitle, action: action)
+        .buttonStyle(DashboardButtonStyle(tint: tint, bordered: true))
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, minHeight: 208, alignment: .topLeading)
+    .background(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .fill(DashboardTheme.panelStrong)
+        .overlay(
+          RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(tint.opacity(0.42), lineWidth: 1)
+        )
+    )
+  }
+}
+
+private struct CodexFlowConnector: View {
+  let mode: CodexSmartScanMode
+
+  var body: some View {
+    VStack(spacing: 8) {
+      HStack(spacing: 4) {
+        Rectangle()
+          .fill(DashboardTheme.link.opacity(0.65))
+          .frame(height: 2)
+        Image(systemName: "chevron.right.2")
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(DashboardTheme.link)
+      }
+
+      Image(systemName: mode.icon)
+        .font(.system(size: 16, weight: .bold))
+        .foregroundStyle(DashboardTheme.warning)
+
+      Text("Smart Logic")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .foregroundStyle(DashboardTheme.warning)
+        .multilineTextAlignment(.center)
+
+      Text(mode.label)
+        .font(.system(size: 10, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
+    }
+    .frame(width: 112)
+  }
+}
+
+private struct CodexDecisionReviewPanel: View {
+  let decisions: [CodexSmartDecision]
+  let catalogStatus: String
+  let sessionID: String
+  let canonicalSourceByGroup: [String: String]
+  let onChooseCanonical: (CodexSmartDecision) -> Void
+
+  var body: some View {
+    PanelCard(
+      title: "Smart Logic Decision Review",
+      subtitle: "Deterministic evidence is authoritative. Review-only sources remain visible and cannot be silently merged."
+    ) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 10) {
+          Label(catalogStatus, systemImage: "cylinder.split.1x2")
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(DashboardTheme.accent)
+          Spacer()
+          if !sessionID.isEmpty {
+            Text("Session \(sessionID.prefix(8))")
+              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+        }
+
+        if decisions.isEmpty {
+          Text("Run Scan Sources to create a persisted identity decision table.")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+        } else {
+          ForEach(Array(decisions.prefix(8))) { decision in
+            HStack(alignment: .top, spacing: 10) {
+              Image(systemName: decision.classification.systemImage)
+                .foregroundStyle(decision.classification.isReview ? DashboardTheme.warning : DashboardTheme.success)
+                .frame(width: 18)
+              VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                  Text(decision.evidence.name)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(DashboardTheme.text)
+                  PillBadge(text: decision.classification.label, tint: decision.classification.isReview ? DashboardTheme.warning : DashboardTheme.success)
+                }
+                Text(decision.reasons.joined(separator: " "))
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                  .lineLimit(2)
+                Text(decision.sourcePath)
+                  .font(.system(size: 10, weight: .medium, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.muted.opacity(0.85))
+                  .lineLimit(1)
+                if canonicalSourceByGroup[decision.groupKey] == decision.sourcePath {
+                  Label("Canonical source for this identity group", systemImage: "checkmark.seal.fill")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(DashboardTheme.success)
+                } else if decision.classification != .sameNameReview && decision.classification != .brokenMetadataReview && decision.classification != .fatalIdentityConflict {
+                  Button {
+                    onChooseCanonical(decision)
+                  } label: {
+                    Label("Use as canonical", systemImage: "checkmark.seal")
+                  }
+                  .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+                  .controlSize(.small)
+                }
+              }
+              Spacer(minLength: 8)
+              Text("\(Int(decision.confidence * 100))%")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(DashboardTheme.text)
+            }
+            .padding(.vertical, 6)
+            Divider().overlay(DashboardTheme.border)
+          }
+          if decisions.count > 8 {
+            Text("Showing 8 of \(decisions.count) decisions. Use the project list for the complete set.")
+              .font(.system(size: 11, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+        }
+      }
+    }
+  }
+}
+
 struct ContentView: View {
   @ObservedObject private var model: CleanupViewModel
   @State private var selectedDestination: AppDestination = .home
@@ -13196,6 +14102,17 @@ struct ContentView: View {
         .ignoresSafeArea()
 
         VStack(spacing: 12) {
+          TopNavigationBar(
+            selection: selectedDestination,
+            menuVisible: isMenuVisible,
+            onSelect: { destination in
+              selectedDestination = destination
+            },
+            toggleMenu: {
+              isMenuVisible.toggle()
+            }
+          )
+
           if let activeOperationLabel = model.activeOperationLabel {
             ActivityStrip(
               title: activeOperationLabel,
@@ -13279,7 +14196,7 @@ struct ContentView: View {
 
   @ViewBuilder
   private func pageContainer(for width: CGFloat, usesSidebar: Bool) -> some View {
-    ScrollView {
+    ScrollView(.vertical, showsIndicators: true) {
       VStack(spacing: 18) {
         switch selectedDestination {
         case .home:
@@ -13296,6 +14213,8 @@ struct ContentView: View {
           projectsPage(for: width, usesSidebar: usesSidebar)
         case .codexPortal:
           codexPortalPage(for: width, usesSidebar: usesSidebar)
+        case .projectBackups:
+          projectBackupPage(for: width, usesSidebar: usesSidebar)
         case .localFiles:
           localFilesPage(for: width, usesSidebar: usesSidebar)
         case .cleanup:
@@ -13428,6 +14347,181 @@ struct ContentView: View {
     }
   }
 
+  private func codexFlowDashboard(for width: CGFloat) -> some View {
+    PanelCard(
+      title: "Codex Project Control Plane",
+      subtitle: "One bounded source set on the left, one final destination on the right, and a visible Smart Logic decision path between them."
+    ) {
+      Group {
+        if width >= 1050 {
+          HStack(alignment: .top, spacing: 12) {
+            CodexFlowStageCard(
+              stage: "01 · Import",
+              title: "Source folders",
+              detail: "Read local evidence from selected roots. No copy, merge, upload, or delete happens during this scan.",
+              rows: [
+                "\(model.codexProjects.count) project candidate(s) currently indexed",
+                "\(model.selectedCodexProjectPaths.count) source(s) selected for this run",
+                "Roots: \(model.codexScanRootsDraft.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Add a source folder")"
+              ],
+              icon: "square.and.arrow.down",
+              tint: DashboardTheme.accent,
+              actionTitle: model.isScanningCodexProjects ? "Scanning…" : "Scan Sources",
+              action: {
+                model.scanCodexProjects()
+              }
+            )
+
+            CodexFlowConnector(mode: model.codexSmartScanMode)
+              .padding(.top, 54)
+
+            CodexFlowStageCard(
+              stage: "02 · Output",
+              title: "Final destination",
+              detail: "Keep one destination per project identity. Extra or ambiguous material is routed to review or Archive_Data.",
+              rows: [
+                "\(model.codexSmartOutputCount) destination candidate(s) in the current run",
+                "\(model.codexSmartIndexStatus) · resume without rebuilding unchanged tables",
+                "Archive lane: \(model.codexSmartArchivePath)"
+              ],
+              icon: "externaldrive.fill",
+              tint: DashboardTheme.deepBlue,
+              actionTitle: "Open Output Folder",
+              action: {
+                model.openCodexOutputRoot()
+              }
+            )
+          }
+        } else {
+          VStack(alignment: .leading, spacing: 12) {
+            CodexFlowStageCard(
+              stage: "01 · Import",
+              title: "Source folders",
+              detail: "Read local evidence first; no destructive action is attached to the scan button.",
+              rows: [
+                "\(model.codexProjects.count) candidate(s) · \(model.selectedCodexProjectPaths.count) selected",
+                "\(model.codexScanRootsDraft.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Add a source folder")"
+              ],
+              icon: "square.and.arrow.down",
+              tint: DashboardTheme.accent,
+              actionTitle: model.isScanningCodexProjects ? "Scanning…" : "Scan Sources",
+              action: {
+                model.scanCodexProjects()
+              }
+            )
+
+            CodexFlowConnector(mode: model.codexSmartScanMode)
+              .frame(maxWidth: .infinity)
+
+            CodexFlowStageCard(
+              stage: "02 · Output",
+              title: "Final destination",
+              detail: "One final destination per project identity; ambiguous data stays visible for review.",
+              rows: [
+                "\(model.codexSmartOutputCount) destination candidate(s)",
+                "\(model.codexSmartIndexStatus) · \(model.codexSmartArchivePath)"
+              ],
+              icon: "externaldrive.fill",
+              tint: DashboardTheme.deepBlue,
+              actionTitle: "Open Output Folder",
+              action: {
+                model.openCodexOutputRoot()
+              }
+            )
+          }
+        }
+      }
+
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+        MetricTile(label: "Sources indexed", value: "\(model.codexProjects.count)", tint: DashboardTheme.accent, icon: "folder.badge.questionmark")
+        MetricTile(label: "Ready candidates", value: "\(model.codexSmartReadyCount)", tint: DashboardTheme.success, icon: "checkmark.seal")
+        MetricTile(label: "Needs review", value: "\(model.codexSmartReviewCount)", tint: DashboardTheme.warning, icon: "exclamationmark.magnifyingglass")
+        MetricTile(label: "Output plans", value: "\(model.codexSmartOutputCount)", tint: DashboardTheme.deepBlue, icon: "arrow.right.doc.on.clipboard")
+      }
+
+      Divider().overlay(DashboardTheme.border)
+
+      VStack(alignment: .leading, spacing: 10) {
+        FieldLabel(text: "Smart Scan Profile")
+        Picker("Smart Scan Profile", selection: $model.codexSmartScanMode) {
+          ForEach(CodexSmartScanMode.allCases) { mode in
+            Label(mode.label, systemImage: mode.icon)
+              .tag(mode)
+          }
+        }
+        .pickerStyle(.segmented)
+
+        Text(model.codexSmartScanMode.subtitle)
+          .font(.system(size: 12, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+          .lineSpacing(2)
+
+        Text(model.codexSmartSafetySummary)
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .foregroundStyle(model.codexSmartScanMode == .yolo ? DashboardTheme.warning : DashboardTheme.text)
+          .lineSpacing(2)
+
+        FieldLabel(text: "Backup Medium")
+        Picker("Backup Medium", selection: $model.codexBackupMedium) {
+          ForEach(CodexBackupMedium.allCases) { medium in
+            Text(medium.label).tag(medium)
+          }
+        }
+        .pickerStyle(.menu)
+
+        Text(model.codexBackupMedium.subtitle)
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+
+      HStack(spacing: 10) {
+        Picker("Transfer", selection: $model.codexTransferMode) {
+          ForEach(CodexProjectTransferMode.allCases) { mode in
+            Text(mode.label).tag(mode)
+          }
+        }
+        .pickerStyle(.menu)
+        .frame(maxWidth: 260, alignment: .leading)
+
+        Button {
+          model.preflightCodexTransfer()
+        } label: {
+          Label(model.isBuildingCodexTransferPlan ? "Indexing…" : "Build Decision Scan", systemImage: "checkmark.shield")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy)
+
+        Button {
+          model.runCodexTransfer()
+        } label: {
+          Label(model.isRunningCodexTransfer ? "Running…" : "Run Selected", systemImage: "play.fill")
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy)
+      }
+
+      BannerCard(
+        title: model.codexSmartDecisionSummary,
+        detail: "Index: \(model.codexSmartIndexPath)\nOutput: \(model.codexOutputRootDraft)\nBridges: \(model.codexBridgeSummary)",
+        kind: model.isCodexPortalBusy ? .running : (model.codexSmartReviewCount > 0 ? .warning : .ready)
+      )
+
+      Text(model.codexCanonicalSelectionSummary)
+        .font(.system(size: 11, weight: .bold, design: .rounded))
+        .foregroundStyle(model.codexMissingCanonicalGroupCount == 0 ? DashboardTheme.success : DashboardTheme.warning)
+
+      CodexDecisionReviewPanel(
+        decisions: model.codexSmartDecisions,
+        catalogStatus: model.codexCatalogStatus,
+        sessionID: model.codexActiveSessionID,
+        canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
+        onChooseCanonical: { decision in
+          model.chooseCodexCanonicalSource(decision)
+        }
+      )
+    }
+  }
+
   private func codexPortalPage(for width: CGFloat, usesSidebar: Bool) -> some View {
     DashboardShell {
       HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
@@ -13439,6 +14533,8 @@ struct ContentView: View {
       ) {
         isMenuVisible.toggle()
       }
+
+      codexFlowDashboard(for: width)
 
       if width >= 1450 {
         HStack(alignment: .top, spacing: 18) {
@@ -13455,8 +14551,45 @@ struct ContentView: View {
         codexTransferPanel
       }
 
+      codexLocalDevPanel
       codexStage2Panel
       codexLifecyclePanel
+    }
+  }
+
+  private func projectBackupPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
+
+      WorkspaceToolbarStrip(
+        destination: .projectBackups,
+        menuVisible: isMenuVisible,
+        usesSidebar: usesSidebar
+      ) {
+        isMenuVisible.toggle()
+      }
+
+      codexFlowDashboard(for: width)
+
+      if width >= 1450 {
+        HStack(alignment: .top, spacing: 18) {
+          codexTransferPanel
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+          VStack(alignment: .leading, spacing: 18) {
+            localFilesExportPanel
+            backupPresetsPanel
+          }
+          .frame(maxWidth: 520, alignment: .topLeading)
+        }
+      } else {
+        codexTransferPanel
+        localFilesExportPanel
+        backupPresetsPanel
+      }
+
+      codexStage2Panel
+      codexLifecyclePanel
+      snapshotsPanel
     }
   }
 
@@ -13558,6 +14691,94 @@ struct ContentView: View {
 
       Text("Discovery reads local paths and the Codex desktop project's local link registry. It offers a folder only when it sees Git, a manifest, or enough source, editor, Docker/config, or transfer-note context, so ordinary Documents folders are not treated as projects. Git status compares against the locally stored origin/main reference and does not fetch, upload history, or read prompts, credentials, or account data.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+        .lineSpacing(2)
+    }
+  }
+
+  private var codexLocalDevPanel: some View {
+    PanelCard(
+      title: "Local Development Runner",
+      subtitle: "Run a detected local development script from the Mac app without opening Terminal or asking for a code command."
+    ) {
+      if model.selectedCodexProjects.count == 1, let project = model.selectedCodexProjects.first {
+        BannerCard(
+          title: project.name,
+          detail: "\(project.path)\n\(project.localDevProfile?.commandLabel ?? "No supported npm development script detected")",
+          kind: project.localDevProfile == nil ? .warning : (model.isRunningCodexLocalDev ? .running : .ready)
+        )
+
+        if let profile = project.localDevProfile {
+          HStack(spacing: 10) {
+            if model.isRunningCodexLocalDev && model.codexLocalDevProjectPath == project.path {
+              Button("Stop Local Dev") {
+                model.stopCodexLocalDev()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: false))
+            } else {
+              Button("Run Local Dev") {
+                model.runCodexLocalDev(project)
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
+              .disabled(model.isRunningCodexLocalDev)
+            }
+
+            Button("Open Project") {
+              model.revealCodexProject(project)
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+
+            Button(model.isLoadingPorts ? "Scanning..." : "Scan Ports") {
+              model.loadPortMonitor()
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+            .disabled(model.isLoadingPorts)
+          }
+
+          Text("\(profile.label) · \(model.codexLocalDevStatus)")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineSpacing(2)
+
+          if model.isRunningCodexLocalDev && model.codexLocalDevProjectPath == project.path {
+            ProgressView()
+              .progressViewStyle(.linear)
+              .tint(DashboardTheme.success)
+              .frame(maxWidth: .infinity)
+          }
+        } else {
+          Text(model.codexLocalDevStatus)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.warning)
+        }
+      } else if model.selectedCodexProjects.isEmpty {
+        Text("Select exactly one discovered project to enable its local development runner.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      } else {
+        Text("Select one project at a time for local development. Transfer selection can still contain multiple projects.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+
+      if !model.portMonitorEntries.isEmpty {
+        Divider()
+        FieldLabel(text: "Current Listening Ports")
+        ForEach(model.portMonitorEntries.prefix(8)) { entry in
+          HStack {
+            Text("\(entry.processName) · \(entry.proto)")
+              .font(.system(size: 12, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            Spacer(minLength: 8)
+            Text(":\(entry.port)")
+              .font(.system(size: 12, weight: .bold, design: .monospaced))
+              .foregroundStyle(DashboardTheme.accent)
+          }
+        }
+      }
+
+      Text("The runner reads only the selected project's package.json, chooses a known local development script, runs it with npm in that project folder, captures output in Jobs, and refreshes the native listener scan. It does not fetch Git, modify source files, or open Terminal.")
+        .font(.system(size: 11, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
     }
@@ -13698,6 +14919,27 @@ struct ContentView: View {
                   .buttonStyle(.plain)
                   .disabled(!project.hasDevcontainer)
                   .help(project.hasDevcontainer ? "Start the project devcontainer" : "No devcontainer configuration detected")
+                  if let profile = project.localDevProfile {
+                    if model.isRunningCodexLocalDev && model.codexLocalDevProjectPath == project.path {
+                      Button {
+                        model.stopCodexLocalDev()
+                      } label: {
+                        Image(systemName: "stop.circle.fill")
+                      }
+                      .buttonStyle(.plain)
+                      .foregroundStyle(DashboardTheme.warning)
+                      .help("Stop \(profile.label.lowercased())")
+                    } else {
+                      Button {
+                        model.runCodexLocalDev(project)
+                      } label: {
+                        Image(systemName: "play.circle")
+                      }
+                      .buttonStyle(.plain)
+                      .disabled(model.isRunningCodexLocalDev)
+                      .help(model.isRunningCodexLocalDev ? "Stop the active local development session first" : "Run \(profile.commandLabel) without opening Terminal")
+                    }
+                  }
                 }
               }
               .padding(12)
@@ -14589,6 +15831,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
           overviewPanel
           quickStartPanel
+          ModuleMatrixCard(width: width)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
 
@@ -14601,6 +15844,7 @@ struct ContentView: View {
         accountSummaryPanel
         overviewPanel
         quickStartPanel
+        ModuleMatrixCard(width: width)
         logPanel(minHeight: 280)
       }
     }
@@ -14936,7 +16180,7 @@ struct ContentView: View {
   private var quickStartPanel: some View {
     PanelCard(title: "Quick Start", subtitle: "Move into the exact page you need instead of working from one crowded dashboard.") {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-        ForEach([AppDestination.githubAccount, .githubBilling, .projects, .jobs, .localFiles, .cleanup, .workspace, .settings]) { destination in
+        ForEach([AppDestination.githubAccount, .githubBilling, .projects, .codexPortal, .projectBackups, .jobs, .localFiles, .cleanup, .workspace, .settings]) { destination in
           DestinationShortcutTile(destination: destination, isSelected: selectedDestination == destination) {
             selectedDestination = destination
           }
@@ -17651,16 +18895,6 @@ struct CSAiEMMacApp: App {
     .commands {
       CommandGroup(replacing: .newItem) { }
     }
-
-    MenuBarExtra {
-      CSAiEMMenuBarView(model: model)
-    } label: {
-      HStack(spacing: 4) {
-        Image(systemName: "shippingbox.fill")
-        Text("CSA")
-      }
-    }
-    .menuBarExtraStyle(.window)
   }
 }
 

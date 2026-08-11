@@ -41,6 +41,16 @@ It is built for:
 
 ## Current Status
 
+The current native dashboard release is `0.8.0`. Every page carries the
+shared dashboard shell: persistent top navigation, a responsive sidebar or
+compact menu, a fixed bottom status surface, visible page scrolling, and the
+same unified module matrix strip. Home expands the matrix so operators can
+see the version, tag, area, state, and last-updated date for UI pages, engines,
+bridges, runtimes, receipts, recovery, and install/update surfaces.
+
+The matrix contract is documented in
+[`docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md`](./docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md).
+
 For the current production-status snapshot, see:
 - [`STATUS.md`](./STATUS.md)
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
@@ -50,6 +60,26 @@ The active Codex project checkout is the checkout containing this README.
 Treat it as protected operator infrastructure: it is not a legacy project
 source, a Stage 1 input, or a receipt-linked cleanup target. Machine-specific
 absolute paths belong only in the local reviewed source map and receipts.
+
+The native CSA-iEM roadmap also has a machine-readable Full SU execution overlay.
+
+- [10000-TASK-PLAN.md](./.SYSTEMX/AI/10000-TASK-PLAN.md) — 20 phases,
+  five groups per phase, ten waves per group, and ten todo tasks per wave
+- [FULL-SU-AGI-OPERATING-CONTRACT.md](./.SYSTEMX/AI/FULL-SU-AGI-OPERATING-CONTRACT.md)
+  — Agent 0, IDE Copilot, operator-approval, and forward-loop rules
+- [copilot-instructions.md](./.github/copilot-instructions.md) — native
+  CSA-iEM IDE Copilot scope and handoff rules
+- [CODEX-GPT-ADDON-MASTER-PLAN.md](./.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md)
+  — native dashboard UX, Smart Logic, index/recovery, interoperability, and
+  Project Backups direction
+
+The overlay is an execution index, not a claim that all product work is
+complete. Validate its exact count and bindings with
+Run: node .SYSTEMX/scripts/validate-10000-task-plan.mjs
+
+This is a native macOS application repository, not a website checkout.
+Web-oriented project markers in the scanner describe imported external
+projects only and do not change the identity of this repository.
 
 The fail-closed one-folder-per-repository lifecycle, GitHub identity rules,
 local-source retirement gates, and final `_temp` cleanup contract are recorded
@@ -339,6 +369,7 @@ The GUI is a SwiftUI macOS app that:
 - adds native GitHub admin surfaces for repo health, workflows, workflow runs, Codespaces, secrets/variables inventory, and rulesets
 - adds a dedicated `Local Files` page for moving workspace roots, moving selected projects, and exporting code/import/runtime/runner combinations to another folder or external drive
 - adds a dedicated `CODEX ~ GPT PORTAL` that scans selected custom folders first, accepts a pasted path, Finder folder picker, or dropped folders, and discovers only project roots with Git, manifests, or generic on-disk project context before supporting single, multi, visible, and all-project targeting
+- adds a GUI-only local development runner inside the CODEX portal that detects known `package.json` scripts such as `npm run dev:firebase`, runs the selected project in the background without opening Terminal or requiring ChatGPT/code assistance, captures output in Jobs, and refreshes the native port monitor
 - reads Codex's local project registry to label the selected workspace `Active here`, other registered local projects `Codex linked`, and filesystem-only discoveries `Unlinked`; historical sessions and saved-root history do not count as current links
 - reports each project's branch, tracked or untracked local changes, and ahead/behind/diverged state against the locally stored `origin/main` reference through bounded parallel checks without performing a fetch or changing the repository
 - packages each selected Codex project through preflight, isolated `_temp` staging, checksum verification, optional `.git` and generated-dependency preservation, a tested ZIP backup, and `Transfer_Note.MD` plus `Prompt_Inject.MD` handoff files

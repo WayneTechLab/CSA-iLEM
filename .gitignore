@@ -9,3 +9,11 @@ SHA256SUMS 2
 SHA256SUMS 3
 codex-project-move-test.zsh
 move-music-exchange-source.zsh
+
+# Machine-local Full SU forward progress; task definitions remain tracked.
+.SYSTEMX/state/10000-forward-cursor.json
+.SYSTEMX/logs/10000-forward-todo.jsonl
+
+# Machine-local archive lane for unmatched, ambiguous, or quarantined data.
+.SYSTEMX/Archive_Data/*
+!.SYSTEMX/Archive_Data/README.md

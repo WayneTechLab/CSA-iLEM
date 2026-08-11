@@ -131,6 +131,56 @@
         "panel": "shared"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "CSA-iEM: Validate Full SU Plan",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        ".SYSTEMX/scripts/validate-10000-task-plan.mjs"
+      ],
+      "options": {
+        "cwd": "."
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "CSA-iEM: Forward Todo Status",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        ".SYSTEMX/scripts/forward-todo.mjs",
+        "status"
+      ],
+      "options": {
+        "cwd": "."
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "CSA-iEM: Forward Todo Next",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        ".SYSTEMX/scripts/forward-todo.mjs",
+        "next"
+      ],
+      "options": {
+        "cwd": "."
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }

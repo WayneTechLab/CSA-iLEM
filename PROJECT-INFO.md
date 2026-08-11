@@ -13,6 +13,11 @@
 
 ## Product Scope
 
+The `0.8.0` native dashboard uses a single module/version/tag matrix across
+pages, engines, bridges, runtimes, recovery, and install/update surfaces. The
+matrix is a diagnostic identity layer; it does not replace Git, receipts, or
+the installed bundle version.
+
 `CSA-iEM` is the production package for:
 
 - GitHub repo import and local workspace preparation
@@ -23,6 +28,19 @@
 - one-project-at-a-time cost-control review
 - a multi-page native macOS GUI for Home, GitHub Account, Projects, Local Files, Cleanup, Workspace, and About
 - a Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, and runner/devcontainer prep
+
+## Repository Boundary
+
+This checkout is the native CSA-iLEM application repository, not a website
+application. Package.swift and Sources/CSAiEMMacApp are the product identity.
+The scanner recognizes package.json, Firebase, Vite, and other markers only
+when inspecting an imported project outside this repository; those markers do
+not indicate that CSA-iLEM itself is a web app.
+
+The CODEX ~ GPT Add-on master plan lives at
+.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md. It defines the native dashboard,
+Smart Logic, index/recovery, interoperability, Archive_Data, and Project
+Backups direction.
 
 Current production-status tracking lives in:
 

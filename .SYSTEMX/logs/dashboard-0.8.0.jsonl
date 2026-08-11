@@ -1,0 +1,3 @@
+{"event":"dashboard-release","version":"0.8.0","matrix":"matrix-1.0","modules":16,"scope":"native CSA-iLEM only","result":"verified","evidence":["CSAiEMModuleMatrix.swift","docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md","README.md","STATUS.md","CHANGELOG.md"]}
+{"event":"ui-shell","version":"0.8.0","result":"verified","details":["persistent top navigation","responsive sidebar or compact menu","fixed bottom status surface","visible primary page vertical scrolling"]}
+{"event":"install","version":"0.8.0","result":"verified","installed_app":"/Applications/CSA-iEM.app","process_count":1,"codesign":"pass","matrix_resource":"present"}

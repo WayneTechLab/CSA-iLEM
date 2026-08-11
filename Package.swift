@@ -12,7 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "CSAiEMMacApp",
-            path: "Sources/CSAiEMMacApp"
+            path: "Sources/CSAiEMMacApp",
+            swiftSettings: [
+                .unsafeFlags(["-parse-as-library"])
+            ]
         ),
     ]
 )

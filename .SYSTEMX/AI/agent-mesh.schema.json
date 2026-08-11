@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waynetechlab.com/csa-iem/systemx/agent-mesh.schema.json",
+  "title": "CSA-iEM SYSTEMX Full SU Agent Mesh Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "missionId",
+    "waveId",
+    "taskId",
+    "lane",
+    "actor",
+    "type",
+    "status",
+    "summary",
+    "createdAt",
+    "nextAction"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "missionId": { "type": "string", "minLength": 1 },
+    "waveId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "pattern": "^SU-[0-9]{5}$" },
+    "lane": { "type": "string", "enum": ["research", "code", "test", "desktop", "security", "docs", "release"] },
+    "actor": { "type": "string", "enum": ["agent_0", "ide_copilot", "operator"] },
+    "type": { "type": "string", "enum": ["task", "checkpoint", "handoff", "blocked", "complete", "archive"] },
+    "status": { "type": "string", "enum": ["planned", "in_progress", "blocked", "needs_review", "done", "archived"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "nextAction": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

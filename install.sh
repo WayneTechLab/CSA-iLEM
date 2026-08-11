@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="CSA-iEM"
+APP_BUNDLE_IDENTIFIER="com.waynetechlab.csa-iem"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
@@ -65,6 +66,7 @@ FILES=(
 
 DIRS=(
   ".SYSTEMX"
+  ".github"
   ".vscode"
   "Sources"
   "assets"
@@ -117,8 +119,10 @@ Defaults:
 Install behavior:
   Installs and updates replace the target version by default, update the
   current symlink, and remove older version folders from the install root.
-  On macOS, the installer also builds and installs CSA-iEM.app, starts it so
-  the menu-bar toolbar appears, and registers it to launch at login.
+  On macOS, the installer builds and installs one canonical
+  /Applications/CSA-iEM.app, removes every other CSA-iEM bundle with the
+  same bundle identifier from the user and system Applications folders,
+  starts the canonical app, and registers it to launch at login.
 
 Cross-platform note:
   Windows 11 admin-shell installers also ship in this repo:
@@ -260,6 +264,8 @@ remove_stale_gui_app_bundles() {
   local canonical_app="$1"
   local app_dir=""
   local candidate=""
+  local bundle_id=""
+  local info_plist=""
 
   for app_dir in /Applications "$HOME/Applications"; do
     [[ -d "$app_dir" ]] || continue
@@ -278,6 +284,30 @@ remove_stale_gui_app_bundles() {
       rm -rf -- "$candidate"
       info "Removed stale CSA-iEM app bundle: $candidate"
     done
+
+    while IFS= read -r -d '' candidate; do
+      [[ "$candidate" == "$canonical_app" ]] && continue
+      info_plist="$candidate/Contents/Info.plist"
+      [[ -f "$info_plist" ]] || continue
+      bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
+      [[ "$bundle_id" == "$APP_BUNDLE_IDENTIFIER" ]] || continue
+      rm -rf -- "$candidate"
+      info "Removed stale CSA-iEM bundle by identifier: $candidate"
+    done < <(find "$app_dir" -maxdepth 1 \( -type d -o -type l \) -name '*.app' -print0)
+  done
+}
+
+stop_running_gui_instances() {
+  local attempt=0
+
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  while pgrep -x "$APP_NAME" >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [[ "$attempt" -ge 20 ]]; then
+      warn "Could not stop every running $APP_NAME process before replacement."
+      return 1
+    fi
+    sleep 0.25
   done
 }
 
@@ -371,7 +401,11 @@ install_gui_app_bundle() {
 
   rollback_root="$(mktemp -d "$app_install_dir/.csa-iem-rollback.XXXXXX")"
   rollback_app="$rollback_root/$APP_NAME.app"
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  if ! stop_running_gui_instances; then
+    rm -rf -- "$app_stage_root" "$rollback_root"
+    printf 'Could not safely replace %s while an older process is still running.\n' "$target_app" >&2
+    return 1
+  fi
   if [[ -e "$target_app" || -L "$target_app" ]]; then
     if ! mv -- "$target_app" "$rollback_app"; then
       rm -rf -- "$app_stage_root" "$rollback_root"

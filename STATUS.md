@@ -1,12 +1,19 @@
 # CSA-iEM Status
 
-Version baseline: `0.7.0`
-Updated: `2026-08-09`
+Version baseline: `0.8.0`
+Updated: `2026-08-11`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
+
+Native execution overlay:
+
+- [10000-TASK-PLAN.md](./.SYSTEMX/AI/10000-TASK-PLAN.md) contains the
+  10,000-task Full SU index derived from the roadmap.
+- The overlay is planning and coordination metadata; it does not mark the
+  underlying product milestones complete.
 
 ## Done
 
@@ -30,6 +37,16 @@ These major product areas are built into the app now:
 - custom local scan roots that can be entered, selected, or dropped into the portal and persist only in the local app profile
 - mounted-drive Default workspace, backup, relocation, migration, and recovery flows
 - native macOS menu-bar controls and Windows notification-area companion entry points
+- native Codex control-plane dashboard with left-side import sources, right-side
+  final output, connecting Smart Logic, scan profiles, cache visibility, and a
+  dedicated Project Backups page composed from existing transfer/recovery flows
+- unified module/version/tag matrix shown on every native dashboard page and
+  fully expanded on Home for page, engine, bridge, runtime, and install state
+- explicit vertical page scroll indicators with fixed top navigation and bottom
+  status surfaces kept outside the page scroll region
+- native Smart Logic decision records now persist to `.SYSTEMX/Index/catalog.sqlite`
+  with JSON/CSV exports and Stage 1 preflight checkpoints; verified remote
+  identity is required for automatic grouping
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
@@ -37,7 +54,7 @@ These major product areas are built into the app now:
 
 ## Is Done
 
-These items are currently tracked as working in the repo at the `0.7.0` baseline:
+These items are currently tracked as working in the repo at the `0.8.0` baseline:
 
 - local install from repo via `install.sh`
 - remote install bootstrap via `install-remote.sh`
@@ -94,6 +111,10 @@ These areas are close, but not fully finished to the standard the app is aiming 
 
 - GUI-first product direction is established, but a few legacy CLI concepts and compatibility entry points still exist around the edges
 - Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
+- The CODEX ~ GPT Add-on master plan now defines deterministic five-second
+  source decisions, false-positive protection, recoverable versus fatal
+  continuation, explicit YOLO limits, Archive_Data routing, native tool
+  bridges, and the local-only/server-mode boundary
 - the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `CODEX ~ GPT PORTAL` and `Local Files` now have safer previews, moves, exports, snapshots, and recovery flows, but need more polished cross-platform validation
@@ -119,6 +140,11 @@ These are the next production-hardening tasks with the best return:
   - devcontainer lifecycle
   - GitHub cleanup dry-run
 - add clearer permission/scope diagnostics everywhere GitHub API data can be partially unavailable
+- add the durable scan catalog and CSV/JSON export on top of the current JSON
+  transfer indexes so changed-only resume survives a closed app session
+- implement deterministic identity grouping for same-name folders, broken wiki
+  metadata, editor shadow copies, multi-account ownership, and Dark Labs
+  recovery evidence
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - expand first-run onboarding so a new user can understand `Code`, `Import`, and `Runtime` without knowing the older internal models
 
@@ -145,4 +171,8 @@ Recommended direction for `CSA-iEM`:
 - CLI as execution backend and fallback
 - preview before destructive actions
 - stronger recovery/rollback on file operations
+- Smart Logic uses indexed facts to reduce wasted verification while receipts
+  and final proofs remain authoritative
+- one source group maps to one final destination; unknown or extra material is
+  routed to .SYSTEMX/Archive_Data
 - stronger release/install trust model for public distribution

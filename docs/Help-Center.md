@@ -32,6 +32,71 @@ It can:
 - `Default`: portable `Code`, `Import`, and `Runtime` roots under `~/CSA-iEM`
 - `Custom`: operator-selected roots, including mounted external drives
 
+## CODEX Dashboard Quick Start
+
+### Dashboard and module matrix
+
+CSA-iEM uses one native dashboard grammar across every page. The top bar owns
+navigation and the hamburger/sidebar state; the page body owns the current
+workflow; and the bottom status bar remains fixed while the page content
+scrolls. On narrow windows the sidebar becomes a compact horizontal menu.
+Page scrolling is explicit and keeps its vertical indicator visible so long
+forms and operational panels do not hide their position.
+
+The shared matrix strip identifies the installed app version, matrix revision,
+and primary module count. Home expands it into the full matrix. Each entry has
+an area, version, stable tag, state, and last-updated date. Use the matrix when
+triaging a broken page or runtime: compare the tag first, then the module
+version, then the relevant job/receipt log. The canonical matrix is maintained
+in [`docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md`](./wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md).
+
+The CODEX control plane is organized left to right:
+
+1. **Import Sources** on the left: add one folder, a bounded set of source
+   folders, or a saved scan root. Scan is read-only.
+2. **Smart Logic** in the middle: review identity, branch, local-change,
+   cache, and ambiguity evidence. A same-name folder is not automatically a
+   repository.
+3. **Final Output** on the right: choose one destination for the project
+   identity. Extra, unknown, or quarantined material is routed to
+   .SYSTEMX/Archive_Data.
+
+Use Fast Index for ordinary work, Full Verification when identity or integrity
+is uncertain, and YOLO / Skip Deep Preflight only for a non-destructive Backup
+or Copy. YOLO never bypasses the existing final write verification and cannot
+run Stage 2, Stage 3, source retirement, or Full Auto.
+
+The Project Backups page composes the same import, index, transfer, Stage 2,
+Stage 3, Jobs, snapshots, and recovery controls. It does not create a second
+backup engine. Saved Transfer-Indexes tables are reused when the current source
+and destination still match, so a later session can recheck only changed
+folders instead of rescanning every project.
+
+Each source scan also writes a versioned Smart Logic decision table to the
+selected output root under `.SYSTEMX/Index/catalog.sqlite`. JSON and CSV
+exports are written beside the catalog for manual review. The catalog records
+source evidence, identity classification, confidence, reasons, session ID, and
+Stage 1 preflight checkpoints. A verified remote identity is required for
+automatic grouping; same-name, broken-metadata, shadow-copy, dirty, or
+unknown-owner folders remain review-only.
+
+When multiple sources share one verified remote, Smart Logic presents an
+explicit **Use as canonical** action for each identity group. Select exactly one
+source per group before a merge or move preflight. The choice is local to the
+current decision session, clears when the source selection changes, and never
+authorizes a write by itself. Dirty sources, non-main branches, and external
+unlinked copies remain visible in the decision reasons so the operator can
+choose the intended lead repository deliberately.
+
+The Backup Medium selector controls the artifact created by Project Backups.
+Raw directory snapshots are the canonical no-repackaging form and are copied
+and checksum-verified. APFS clone uses macOS `cp -cR` and is verified when the
+destination supports clones. Sparse-image mode uses `hdiutil`, mounts the
+image read-only, and verifies the mounted tree before it is accepted. Verified
+ZIP remains an optional portable interchange artifact. Selecting a medium
+never overrides the existing final verification or cleanup gates; an
+unsupported APFS or image operation fails safely and retains the source.
+
 ## CODEX ~ GPT PORTAL
 
 The portal scans selected folders first using on-disk project context, then uses local Codex session history only when no source folder has been selected. It can also scan common local/external development locations. It reads Codex's local project registry only to distinguish the selected active workspace, other currently linked projects, and unlinked disk projects. It does not upload Codex history, Git data, prompts, or credentials.

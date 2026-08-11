@@ -1,0 +1,14 @@
+{
+  "name": "local-devcontainer",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "forwardPorts": [8000, 8080],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode-remote.remote-containers",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-github-actions"
+      ]
+    }
+  }
+}

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+- Added the unified native dashboard shell contract: persistent top navigation,
+  side/compact menus, fixed bottom status, explicit page scroll indicators,
+  and a shared matrix strip across every dashboard and reference page.
+- Added the `CSAiEMModuleTag` matrix so UI pages, engines, bridges, runtimes,
+  receipts, recovery, and install/update surfaces carry a stable area, version,
+  tag, state, and last-updated identity.
+- Added the Home dashboard module/runtime matrix for at-a-glance tracking of
+  primary versus unfinished surfaces without duplicating feature registries.
+- Kept the single native macOS app lifecycle and installer boundary intact;
+  updates replace the installed app before launching one verified instance.
+- Synchronized the README, status snapshot, and dashboard/wiki contract.
+
 ## 0.7.0
 
 - Added the verified repository-consolidation recovery lifecycle for identity-bound many-source-to-one-repository reconciliation, complete source representation proofs, Git object validation, transaction receipts, and fail-closed global retirement.
