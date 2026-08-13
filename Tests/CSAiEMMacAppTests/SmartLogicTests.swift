@@ -404,6 +404,20 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(summary.pendingCount, 1)
   }
 
+  func testPendingRouteReceiptPreviewExcludesCompletedAndSkippedAndOrdersFailuresFirst() {
+    let base = CodexScanRouteReceipt(sessionID: "preview", sourcePath: "/tmp/base", route: .targetedVerification, state: .planned, attemptCount: 0, updatedAt: observedDate, detail: "planned")
+    let receipts = [
+      base,
+      CodexScanRouteReceipt(sessionID: "preview", sourcePath: "/tmp/completed", route: .metadataTriage, state: .completed, attemptCount: 1, updatedAt: observedDate, detail: "done"),
+      CodexScanRouteReceipt(sessionID: "preview", sourcePath: "/tmp/skipped", route: .noDeepScan, state: .skipped, attemptCount: 0, updatedAt: observedDate, detail: "excluded"),
+      CodexScanRouteReceipt(sessionID: "preview", sourcePath: "/tmp/failed", route: .targetedVerification, state: .failed, attemptCount: 2, updatedAt: observedDate, detail: "retry")
+    ]
+
+    let pending = CodexSmartLogicEngine.pendingRouteReceipts(receipts)
+    XCTAssertEqual(pending.map(\.sourcePath), ["/tmp/failed", "/tmp/base"])
+    XCTAssertFalse(pending.contains { $0.state == .completed || $0.state == .skipped })
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -916,14 +930,14 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.3" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.4" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.3" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.4" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

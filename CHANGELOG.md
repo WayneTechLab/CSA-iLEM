@@ -6,6 +6,7 @@
 - Added Phase 13.26 deterministic Smart Logic route plans showing metadata triage, targeted verification, and deep-scan avoidance before an operation is run.
 - Added Phase 13.27 SQLite-backed per-source route receipts with planned, skipped, completed, interrupted, and failed states so stopped operations retain resumable route evidence.
 - Added Phase 13.28 selective resume for pending route receipts; completed and skipped sources stay outside the resumed run and the prior operator selection is restored afterward.
+- Added Phase 13.29 receipt-level resume audit preview showing pending paths, route, state, attempt count, and last detail before selective resume.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.

@@ -308,6 +308,14 @@ receipts are not included. The previous project selection is restored after the
 resume run, and the action uses the ordinary transfer path rather than Full Auto
 or any cleanup-capable lifecycle shortcut.
 
+## Phase 13.29 resume audit preview
+
+Before selective resume, the dashboard shows a read-only audit list for matching
+pending receipts. Each row includes the source path, route type, state, attempt
+count, and bounded last detail. Failed receipts are listed first, followed by
+interrupted and planned receipts. Completed and skipped receipts are excluded by
+the same deterministic predicate used by the Resume action.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

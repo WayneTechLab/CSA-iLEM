@@ -278,6 +278,12 @@ Current Phase 13.28 slice:
 - reuse the existing non-lifecycle transfer path and restore the operator's
   previous selection after the run.
 
+Current Phase 13.29 slice:
+- show a read-only receipt audit preview before selective resume;
+- list matching source path, route, state, attempt count, and last detail;
+- share one deterministic pending-receipt predicate between the preview and the
+  resume action so the UI cannot promise a different source set than execution.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

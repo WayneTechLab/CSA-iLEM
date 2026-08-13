@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.28 selective resume from route receipts is in progress. The native app now
+Next phase: Phase 13.29 receipt-level resume audit preview is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -144,6 +144,12 @@ planned, interrupted, and failed receipts that still match indexed local
 projects, reuses the existing transfer path without starting Full Auto, and
 restores the prior operator selection when the run ends. Completed and skipped
 routes remain outside the resumed operation.
+
+Phase 13.29 adds a read-only audit preview immediately above Resume Pending
+Routes. It lists matching source paths, route type, current receipt state,
+attempt count, and bounded last detail, with failed routes ordered first. The
+preview uses the same predicate as the action so what the operator sees is what
+the resume operation will select.
 not discard available local research evidence.
 
 Long-range product roadmap:

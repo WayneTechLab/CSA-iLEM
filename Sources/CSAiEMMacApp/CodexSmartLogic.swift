@@ -522,6 +522,22 @@ struct CodexRouteReceiptSummary: Codable, Hashable, Sendable {
   }
 }
 
+extension CodexSmartLogicEngine {
+  static func pendingRouteReceipts(_ receipts: [CodexScanRouteReceipt]) -> [CodexScanRouteReceipt] {
+    receipts
+      .filter { receipt in
+        receipt.state == .planned || receipt.state == .interrupted || receipt.state == .failed
+      }
+      .sorted { lhs, rhs in
+        if lhs.state != rhs.state {
+          let order: [CodexRouteReceiptState: Int] = [.failed: 0, .interrupted: 1, .planned: 2, .skipped: 3, .completed: 4]
+          return (order[lhs.state] ?? 9) < (order[rhs.state] ?? 9)
+        }
+        return lhs.sourcePath.localizedStandardCompare(rhs.sourcePath) == .orderedAscending
+      }
+  }
+}
+
 enum CodexEvidenceScanProfile: String, Codable, CaseIterable, Sendable {
   case fastIndex
   case verified
