@@ -10,6 +10,8 @@ APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
+APP_INSTALL_DIR_OVERRIDE="${CSA_IEM_APP_INSTALL_DIR:-}"
+DISABLE_LOGIN_TOOLBAR="${CSA_IEM_DISABLE_LOGIN_TOOLBAR:-0}"
 INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=1
@@ -253,6 +255,11 @@ activate_brew_shellenv() {
 }
 
 default_app_install_dir() {
+  if [[ -n "$APP_INSTALL_DIR_OVERRIDE" ]]; then
+    printf '%s\n' "$APP_INSTALL_DIR_OVERRIDE"
+    return
+  fi
+
   if [[ -d /Applications && -w /Applications ]]; then
     printf '/Applications\n'
   else
@@ -262,12 +269,20 @@ default_app_install_dir() {
 
 remove_stale_gui_app_bundles() {
   local canonical_app="$1"
+  local canonical_dir="$(dirname -- "$canonical_app")"
   local app_dir=""
   local candidate=""
   local bundle_id=""
   local info_plist=""
 
-  for app_dir in /Applications "$HOME/Applications"; do
+  local app_dirs=()
+  if [[ -n "$APP_INSTALL_DIR_OVERRIDE" ]]; then
+    app_dirs=("$canonical_dir")
+  else
+    app_dirs=(/Applications "$HOME/Applications")
+  fi
+
+  for app_dir in "${app_dirs[@]}"; do
     [[ -d "$app_dir" ]] || continue
     for candidate in \
       "$app_dir"/CSA-iEM.app.backup-* \
@@ -315,6 +330,11 @@ install_login_toolbar_agent() {
   local app_path="$1"
   local launch_agents_dir="$HOME/Library/LaunchAgents"
   local plist_path="$launch_agents_dir/com.waynetechlab.csa-iem.toolbar.plist"
+
+  if [[ "$DISABLE_LOGIN_TOOLBAR" == "1" ]]; then
+    info "Skipping login toolbar registration (CSA_IEM_DISABLE_LOGIN_TOOLBAR=1)."
+    return 0
+  fi
 
   mkdir -p "$launch_agents_dir"
   cat > "$plist_path" <<EOF

@@ -31,4 +31,7 @@ if git grep -n -i -E 'webapp[-_ ]?stack[-_ ]?g1|webstack[-_ ]?g1|webapp stack' H
   exit 1
 fi
 
+echo "[8/8] Disposable lifecycle smoke"
+bash .SYSTEMX/scripts/install-lifecycle-smoke.sh
+
 echo "PASS: CSA-iLEM release preflight"

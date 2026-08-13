@@ -62,6 +62,8 @@ These major product areas are built into the app now:
   macOS `CSA-iLEM native preflight` workflow
 - CODEX transfer progress/status callbacks use explicit Swift 6 main-actor
   boundaries and pass the hosted macOS Swift 6 compiler gate locally
+- isolated install/update/uninstall and GUI bundle lifecycle smoke now passes
+  under temporary roots without touching the installed app or user profile
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources

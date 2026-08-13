@@ -12,6 +12,8 @@
 - Hardened CODEX transfer progress callbacks for the Swift 6 concurrency model
   by making main-actor UI hops explicit instead of relying on legacy dispatch
   inference.
+- Added an isolated install/update/uninstall and GUI bundle lifecycle smoke
+  harness with temporary roots, signature verification, and sentinel checks.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

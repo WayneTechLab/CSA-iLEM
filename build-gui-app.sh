@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 APP_NAME="CSA-iEM"
 GUI_TARGET="CSAiEMMacApp"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
-DIST_DIR="$SCRIPT_DIR/dist"
+DIST_DIR="${CSA_IEM_DIST_DIR:-$SCRIPT_DIR/dist}"
 DIST_APP_DIR="$DIST_DIR/$APP_NAME.app"
 SCRATCH_ID="$(printf '%s' "$SCRIPT_DIR" | shasum | awk '{print $1}')"
 SCRATCH_PATH="${CSA_IEM_SCRATCH_PATH:-${TMPDIR:-/tmp}/csa-iem-swiftpm-$SCRATCH_ID}"
@@ -83,6 +83,8 @@ Usage:
 
 Environment:
   CSA_IEM_SCRATCH_PATH   Override the SwiftPM scratch directory.
+  CSA_IEM_GUI_BUILD_DIR  Override the temporary app build directory.
+  CSA_IEM_DIST_DIR       Override the published bundle output directory.
 EOF
 }
 

@@ -354,6 +354,10 @@ The current branch has direct evidence for each local milestone gate:
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the
   native checks locally and `.github/workflows/csa-ilem-preflight.yml` runs the
   same non-destructive gate on macOS for pushes and pull requests.
+- isolated lifecycle smoke: `.SYSTEMX/scripts/install-lifecycle-smoke.sh`
+  exercises CLI install, same-version replacement/update, wrapper identity,
+  GUI bundle build and signature verification, uninstall, and sentinel
+  preservation under temporary install/bin/app/dist roots.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred
