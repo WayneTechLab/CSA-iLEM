@@ -9,6 +9,9 @@
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.
+- Hardened CODEX transfer progress callbacks for the Swift 6 concurrency model
+  by making main-actor UI hops explicit instead of relying on legacy dispatch
+  inference.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

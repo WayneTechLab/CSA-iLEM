@@ -60,6 +60,8 @@ These major product areas are built into the app now:
 - non-destructive native release preflight is now repeatable locally and in
   GitHub Actions through `.SYSTEMX/scripts/release-preflight.sh` and the
   macOS `CSA-iLEM native preflight` workflow
+- CODEX transfer progress/status callbacks use explicit Swift 6 main-actor
+  boundaries and pass the hosted macOS Swift 6 compiler gate locally
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources

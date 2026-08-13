@@ -4783,7 +4783,7 @@ final class CleanupViewModel: ObservableObject {
 
       for (index, project) in projects.enumerated() {
         let progressHandler: (String, Int, Int64) -> Void = { phase, fileCount, byteCount in
-          DispatchQueue.main.async {
+          Task { @MainActor [weak self] in
             guard let self, self.isBuildingCodexTransferPlan else { return }
             self.codexPortalProgress = (Double(index) + 0.5) / Double(max(projects.count, 1))
             self.codexPortalProgressText = "Preflight \(index + 1) of \(projects.count): \(phase) \(fileCount) entries (\(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)))."
@@ -4997,7 +4997,7 @@ final class CleanupViewModel: ObservableObject {
       var lifecycleSummary = ""
 
       for (index, project) in projects.enumerated() {
-        DispatchQueue.main.async {
+        Task { @MainActor [weak self] in
           guard let self else { return }
           self.codexPortalProgress = Double(index) / Double(max(projects.count, 1))
           self.codexPortalProgressText = "\(index + 1) of \(projects.count): indexing \(project.name)"
@@ -5006,7 +5006,7 @@ final class CleanupViewModel: ObservableObject {
 
         do {
           let progressHandler: (String, Int, Int64) -> Void = { phase, fileCount, byteCount in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
               guard let self else { return }
               self.codexPortalProgress = (Double(index) + 0.25) / Double(max(projects.count, 1))
               self.codexPortalProgressText = "\(index + 1) of \(projects.count): \(phase) \(fileCount) entries (\(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)))"
@@ -5025,7 +5025,7 @@ final class CleanupViewModel: ObservableObject {
             environment: environment,
             progress: progressHandler
           )
-          DispatchQueue.main.async {
+          Task { @MainActor [weak self] in
             guard let self else { return }
             self.codexTransferPlans.removeAll { $0.projectPath == project.path }
             self.codexTransferPlans.append(plan)
@@ -5048,7 +5048,7 @@ final class CleanupViewModel: ObservableObject {
               projectName: project.name,
               environment: environment
             ) { completed, total, bytes in
-              DispatchQueue.main.async {
+              Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.codexPortalProgress = (Double(index) + 0.6) / Double(max(projects.count, 1))
                 self.codexPortalProgressText = "\(index + 1) of \(projects.count): downloading iCloud files \(completed) of \(total) (\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)))"
@@ -5056,7 +5056,7 @@ final class CleanupViewModel: ObservableObject {
               }
             }
           }
-          DispatchQueue.main.async {
+          Task { @MainActor [weak self] in
             guard let self else { return }
             self.codexPortalProgressText = "\(index + 1) of \(projects.count): transferring \(plan.plannedPaths.count) planned path(s) for \(project.name)"
             self.updateJob(id: jobID, progressText: self.codexPortalProgressText)
@@ -5096,7 +5096,7 @@ final class CleanupViewModel: ObservableObject {
       }
 
       if failure == nil, runLifecycle {
-        DispatchQueue.main.async {
+        Task { @MainActor [weak self] in
           guard let self else { return }
           self.codexPortalProgress = 0.82
           self.codexPortalProgressText = "Stage 1 verified. Running Stage 2 reconciliation and Stage 3 receipt cleanup..."
@@ -5131,7 +5131,7 @@ final class CleanupViewModel: ObservableObject {
         }
       }
 
-      DispatchQueue.main.async {
+      Task { @MainActor [weak self] in
         guard let self else { return }
         self.isRunningCodexTransfer = false
         if let failure {
