@@ -1752,6 +1752,11 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexActiveSessionID = ""
   @Published var codexSessionDiffSummary: CodexSessionDiffSummary?
   @Published var codexRecentSessions: [CodexCatalogSessionSummary] = []
+  @Published var codexComparisonSessionID = ""
+  @Published var codexComparisonGroupKey = ""
+  @Published var codexComparisonDeltas: [CodexSourceDelta] = []
+  @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
+  @Published var codexBaselineRebuildReason = ""
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
@@ -2236,6 +2241,12 @@ final class CleanupViewModel: ObservableObject {
     codexSmartDecisions.filter { codexReviewDispositions[$0.sourcePath] == .excluded }
   }
 
+  var codexVisibleComparisonDeltas: [CodexSourceDelta] {
+    guard !codexComparisonGroupKey.isEmpty else { return codexComparisonDeltas }
+    let paths = Set(codexSmartDecisions.filter { $0.groupKey == codexComparisonGroupKey }.map(\.sourcePath))
+    return codexComparisonDeltas.filter { paths.contains($0.sourcePath) }
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -2691,10 +2702,81 @@ final class CleanupViewModel: ObservableObject {
         timing: timing
       )
       codexCatalogStatus = "Catalog saved · session \(session.id.prefix(8)) · JSON/CSV exports ready"
+      selectCodexComparisonSession(session.id)
     } catch {
       codexCatalogStatus = "Catalog warning: \(error.localizedDescription)"
       appendLog("[codex] Smart Logic catalog warning: \(error.localizedDescription)\n")
     }
+  }
+
+  func selectCodexComparisonSession(_ sessionID: String) {
+    guard !sessionID.isEmpty, let store = codexCatalogStore else {
+      codexComparisonStatus = "Choose a local output root and run a scan before selecting a catalog session."
+      return
+    }
+    let sessions = store.recentSessions(limit: 20)
+    guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else {
+      codexComparisonStatus = "The selected catalog session is no longer available in the current output root."
+      return
+    }
+    guard let timing = store.timing(for: sessionID) else {
+      codexComparisonSessionID = sessionID
+      codexComparisonDeltas = store.sourceDeltas(for: sessionID)
+      codexComparisonStatus = "Session \(String(sessionID.prefix(8))) has no timing receipt; older sessions remain visible but cannot be compared quantitatively."
+      return
+    }
+    let previousSessionID = sessions.dropFirst(index + 1).first?.id
+    let deltas = store.sourceDeltas(for: sessionID)
+    let summary = CodexSessionDiffSummary(
+      currentSessionID: sessionID,
+      previousSessionID: previousSessionID,
+      addedCount: deltas.filter { $0.kind == .added }.count,
+      changedCount: deltas.filter { $0.kind == .changed }.count,
+      unchangedCount: deltas.filter { $0.kind == .unchanged }.count,
+      removedCount: deltas.filter { $0.kind == .removed }.count,
+      affectedGroupCount: timing.affectedGroupCount,
+      evaluatedSourceCount: timing.evaluatedSourceCount,
+      reusedSourceCount: timing.reusedSourceCount,
+      timing: timing
+    )
+    codexComparisonSessionID = sessionID
+    codexComparisonDeltas = deltas
+    codexComparisonGroupKey = ""
+    codexSessionDiffSummary = summary
+    codexComparisonStatus = "Loaded SQLite session \(String(sessionID.prefix(8))) with \(deltas.count) source-level delta row(s)."
+  }
+
+  func setCodexComparisonGroup(_ groupKey: String) {
+    codexComparisonGroupKey = groupKey
+    if groupKey.isEmpty {
+      codexComparisonStatus = "Showing all source-level delta rows for session \(String(codexComparisonSessionID.prefix(8)))."
+    } else {
+      codexComparisonStatus = "Showing source-level delta rows for identity group \(groupKey)."
+    }
+  }
+
+  func rebuildCodexScanBaseline() {
+    let reason = codexBaselineRebuildReason.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !reason.isEmpty else {
+      codexPortalStatus = "Enter a reason before rebuilding the scan baseline."
+      return
+    }
+    let oldDecisionCount = codexSmartDecisions.count
+    try? FileManager.default.removeItem(atPath: codexSourceFingerprintsFile)
+    codexSmartDecisions.removeAll()
+    codexComparisonDeltas.removeAll()
+    codexSessionDiffSummary = nil
+    codexBaselineRebuildReason = ""
+    appendCodexReviewAudit(
+      sourcePath: "baseline",
+      groupKey: "baseline",
+      previousDisposition: nil,
+      nextDisposition: nil,
+      action: "baseline-rebuilt",
+      detail: "Operator requested a full scan baseline rebuild: \(reason) Previously retained \(oldDecisionCount) decision row(s); source data was not deleted."
+    )
+    codexScanDeltaStatus = "Baseline rebuild armed by operator. The next scan will evaluate all discovered sources."
+    codexPortalStatus = "Scan baseline cleared for a full re-evaluation. No source files, destinations, or remote repositories were changed."
   }
 
   func requestCodexLocalAdvisory() {
@@ -16244,6 +16326,55 @@ struct ContentView: View {
             Text("Evaluated \(sessionDiff.evaluatedSourceCount) source row(s) · reused \(sessionDiff.reusedSourceCount) · discovery \(sessionDiff.timing.discoveryMilliseconds) ms · decision \(sessionDiff.timing.decisionMilliseconds) ms · total \(sessionDiff.timing.totalMilliseconds) ms")
               .font(.system(size: 11, weight: .medium, design: .monospaced))
               .foregroundStyle(DashboardTheme.muted)
+            Picker("Compare saved session", selection: Binding(
+              get: { model.codexComparisonSessionID },
+              set: { model.selectCodexComparisonSession($0) }
+            )) {
+              ForEach(model.codexRecentSessions) { session in
+                Text("\(session.shortID) · \(session.profile) · \(session.decisionCount) decisions")
+                  .tag(session.id)
+              }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 420, alignment: .leading)
+
+            Picker("Identity group filter", selection: Binding(
+              get: { model.codexComparisonGroupKey },
+              set: { model.setCodexComparisonGroup($0) }
+            )) {
+              Text("All identity groups").tag("")
+              ForEach(Array(Set(model.codexSmartDecisions.map(\.groupKey))).sorted(), id: \.self) { groupKey in
+                Text(groupKey).tag(groupKey)
+              }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 420, alignment: .leading)
+
+            Text(model.codexComparisonStatus)
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+            if !model.codexVisibleComparisonDeltas.isEmpty {
+              LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(model.codexVisibleComparisonDeltas.prefix(12))) { delta in
+                  Text("\(delta.kind.rawValue.uppercased()) · \(delta.sourcePath)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(delta.kind == .unchanged ? DashboardTheme.muted : DashboardTheme.warning)
+                    .textSelection(.enabled)
+                }
+              }
+            }
+
+            HStack(spacing: 8) {
+              TextField("Why rebuild the scan baseline?", text: $model.codexBaselineRebuildReason)
+                .textFieldStyle(.plain)
+                .foregroundStyle(DashboardTheme.text)
+                .dashboardFieldStyle()
+              Button("Rebuild baseline") {
+                model.rebuildCodexScanBaseline()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+              .disabled(model.codexBaselineRebuildReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
             if !model.codexRecentSessions.isEmpty {
               DisclosureGroup("Recent catalog sessions · \(model.codexRecentSessions.count)") {
                 ForEach(model.codexRecentSessions) { session in

@@ -831,6 +831,22 @@ final class CodexCatalogStore: @unchecked Sendable {
     return CodexScanTimingEvidence(sessionID: sessionID, discoveryMilliseconds: fields[0], decisionMilliseconds: fields[1], totalMilliseconds: fields[2], discoveredSourceCount: fields[3], evaluatedSourceCount: fields[4], reusedSourceCount: fields[5], changedSourceCount: fields[6], affectedGroupCount: fields[7])
   }
 
+  func sourceDeltas(for sessionID: String) -> [CodexSourceDelta] {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return [] }
+    let sql = "SELECT source_path || char(9) || kind || char(9) || previous_fingerprint || char(9) || current_fingerprint FROM session_source_deltas WHERE session_id=\(quote(sessionID)) ORDER BY source_path;"
+    guard let output = runQuery(sql) else { return [] }
+    return output.split(whereSeparator: \.isNewline).compactMap { row in
+      let fields = row.split(separator: "\t", maxSplits: 3).map(String.init)
+      guard fields.count == 4, let kind = CodexSourceDelta.Kind(rawValue: fields[1]) else { return nil }
+      return CodexSourceDelta(
+        sourcePath: fields[0],
+        kind: kind,
+        previousFingerprint: fields[2].isEmpty ? nil : fields[2],
+        currentFingerprint: fields[3].isEmpty ? nil : fields[3]
+      )
+    }
+  }
+
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

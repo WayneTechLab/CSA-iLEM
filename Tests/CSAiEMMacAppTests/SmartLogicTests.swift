@@ -392,6 +392,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(reopened.recentSessions(limit: 1).first?.id, session.id)
     XCTAssertEqual(reopened.recentSessions(limit: 1).first?.sourceRoots, session.sourceRoots)
     XCTAssertEqual(reopened.timing(for: session.id), timing)
+    XCTAssertEqual(reopened.sourceDeltas(for: session.id), [delta])
   }
 
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
