@@ -16560,7 +16560,8 @@ struct ContentView: View {
                     .foregroundStyle(DashboardTheme.muted)
                   ForEach(model.codexVisibleEvidenceHistory) { record in
                     HStack(spacing: 8) {
-                      Button(record.sourceName + " · " + String(record.bundle.rows.count) + " row(s) · " + record.profileLabel + " · " + record.profileAuditLabel) {
+                      let historyLabel = record.sourceName + " · " + String(record.bundle.rows.count) + " row(s) · " + record.profileLabel + " · " + record.profileAuditLabel + " · " + record.compatibilityState.label
+                      Button(historyLabel) {
                         model.inspectCodexEvidenceRecord(record)
                       }
                       .buttonStyle(.plain)
@@ -16632,6 +16633,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                   Text("Current " + importedCurrentSession + " · baseline " + importedBaselineSession)
                   Text("Rule versions: " + importedRuleVersions)
+                  Text("Profile metadata: " + CodexImportedEvidenceRecord(id: "inspected", sourceName: "", importedAt: imported.exportedAt, bundle: imported).compatibilityState.label)
                   if let importedProfile = imported.selectedScanProfile {
                     Text("Exported scan profile: " + importedProfile.rawValue)
                   }

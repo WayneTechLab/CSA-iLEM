@@ -448,8 +448,37 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(restored.bundle.currentSessionID, "current-history")
     XCTAssertEqual(restored.profileLabel, "unknown")
     XCTAssertEqual(restored.profileAuditLabel, "assessment unavailable")
+    XCTAssertEqual(restored.compatibilityState, .legacy)
     XCTAssertTrue(CodexEvidenceHistoryFilter.legacyUnknown.includes(restored))
     XCTAssertFalse(CodexEvidenceHistoryFilter.profileMatched.includes(restored))
+  }
+
+  func testImportedEvidenceCompatibilityDistinguishesCompleteAndPartialMetadata() {
+    let routeSummary = CodexEvidenceScanRouteSummary(totalCount: 1, metadataTriageCount: 0, targetedVerificationCount: 0, noDeepScanCount: 1)
+    let assessment = CodexSmartLogicEngine.profileAssessment(profile: .fastIndex, routeSummary: routeSummary)
+    let completeBundle = CodexComparisonEvidenceBundle(
+      exportedAt: observedDate,
+      currentSessionID: "complete",
+      baselineSessionID: nil,
+      currentRuleVersion: "smart-logic-v3.9",
+      baselineRuleVersion: nil,
+      rows: [],
+      selectedScanProfile: .fastIndex,
+      profileAssessment: assessment
+    )
+    let partialBundle = CodexComparisonEvidenceBundle(
+      exportedAt: observedDate,
+      currentSessionID: "partial",
+      baselineSessionID: nil,
+      currentRuleVersion: "smart-logic-v3.9",
+      baselineRuleVersion: nil,
+      rows: [],
+      selectedScanProfile: .fastIndex,
+      profileAssessment: nil
+    )
+
+    XCTAssertEqual(CodexImportedEvidenceRecord(id: "complete", sourceName: "complete.json", importedAt: observedDate, bundle: completeBundle).compatibilityState, .complete)
+    XCTAssertEqual(CodexImportedEvidenceRecord(id: "partial", sourceName: "partial.json", importedAt: observedDate, bundle: partialBundle).compatibilityState, .partial)
   }
 
   func testAuthorityComparisonKeepsLiveAndImportedEvidenceDistinct() {
@@ -829,13 +858,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.9" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.0" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.9" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.0" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

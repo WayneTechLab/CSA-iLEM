@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added Phase 13.25 compatibility states for retained evidence imports, distinguishing complete profile metadata from partial metadata and legacy exports in the native inspection UI.
+
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.
 - Added Phase 13.12 arbitrary session comparison with source-level group/classification/fingerprint transition explanations.

@@ -261,6 +261,20 @@ catalog, profile selection, or operation gates.
 
 ## GitHub issue actions
 
+## Phase 13.25 evidence compatibility labeling
+
+Retained comparison imports now expose a read-only compatibility state beside
+the scan profile and assessment:
+
+- `profile metadata complete`: both fields are available.
+- `profile metadata partial`: exactly one field is available and the operator
+  should review the evidence before relying on the route assessment.
+- `legacy profile metadata`: both fields are absent because the export predates
+  the profile metadata contract.
+
+This is a triage aid only. It does not modify imported JSON, merge anything into
+the live catalog, or change the authority boundary.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.24 retained-history filtering is in progress. The native app now
+Next phase: Phase 13.25 retained-evidence compatibility labeling is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -121,6 +121,11 @@ the bundle. The history remains local, bounded, and read-only.
 Phase 13.24 adds read-only filters for Full Verification recommended, profile
 matched, and legacy or unknown entries. Filtering changes only the visible
 history list and never changes retained evidence or live catalog state.
+
+Phase 13.25 adds read-only compatibility labels for retained evidence imports:
+complete when both profile fields are present, partial when exactly one is
+present, and legacy when the export predates profile metadata. Partial and
+legacy evidence remain non-authoritative and require operator review.
 not discard available local research evidence.
 
 Long-range product roadmap:

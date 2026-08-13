@@ -265,6 +265,30 @@ struct CodexComparisonEvidenceBundle: Codable, Hashable, Sendable {
   let profileAssessment: CodexEvidenceProfileAssessment?
 }
 
+enum CodexEvidenceCompatibilityState: String, Codable, CaseIterable, Identifiable, Sendable {
+  case complete
+  case partial
+  case legacy
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .complete: return "profile metadata complete"
+    case .partial: return "profile metadata partial"
+    case .legacy: return "legacy profile metadata"
+    }
+  }
+
+  var explanation: String {
+    switch self {
+    case .complete: return "Scan profile and profile assessment are both present."
+    case .partial: return "Only one profile metadata field is present; review before relying on the assessment."
+    case .legacy: return "Export predates profile metadata and should be treated as unknown context."
+    }
+  }
+}
+
 struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
   let id: String
   let sourceName: String
@@ -278,6 +302,14 @@ struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
   var profileAuditLabel: String {
     guard let assessment = bundle.profileAssessment else { return "assessment unavailable" }
     return assessment.strongerProfileRecommended ? "Full Verification recommended" : "profile matched route"
+  }
+
+  var compatibilityState: CodexEvidenceCompatibilityState {
+    switch (bundle.selectedScanProfile != nil, bundle.profileAssessment != nil) {
+    case (true, true): return .complete
+    case (false, false): return .legacy
+    default: return .partial
+    }
   }
 }
 

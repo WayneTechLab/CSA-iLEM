@@ -248,6 +248,13 @@ Current Phase 13.24 slice:
 - preserve the live catalog, retained bundles, profile selection, and all
   operation gates unchanged.
 
+Current Phase 13.25 slice:
+- label retained evidence as complete, partial, or legacy based on the presence
+  of scan-profile metadata;
+- expose the compatibility state before opening an imported bundle;
+- keep compatibility assessment read-only and unable to alter catalog state or
+  authorize an operation.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
