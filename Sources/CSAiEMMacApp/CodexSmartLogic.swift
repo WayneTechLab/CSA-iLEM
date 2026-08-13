@@ -272,6 +272,48 @@ struct CodexImportedRouteReceiptRecord: Codable, Hashable, Identifiable, Sendabl
   let bundle: CodexRouteReceiptExportBundle
 }
 
+enum CodexRouteReceiptComparisonKind: String, Codable, CaseIterable, Sendable {
+  case unchanged
+  case changed
+  case liveOnly
+  case importedOnly
+
+  var label: String {
+    switch self {
+    case .unchanged: return "unchanged"
+    case .changed: return "changed"
+    case .liveOnly: return "live only"
+    case .importedOnly: return "imported only"
+    }
+  }
+}
+
+struct CodexRouteReceiptComparisonRow: Codable, Hashable, Identifiable, Sendable {
+  let sourcePath: String
+  let kind: CodexRouteReceiptComparisonKind
+  let liveState: CodexRouteReceiptState?
+  let importedState: CodexRouteReceiptState?
+  let liveRoute: CodexEvidenceScanRoute?
+  let importedRoute: CodexEvidenceScanRoute?
+  let liveAttemptCount: Int?
+  let importedAttemptCount: Int?
+  let explanation: String
+
+  var id: String { sourcePath }
+}
+
+struct CodexRouteReceiptComparisonSummary: Codable, Hashable, Sendable {
+  let totalCount: Int
+  let unchangedCount: Int
+  let changedCount: Int
+  let liveOnlyCount: Int
+  let importedOnlyCount: Int
+
+  var headline: String {
+    "\(changedCount) changed · \(liveOnlyCount) live only · \(importedOnlyCount) imported only · \(unchangedCount) unchanged"
+  }
+}
+
 enum CodexEvidenceCompatibilityState: String, Codable, CaseIterable, Identifiable, Sendable {
   case complete
   case partial
@@ -537,6 +579,59 @@ struct CodexRouteReceiptExportBundle: Codable, Hashable, Sendable {
 }
 
 extension CodexSmartLogicEngine {
+  static func compareRouteReceipts(
+    live: [CodexScanRouteReceipt],
+    imported: [CodexScanRouteReceipt]
+  ) -> [CodexRouteReceiptComparisonRow] {
+    let liveByPath = Dictionary(uniqueKeysWithValues: live.map { ($0.sourcePath, $0) })
+    let importedByPath = Dictionary(uniqueKeysWithValues: imported.map { ($0.sourcePath, $0) })
+    let paths = Set(liveByPath.keys).union(importedByPath.keys).sorted()
+    return paths.map { path in
+      let liveReceipt = liveByPath[path]
+      let importedReceipt = importedByPath[path]
+      let kind: CodexRouteReceiptComparisonKind
+      let explanation: String
+      if let liveReceipt, let importedReceipt {
+        if liveReceipt.state == importedReceipt.state,
+           liveReceipt.route == importedReceipt.route,
+           liveReceipt.attemptCount == importedReceipt.attemptCount {
+          kind = .unchanged
+          explanation = "Live catalog and imported evidence agree on route, state, and attempt count."
+        } else {
+          kind = .changed
+          explanation = "Live catalog differs from imported evidence; imported values remain read-only context."
+        }
+      } else if liveReceipt != nil {
+        kind = .liveOnly
+        explanation = "Source exists in the live catalog but not in the imported bundle."
+      } else {
+        kind = .importedOnly
+        explanation = "Source exists only in imported evidence; it cannot enter live execution from this comparison."
+      }
+      return CodexRouteReceiptComparisonRow(
+        sourcePath: path,
+        kind: kind,
+        liveState: liveReceipt?.state,
+        importedState: importedReceipt?.state,
+        liveRoute: liveReceipt?.route,
+        importedRoute: importedReceipt?.route,
+        liveAttemptCount: liveReceipt?.attemptCount,
+        importedAttemptCount: importedReceipt?.attemptCount,
+        explanation: explanation
+      )
+    }
+  }
+
+  static func routeReceiptComparisonSummary(_ rows: [CodexRouteReceiptComparisonRow]) -> CodexRouteReceiptComparisonSummary {
+    CodexRouteReceiptComparisonSummary(
+      totalCount: rows.count,
+      unchangedCount: rows.filter { $0.kind == .unchanged }.count,
+      changedCount: rows.filter { $0.kind == .changed }.count,
+      liveOnlyCount: rows.filter { $0.kind == .liveOnly }.count,
+      importedOnlyCount: rows.filter { $0.kind == .importedOnly }.count
+    )
+  }
+
   static func pendingRouteReceipts(_ receipts: [CodexScanRouteReceipt]) -> [CodexScanRouteReceipt] {
     receipts
       .filter { receipt in

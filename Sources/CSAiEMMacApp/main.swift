@@ -2330,6 +2330,17 @@ final class CleanupViewModel: ObservableObject {
       .filter { availablePaths.contains($0.sourcePath) }
   }
 
+  var codexRouteReceiptComparisonRows: [CodexRouteReceiptComparisonRow] {
+    guard let imported = codexImportedRouteReceiptBundle else { return [] }
+    return CodexSmartLogicEngine.compareRouteReceipts(live: codexRouteReceipts, imported: imported.receipts)
+  }
+
+  var codexRouteReceiptComparisonSummary: CodexRouteReceiptComparisonSummary? {
+    let rows = codexRouteReceiptComparisonRows
+    guard !rows.isEmpty else { return nil }
+    return CodexSmartLogicEngine.routeReceiptComparisonSummary(rows)
+  }
+
   var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
     codexImportedEvidenceHistory.filter { codexEvidenceHistoryFilter.includes($0) }
   }
@@ -17020,6 +17031,7 @@ struct ContentView: View {
         .font(.system(size: 11, weight: .semibold, design: .rounded))
         .foregroundStyle(DashboardTheme.text)
       }
+      codexRouteReceiptComparisonPanel()
       if !model.codexImportedRouteReceiptHistory.isEmpty {
         DisclosureGroup("Imported route receipt history · " + String(model.codexImportedRouteReceiptHistory.count)) {
           VStack(alignment: .leading, spacing: 5) {
@@ -17048,6 +17060,39 @@ struct ContentView: View {
         .font(.system(size: 11, weight: .semibold, design: .rounded))
         .foregroundStyle(DashboardTheme.text)
       }
+    }
+  }
+
+  @ViewBuilder
+  private func codexRouteReceiptComparisonPanel() -> some View {
+    if let summary = model.codexRouteReceiptComparisonSummary {
+      DisclosureGroup("Live vs imported receipt comparison · " + String(summary.totalCount) + " source(s)") {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(summary.headline)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+          Text("Read-only comparison; imported evidence cannot alter live pending-route selection.")
+            .foregroundStyle(DashboardTheme.warning)
+          ForEach(Array(model.codexRouteReceiptComparisonRows.prefix(12))) { row in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(row.kind.label.uppercased() + " · " + row.sourcePath)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(row.kind == .changed ? DashboardTheme.warning : DashboardTheme.muted)
+                .textSelection(.enabled)
+              Text(row.explanation)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+            }
+          }
+          if model.codexRouteReceiptComparisonRows.count > 12 {
+            Text("Showing the first 12 comparison rows.")
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+        }
+        .padding(.top, 4)
+      }
+      .font(.system(size: 10, weight: .semibold, design: .rounded))
+      .foregroundStyle(DashboardTheme.text)
     }
   }
 

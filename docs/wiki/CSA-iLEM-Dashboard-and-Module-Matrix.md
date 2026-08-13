@@ -333,6 +333,14 @@ controls. Imported receipts are labeled **IMPORTED BUNDLE · read-only** and are
 never merged into the live SQLite catalog, pending-route predicate, or resume
 selection. The live catalog remains the only authority for operation state.
 
+## Phase 13.32 live versus imported receipt comparison
+
+When both a live catalog session and an imported route-receipt bundle are
+available, the dashboard shows a read-only comparison. Rows are classified as
+unchanged, changed, live only, or imported only, in deterministic source-path
+order. A changed or imported-only row is evidence for operator review; it does
+not create a pending route, alter the live receipt, or authorize a resume.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

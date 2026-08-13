@@ -296,6 +296,12 @@ Current Phase 13.31 slice:
 - label imported receipts as read-only provenance and keep them separate from live
   pending-route selection and execution.
 
+Current Phase 13.32 slice:
+- compare imported route receipts with the active live session by source path;
+- classify unchanged, changed, live-only, and imported-only rows deterministically;
+- show transitions as read-only evidence without changing live resume predicates or
+  operation authority.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

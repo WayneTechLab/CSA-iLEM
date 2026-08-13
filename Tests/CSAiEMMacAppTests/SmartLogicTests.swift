@@ -438,6 +438,23 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(csv.contains("\"needs, review\""))
   }
 
+  func testRouteReceiptComparisonKeepsImportedOnlyRowsReadOnlyAndSortsBySource() {
+    let live = CodexScanRouteReceipt(sessionID: "live", sourcePath: "/tmp/a-source", route: .targetedVerification, state: .completed, attemptCount: 2, updatedAt: observedDate, detail: "live")
+    let imported = [
+      CodexScanRouteReceipt(sessionID: "imported", sourcePath: "/tmp/z-source", route: .metadataTriage, state: .planned, attemptCount: 0, updatedAt: observedDate, detail: "imported only"),
+      CodexScanRouteReceipt(sessionID: "imported", sourcePath: "/tmp/a-source", route: .targetedVerification, state: .failed, attemptCount: 1, updatedAt: observedDate, detail: "older state")
+    ]
+
+    let rows = CodexSmartLogicEngine.compareRouteReceipts(live: [live], imported: imported)
+    XCTAssertEqual(rows.map(\.sourcePath), ["/tmp/a-source", "/tmp/z-source"])
+    XCTAssertEqual(rows.map(\.kind), [.changed, .importedOnly])
+    XCTAssertTrue(rows[1].explanation.contains("cannot enter live execution"))
+    let summary = CodexSmartLogicEngine.routeReceiptComparisonSummary(rows)
+    XCTAssertEqual(summary.changedCount, 1)
+    XCTAssertEqual(summary.importedOnlyCount, 1)
+    XCTAssertEqual(summary.liveOnlyCount, 0)
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -950,8 +967,8 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.6" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.4" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.7" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.5" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
