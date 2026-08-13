@@ -384,6 +384,14 @@ Current Phase 12.3 slice:
 - remote `gh issue create` available only after an explicit arm toggle,
   authenticated context, selected repository, and non-empty reviewed draft.
 
+Current Phase 12.4 slice:
+- deterministic incident clusters group repeated failures by operation,
+  lifecycle stage, source, and destination;
+- grouped open and fatal counts make repeated failures visible as one chain
+  without hiding the individual job records;
+- selecting a cluster focuses the first incident for retry, resolution, and
+  redacted issue handoff.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

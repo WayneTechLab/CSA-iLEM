@@ -85,6 +85,49 @@ struct CSAiEMIncidentEvidence: Codable, Hashable {
   }
 }
 
+struct CSAiEMIncidentCluster: Identifiable, Hashable {
+  let key: String
+  let incidentIDs: [String]
+  let stage: String
+  let target: String
+  let openCount: Int
+  let fatalCount: Int
+
+  var id: String { key }
+
+  var summary: String {
+    "\(incidentIDs.count) incident(s) · \(openCount) open · \(fatalCount) fatal · \(stage)"
+  }
+
+  static func group(_ incidents: [CSAiEMIncident]) -> [CSAiEMIncidentCluster] {
+    var buckets: [String: [CSAiEMIncident]] = [:]
+    for incident in incidents {
+      let identity = incident.evidence.source ?? incident.target
+      let destination = incident.evidence.destination ?? ""
+      let normalized = [incident.kind, incident.evidence.stage, identity, destination]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .joined(separator: "|")
+      let key = normalized.isEmpty ? "incident:\(incident.id)" : normalized
+      buckets[key, default: []].append(incident)
+    }
+    return buckets.map { key, values in
+      let sorted = values.sorted { $0.createdAt < $1.createdAt }
+      let first = sorted.first!
+      return CSAiEMIncidentCluster(
+        key: key,
+        incidentIDs: sorted.map(\.id),
+        stage: first.evidence.stage,
+        target: first.evidence.source ?? first.target,
+        openCount: sorted.filter { $0.state == .open }.count,
+        fatalCount: sorted.filter { $0.severity == .fatal }.count
+      )
+    }.sorted { lhs, rhs in
+      if lhs.openCount != rhs.openCount { return lhs.openCount > rhs.openCount }
+      return lhs.key < rhs.key
+    }
+  }
+}
+
 enum CSAiEMIncidentClassifier {
   static func evidence(for job: BackgroundJobEntry, severity: CSAiEMIncidentSeverity) -> CSAiEMIncidentEvidence {
     let normalizedKind = job.kind.lowercased()

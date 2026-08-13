@@ -73,6 +73,17 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(issue.url, "https://github.com/example/repo/issues/42")
   }
 
+  func testIncidentClustersGroupSameSourceStageAndDestination() {
+    let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
+    let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
+
+    let clusters = CSAiEMIncidentCluster.group([first, second])
+    XCTAssertEqual(clusters.count, 1)
+    XCTAssertEqual(clusters[0].incidentIDs, ["cluster-1", "cluster-2"])
+    XCTAssertEqual(clusters[0].openCount, 2)
+    XCTAssertEqual(clusters[0].fatalCount, 1)
+  }
+
   func testVerifiedRemoteVariantsGroupAsMergeCandidates() {
     let first = project(
       path: "/tmp/flowers-main",
@@ -537,7 +548,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

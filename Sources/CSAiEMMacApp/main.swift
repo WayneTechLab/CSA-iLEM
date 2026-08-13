@@ -1695,6 +1695,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var backgroundJobs: [BackgroundJobEntry] = []
   @Published var incidents: [CSAiEMIncident] = []
   @Published var selectedIncidentID: String?
+  @Published var selectedIncidentClusterKey: String?
   @Published var githubIssues: [GitHubIssueEntry] = []
   @Published var selectedIssueNumber: Int?
   @Published var issueTemplates: [GitHubIssueTemplate] = []
@@ -7467,15 +7468,25 @@ final class CleanupViewModel: ObservableObject {
     incidents.insert(incident, at: 0)
     selectedIncidentID = incident.id
     CSAiEMIncidentStore.save(incidents, to: incidentsFile)
+    selectedIncidentClusterKey = incidentClusters.first(where: { $0.incidentIDs.contains(incident.id) })?.key
   }
 
   var openIncidentCount: Int {
     incidents.filter { $0.state == .open }.count
   }
 
+  var incidentClusters: [CSAiEMIncidentCluster] {
+    CSAiEMIncidentCluster.group(incidents)
+  }
+
   var selectedIncident: CSAiEMIncident? {
     guard let selectedIncidentID else { return incidents.first }
     return incidents.first(where: { $0.id == selectedIncidentID }) ?? incidents.first
+  }
+
+  func selectIncidentCluster(_ cluster: CSAiEMIncidentCluster) {
+    selectedIncidentClusterKey = cluster.key
+    selectedIncidentID = cluster.incidentIDs.first
   }
 
   func resolveIncident(_ incident: CSAiEMIncident, note: String = "Resolved from CSA-iEM Jobs and Incidents.") {
@@ -7491,6 +7502,7 @@ final class CleanupViewModel: ObservableObject {
       self.selectedIncidentID = incidents.first?.id
     }
     CSAiEMIncidentStore.save(incidents, to: incidentsFile)
+    selectedIncidentClusterKey = incidentClusters.first?.key
   }
 
   func clearCompletedJobs() {
@@ -14951,6 +14963,8 @@ struct ContentView: View {
           }
         }
 
+        incidentClustersPanel
+
         if width >= 1200 {
           HStack(alignment: .top, spacing: 18) {
             incidentListPanel
@@ -14961,6 +14975,40 @@ struct ContentView: View {
         } else {
           incidentListPanel
           incidentDetailPanel
+        }
+      }
+    }
+  }
+
+  private var incidentClustersPanel: some View {
+    PanelCard(title: "Correlated incident chains", subtitle: "Incidents with the same operation, lifecycle stage, source, and destination are grouped so repeated failures do not look like unrelated projects.") {
+      if model.incidentClusters.isEmpty {
+        Text("No incident chains are available yet.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      } else {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10)], spacing: 10) {
+          ForEach(model.incidentClusters) { cluster in
+            Button { model.selectIncidentCluster(cluster) } label: {
+              VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                  Text(cluster.target.isEmpty ? "Unknown target" : cluster.target)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(DashboardTheme.text)
+                  Spacer(minLength: 5)
+                  if cluster.fatalCount > 0 { PillBadge(text: "\(cluster.fatalCount) fatal", tint: DashboardTheme.danger) }
+                }
+                Text(cluster.summary)
+                  .font(.system(size: 12, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                  .lineLimit(2)
+              }
+              .padding(12)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(model.selectedIncidentClusterKey == cluster.key ? DashboardTheme.field : DashboardTheme.panelStrong))
+            }
+            .buttonStyle(.plain)
+          }
         }
       }
     }
