@@ -222,6 +222,70 @@ struct CSAiEMResearchRepositoryMetadata: Decodable, Hashable {
   }
 }
 
+struct CSAiEMResearchReleaseEntry: Identifiable, Hashable, Codable {
+  let tagName: String
+  let name: String
+  let publishedAt: String?
+  let isDraft: Bool
+  let isPrerelease: Bool
+  let url: String?
+
+  var id: String { tagName + "|" + name }
+
+  var displayTitle: String {
+    let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return title.isEmpty ? tagName : title
+  }
+}
+
+struct CSAiEMLocalChangelogSummary: Identifiable, Hashable, Codable {
+  let path: String
+  let headings: [String]
+  let hasUnreleasedSection: Bool
+  let truncated: Bool
+  let warnings: [String]
+
+  var id: String { path }
+
+  var summary: String {
+    let sectionCount = String(headings.count) + " heading" + (headings.count == 1 ? "" : "s")
+    return sectionCount + (hasUnreleasedSection ? " · Unreleased section found" : "") + (truncated ? " · bounded read" : "")
+  }
+
+  static func scan(paths: [String], maxBytes: Int = 256_000, maxHeadings: Int = 20) -> [Self] {
+    let candidates = paths.flatMap { root in
+      [
+        URL(fileURLWithPath: root).appendingPathComponent("CHANGELOG.md").path,
+        URL(fileURLWithPath: root).appendingPathComponent("CHANGELOG").path,
+        URL(fileURLWithPath: root).appendingPathComponent("HISTORY.md").path,
+        URL(fileURLWithPath: root).appendingPathComponent("RELEASES.md").path,
+        URL(fileURLWithPath: root).appendingPathComponent("docs/CHANGELOG.md").path
+      ]
+    }
+    return Array(Set(candidates)).compactMap { scan(path: $0, maxBytes: maxBytes, maxHeadings: maxHeadings) }
+      .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+  }
+
+  static func scan(path: String, maxBytes: Int = 256_000, maxHeadings: Int = 20) -> Self? {
+    guard FileManager.default.fileExists(atPath: path), let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
+    defer { try? handle.close() }
+    let data = (try? handle.read(upToCount: maxBytes)) ?? Data()
+    guard let text = String(data: data, encoding: .utf8) else {
+      return Self(path: path, headings: [], hasUnreleasedSection: false, truncated: true, warnings: ["Changelog is not valid UTF-8."])
+    }
+    let headings = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+      let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard value.hasPrefix("#") else { return nil }
+      return value.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+    }
+    let boundedHeadings = Array(headings.prefix(maxHeadings))
+    var warnings: [String] = []
+    if data.count >= maxBytes { warnings.append("Changelog read capped at " + String(maxBytes) + " bytes.") }
+    if headings.count > maxHeadings { warnings.append("Heading list capped at " + String(maxHeadings) + " entries.") }
+    return Self(path: path, headings: boundedHeadings, hasUnreleasedSection: headings.contains { $0.caseInsensitiveCompare("Unreleased") == .orderedSame }, truncated: data.count >= maxBytes || headings.count > maxHeadings, warnings: warnings)
+  }
+}
+
 struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
   let id: String
   let repository: String
@@ -241,6 +305,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
   let updatedAt: String
   let localMatches: [String]
   let localSummaries: [CSAiEMLocalCodebaseSummary]
+  let releases: [CSAiEMResearchReleaseEntry]
+  let localChangelogs: [CSAiEMLocalChangelogSummary]
   let riskNotes: [String]
   let relationshipNotes: [String]
 
@@ -254,6 +320,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
     metadata: CSAiEMResearchRepositoryMetadata,
     localMatches: [String],
     localSummaries: [CSAiEMLocalCodebaseSummary] = [],
+    releases: [CSAiEMResearchReleaseEntry] = [],
+    localChangelogs: [CSAiEMLocalChangelogSummary] = [],
     capturedAt: Date = Date()
   ) -> Self {
     var risks: [String] = []
@@ -296,6 +364,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
       updatedAt: metadata.updatedAt ?? "",
       localMatches: localMatches.sorted(),
       localSummaries: localSummaries.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
+      releases: releases,
+      localChangelogs: localChangelogs.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
       riskNotes: risks,
       relationshipNotes: relationships
     )

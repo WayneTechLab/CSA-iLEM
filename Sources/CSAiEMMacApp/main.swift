@@ -6670,8 +6670,17 @@ final class CleanupViewModel: ObservableObject {
           }
         let uniqueMatches = Array(Set(matches)).sorted()
         let localSummaries = CSAiEMLocalCodebaseSummary.scan(paths: uniqueMatches)
-        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries)
-        self.researchStatus = "Read-only intelligence snapshot ready for (repo). Review evidence before any import, merge, backup, or cleanup action."
+        let releaseResult = Self.runCommand(
+          executable: ghPath,
+          arguments: ["release", "list", "--repo", repo, "--limit", "20", "--json", "tagName,name,publishedAt,isDraft,isPrerelease,url"],
+          environment: environment,
+          timeout: 30
+        )
+        let releases = releaseResult.status == 0 ? (Self.decodeJSONArray([CSAiEMResearchReleaseEntry].self, from: releaseResult.output) ?? []) : []
+        let localChangelogs = CSAiEMLocalChangelogSummary.scan(paths: uniqueMatches)
+        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs)
+        let releaseNote = releaseResult.status == 0 ? "" : " Release history was unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(releaseResult.status), output: releaseResult.output).title + "]; local evidence remains available."
+        self.researchStatus = "Read-only intelligence snapshot ready for " + repo + ". Review evidence before any import, merge, backup, or cleanup action." + releaseNote
         self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
       }
     }
@@ -17996,6 +18005,56 @@ struct ContentView: View {
                 }
                 if summary.warnings.isEmpty == false {
                   Text("Review: " + summary.warnings.joined(separator: " "))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.warning)
+                }
+              }
+              .padding(10)
+              .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
+            }
+          }
+
+          FieldLabel(text: "Release history")
+          if snapshot.releases.isEmpty {
+            Text("No release entries were returned by GitHub for this repository.")
+              .font(.system(size: 12, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          } else {
+            ForEach(snapshot.releases) { release in
+              HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(release.displayTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DashboardTheme.text)
+                  Text([release.tagName, release.publishedAt ?? "date unavailable"].joined(separator: " · "))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                Spacer(minLength: 8)
+                if release.isDraft { PillBadge(text: "DRAFT", tint: DashboardTheme.warning) }
+                if release.isPrerelease { PillBadge(text: "PRE", tint: DashboardTheme.deepBlue) }
+              }
+            }
+          }
+
+          if snapshot.localChangelogs.isEmpty == false {
+            FieldLabel(text: "Local changelog evidence")
+            ForEach(snapshot.localChangelogs) { changelog in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(changelog.path)
+                  .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.text)
+                  .textSelection(.enabled)
+                Text(changelog.summary)
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                if changelog.headings.isEmpty == false {
+                  Text(changelog.headings.prefix(8).joined(separator: " · "))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                if changelog.warnings.isEmpty == false {
+                  Text("Review: " + changelog.warnings.joined(separator: " "))
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(DashboardTheme.warning)
                 }

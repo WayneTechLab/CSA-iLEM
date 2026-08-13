@@ -197,6 +197,24 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(summary.topLevelEntries.contains("node_modules"))
   }
 
+  func testResearchReleaseAndChangelogEvidenceIsBoundedAndProvenanceAware() throws {
+    let releases = try JSONDecoder().decode([CSAiEMResearchReleaseEntry].self, from: Data("""
+    [{"tagName":"v1.2.0","name":"Spring release","publishedAt":"2026-08-13T00:00:00Z","isDraft":false,"isPrerelease":true,"url":"https://github.com/example/repo/releases/tag/v1.2.0"}]
+    """.utf8))
+    XCTAssertEqual(releases.first?.displayTitle, "Spring release")
+    XCTAssertTrue(releases.first?.isPrerelease == true)
+
+    let path = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-changelog-(UUID().uuidString).md")
+    defer { try? FileManager.default.removeItem(at: path) }
+    let content = "# Changelog\n\n## Unreleased\n\n## 1.2.0\n\n## 1.1.0\n"
+    try Data(content.utf8).write(to: path)
+    let summary = try XCTUnwrap(CSAiEMLocalChangelogSummary.scan(path: path.path, maxBytes: 256_000, maxHeadings: 10))
+    XCTAssertTrue(summary.hasUnreleasedSection)
+    XCTAssertEqual(summary.headings, ["Changelog", "Unreleased", "1.2.0", "1.1.0"])
+    XCTAssertFalse(summary.truncated)
+    XCTAssertTrue(summary.path.hasSuffix(".md"))
+  }
+
   func testIncidentClustersGroupSameSourceStageAndDestination() {
     let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
     let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
@@ -674,7 +692,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.2" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

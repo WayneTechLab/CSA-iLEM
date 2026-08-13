@@ -11,6 +11,10 @@
   and dependency summaries. The native scanner reports file/source/byte counts,
   manifests, source extensions, Git/README evidence, and common dependency
   names while excluding generated/vendor trees and avoiding package installs.
+- Extended Phase 13.3 research with bounded GitHub release history and local
+  changelog evidence. Remote tags/titles/dates/draft state retain provider
+  provenance, while local CHANGELOG/HISTORY/RELEASES headings and Unreleased
+  detection remain separate and visibly bounded.
 - Started Phase 12.1 Incident Hub with a local persisted ledger, automatic
   failed/cancelled-job records, fatal-versus-recoverable classification,
   redacted issue drafts, retry-originating-job, resolve, and retention

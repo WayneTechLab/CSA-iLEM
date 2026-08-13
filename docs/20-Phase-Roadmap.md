@@ -450,6 +450,17 @@ Current Phase 13.2 slice:
   read-only metadata that cannot select a canonical source or authorize a
   transfer, merge, backup, or cleanup.
 
+Current Phase 13.3 slice:
+- the selected-repository research snapshot reads a bounded list of GitHub
+  releases through `gh release list`, retaining tag, title, publication date,
+  draft/prerelease state, and provider URL provenance;
+- local `CHANGELOG`, `HISTORY`, and `RELEASES` files are inspected only at
+  bounded candidate paths, with heading, Unreleased-section, byte-cap, and
+  truncation evidence retained separately from remote release data;
+- release-history read failure is visible as a provider outcome while local
+  codebase and changelog evidence remains available, and neither source is
+  treated as an authorization or canonical-source decision.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

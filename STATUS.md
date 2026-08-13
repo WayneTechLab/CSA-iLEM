@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.2 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.3 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -30,6 +30,10 @@ Matched local paths now also receive bounded codebase and dependency summaries
 with generated-tree exclusions, file/source/byte counts, manifest evidence, and
 review warnings. Dependency extraction is limited to common local manifests and
 does not install, resolve, or contact package providers.
+Research snapshots now also retain bounded remote release entries and local
+CHANGELOG/HISTORY/RELEASES heading evidence with explicit provenance,
+Unreleased detection, and truncation warnings. Remote release read failures do
+not discard available local research evidence.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)

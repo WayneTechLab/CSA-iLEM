@@ -106,6 +106,20 @@ install, resolve, fetch, or modify dependencies during research. These results
 are evidence for review and cannot authorize a merge, backup, cleanup, or
 remote write.
 
+## Release and changelog evidence
+
+The research snapshot reads at most 20 remote releases for the selected
+repository through `gh release list`. Each entry retains its tag, title,
+publication date, draft/prerelease state, and provider URL. This is remote
+provider evidence and is not merged with local documentation.
+
+For each matched local path, bounded candidate files such as `CHANGELOG.md`,
+`HISTORY.md`, `RELEASES.md`, and `docs/CHANGELOG.md` are inspected. CSA-iLEM
+retains headings, whether an `Unreleased` section exists, and explicit byte or
+heading caps. A provider release-read failure is reported without discarding
+local codebase or changelog evidence. Neither release source authorizes a
+canonical source, merge, backup, cleanup, or remote write.
+
 ## Install and update invariant
 
 The installer reads `VERSION`, builds one `CSA-iEM.app`, replaces the target
