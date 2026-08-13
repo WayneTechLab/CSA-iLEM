@@ -402,6 +402,15 @@ Current Phase 12.5 slice:
 - each mutation is recorded in the local Jobs Center and requires a deliberate
   issue-list reload to verify provider-side state.
 
+Current Phase 12.6 slice:
+- accepted issue mutations perform an automatic provider read-back through
+  `gh issue view` for the exact issue and host/repository context;
+- state changes, label additions/removals, and submitted comment presence are
+  checked against the requested mutation before the job is marked successful;
+- provider rejection, malformed read-back, or state mismatch becomes a local
+  failed job/incident instead of a false success, while the issue list is
+  refreshed for operator review.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

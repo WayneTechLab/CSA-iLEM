@@ -6360,6 +6360,7 @@ final class CleanupViewModel: ObservableObject {
 
     isLoadingIssues = true
     issueStatus = "Loading issues for \(repo)…"
+    let previousSelection = selectedIssueNumber
     let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
@@ -6377,7 +6378,7 @@ final class CleanupViewModel: ObservableObject {
         }
         do {
           self.githubIssues = try JSONDecoder().decode([GitHubIssueEntry].self, from: Data(result.output.utf8))
-          self.selectedIssueNumber = self.githubIssues.first?.number
+          self.selectedIssueNumber = self.githubIssues.contains(where: { $0.number == previousSelection }) ? previousSelection : self.githubIssues.first?.number
           self.issueMutationArmed = false
           self.issueMutationStatus = self.githubIssues.isEmpty ? "No issue selected." : "Select an issue and review the proposed remote action."
           self.issueStatus = "Loaded \(self.githubIssues.count) issue(s) for \(repo)."
@@ -6434,9 +6435,37 @@ final class CleanupViewModel: ObservableObject {
       DispatchQueue.main.async {
         self.issueMutationArmed = false
         if result.status == 0 {
-          let output = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
-          self.issueMutationStatus = "GitHub issue action completed. Reload the issue list to confirm remote state."
-          self.updateJob(id: jobID, state: .succeeded, detail: output.isEmpty ? "Remote issue action completed." : output)
+          self.issueMutationStatus = "Remote action accepted. Verifying provider state…"
+          let verificationArguments = CSAiEMGitHubIssueVerifier.arguments(for: command.issueNumber) + ["--repo", repo]
+          DispatchQueue.global(qos: .userInitiated).async {
+            let verification = Self.runCommand(executable: ghPath, arguments: verificationArguments, environment: environment)
+            DispatchQueue.main.async {
+              guard verification.status == 0 else {
+                let detail = "Remote action was accepted, but provider read-back failed: \(redactSensitiveText(verification.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+                self.issueMutationStatus = detail
+                self.finishJob(id: jobID, state: .failed, detail: detail)
+                self.loadGitHubIssues()
+                return
+              }
+              do {
+                let payload = try JSONDecoder().decode(CSAiEMGitHubIssueVerificationPayload.self, from: Data(verification.output.utf8))
+                switch CSAiEMGitHubIssueVerifier.verify(payload, command: command) {
+                case .success(let detail):
+                  self.issueMutationStatus = "\(detail) Remote issue state confirmed."
+                  self.updateJob(id: jobID, state: .succeeded, detail: detail)
+                case .failure(let error):
+                  let detail = "Remote action was accepted, but provider read-back did not match: \(error.localizedDescription)"
+                  self.issueMutationStatus = detail
+                  self.finishJob(id: jobID, state: .failed, detail: detail)
+                }
+              } catch {
+                let detail = "Remote action was accepted, but provider read-back could not be decoded: \(error.localizedDescription)"
+                self.issueMutationStatus = detail
+                self.finishJob(id: jobID, state: .failed, detail: detail)
+              }
+              self.loadGitHubIssues()
+            }
+          }
         } else {
           self.issueMutationStatus = "GitHub issue action failed: \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
           self.finishJob(id: jobID, state: .failed, detail: self.issueMutationStatus)
@@ -15217,7 +15246,7 @@ struct ContentView: View {
 
   private var issueMutationPanel: some View {
     PanelCard(title: "Reviewed issue action", subtitle: "Comment, lifecycle, and label changes stay disabled until you select an issue and explicitly arm this exact remote mutation.") {
-      BannerCard(title: model.issueMutationStatus, detail: "The action is executed through the authenticated GitHub CLI session. Reload the list after completion to verify provider state.", kind: model.issueMutationArmed ? .warning : .ready)
+      BannerCard(title: model.issueMutationStatus, detail: "The action is executed through the authenticated GitHub CLI session. CSA-iLEM reads the provider state back and marks the job successful only when it matches.", kind: model.issueMutationArmed ? .warning : .ready)
 
       HStack(spacing: 10) {
         Picker("Action", selection: Binding(get: { model.selectedIssueMutation }, set: { value in

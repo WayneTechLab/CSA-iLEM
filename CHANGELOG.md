@@ -19,6 +19,10 @@
   close/reopen lifecycle changes, and label additions/removals. Each provider
   mutation is validated, explicitly armed, routed through the existing `gh`
   bridge, and recorded in the local Jobs Center for reload-based verification.
+- Added Phase 12.6 provider-state confirmation. Accepted mutations now read
+  back the exact issue through `gh issue view` and verify state, labels, or
+  comment presence before marking the job successful; rejected, malformed, or
+  mismatched provider responses become visible failed jobs/incidents.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately

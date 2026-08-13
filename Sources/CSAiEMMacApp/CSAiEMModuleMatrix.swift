@@ -22,7 +22,7 @@ struct CSAiEMModuleTag: Identifiable, Hashable, Codable {
     .init(id: "transfer-receipts", name: "Transfer receipts", area: "Engine", version: "receipt-v2", tag: "engine.receipts", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "stage2", name: "Stage 2 reconciliation", area: "Feature", version: appVersion, tag: "feature.stage2", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "stage3", name: "Stage 3 cleanup", area: "Feature", version: appVersion, tag: "feature.stage3", state: "primary", lastUpdated: "2026-08-11"),
-    .init(id: "github-bridge", name: "GitHub bridge", area: "Bridge", version: "issues-v1.1", tag: "bridge.github", state: "phase-12.5", lastUpdated: "2026-08-13"),
+    .init(id: "github-bridge", name: "GitHub bridge", area: "Bridge", version: "issues-v1.2", tag: "bridge.github", state: "phase-12.6", lastUpdated: "2026-08-13"),
     .init(id: "local-files", name: "Local files and workspace roots", area: "Feature", version: appVersion, tag: "feature.local-files", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "runner-bridge", name: "Runner and devcontainer bridge", area: "Bridge", version: appVersion, tag: "bridge.runners", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "recovery", name: "Recovery and resume", area: "Engine", version: appVersion, tag: "engine.recovery", state: "primary", lastUpdated: "2026-08-11"),

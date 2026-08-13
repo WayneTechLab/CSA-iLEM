@@ -11,12 +11,13 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 12.5 native issue actions are in progress. The native app now
+Next phase: Phase 12.6 provider-state confirmation is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
-Provider-side permission and failure scenarios remain operator-visible and are
-recorded through the Jobs Center for later review.
+Accepted mutations now require automatic `gh issue view` read-back confirmation;
+provider rejection, malformed responses, and state mismatches remain
+operator-visible through the Jobs Center and Incident Hub.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)

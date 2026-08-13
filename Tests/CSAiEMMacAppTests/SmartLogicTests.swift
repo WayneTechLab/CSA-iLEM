@@ -95,6 +95,37 @@ final class SmartLogicTests: XCTestCase {
     }
   }
 
+  func testGitHubIssueVerifierConfirmsStateLabelsAndCommentPresence() throws {
+    let close = try CSAiEMGitHubIssueCommand.make(mutation: .close, issueNumber: 42, body: "", labels: "")
+    let closedPayload = try JSONDecoder().decode(CSAiEMGitHubIssueVerificationPayload.self, from: Data("""
+    {"state":"CLOSED","labels":[{"name":"incident"}],"comments":[]}
+    """.utf8))
+    XCTAssertEqual(try CSAiEMGitHubIssueVerifier.verify(closedPayload, command: close).get(), "Closed state verified.")
+
+    let addLabel = try CSAiEMGitHubIssueCommand.make(mutation: .addLabel, issueNumber: 42, body: "", labels: "Recovery")
+    let labeledPayload = try JSONDecoder().decode(CSAiEMGitHubIssueVerificationPayload.self, from: Data("""
+    {"state":"OPEN","labels":[{"name":"recovery"}],"comments":[]}
+    """.utf8))
+    XCTAssertEqual(try CSAiEMGitHubIssueVerifier.verify(labeledPayload, command: addLabel).get(), "Added label(s) verified.")
+
+    let comment = try CSAiEMGitHubIssueCommand.make(mutation: .comment, issueNumber: 42, body: "checkpoint verified", labels: "")
+    let commentedPayload = try JSONDecoder().decode(CSAiEMGitHubIssueVerificationPayload.self, from: Data("""
+    {"state":"OPEN","labels":[],"comments":[{"body":"checkpoint verified"}]}
+    """.utf8))
+    XCTAssertEqual(try CSAiEMGitHubIssueVerifier.verify(commentedPayload, command: comment).get(), "Comment presence verified.")
+  }
+
+  func testGitHubIssueVerifierFailsWhenProviderStateDoesNotMatch() throws {
+    let reopen = try CSAiEMGitHubIssueCommand.make(mutation: .reopen, issueNumber: 42, body: "", labels: "")
+    let payload = try JSONDecoder().decode(CSAiEMGitHubIssueVerificationPayload.self, from: Data("""
+    {"state":"CLOSED","labels":[],"comments":[]}
+    """.utf8))
+    guard case .failure(.mismatch(let detail)) = CSAiEMGitHubIssueVerifier.verify(payload, command: reopen) else {
+      return XCTFail("Expected a provider-state mismatch.")
+    }
+    XCTAssertEqual(detail, "Provider read-back state is CLOSED, expected OPEN.")
+  }
+
   func testIncidentClustersGroupSameSourceStageAndDestination() {
     let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
     let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
@@ -571,7 +602,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
-    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.2" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

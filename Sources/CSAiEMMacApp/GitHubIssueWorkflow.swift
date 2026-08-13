@@ -66,3 +66,62 @@ struct CSAiEMGitHubIssueCommand: Hashable {
     }
   }
 }
+
+struct CSAiEMGitHubIssueVerificationPayload: Decodable, Hashable {
+  let state: String
+  let labels: [String]
+  let comments: [String]
+
+  private struct Label: Decodable { let name: String }
+  private struct Comment: Decodable { let body: String }
+
+  enum CodingKeys: String, CodingKey { case state, labels, comments }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    state = try values.decode(String.self, forKey: .state)
+    labels = (try values.decodeIfPresent([Label].self, forKey: .labels) ?? []).map(\.name).sorted()
+    comments = (try values.decodeIfPresent([Comment].self, forKey: .comments) ?? []).map(\.body)
+  }
+}
+
+enum CSAiEMGitHubIssueVerifier {
+  enum VerificationError: LocalizedError, Equatable {
+    case mismatch(String)
+
+    var errorDescription: String {
+      switch self { case .mismatch(let detail): return detail }
+    }
+  }
+
+  static func arguments(for issueNumber: Int) -> [String] {
+    ["issue", "view", "\(issueNumber)", "--json", "state,labels,comments"]
+  }
+
+  static func verify(_ payload: CSAiEMGitHubIssueVerificationPayload, command: CSAiEMGitHubIssueCommand) -> Result<String, VerificationError> {
+    let state = payload.state.lowercased()
+    switch command.mutation {
+    case .comment:
+      guard payload.comments.contains(command.body) else {
+        return .failure(.mismatch("Provider read-back did not contain the submitted comment."))
+      }
+      return .success("Comment presence verified.")
+    case .close:
+      guard state == "closed" else { return .failure(.mismatch("Provider read-back state is \(payload.state), expected CLOSED.")) }
+      return .success("Closed state verified.")
+    case .reopen:
+      guard state == "open" else { return .failure(.mismatch("Provider read-back state is \(payload.state), expected OPEN.")) }
+      return .success("Open state verified.")
+    case .addLabel:
+      let actual = Set(payload.labels.map { $0.lowercased() })
+      let missing = command.labels.filter { !actual.contains($0.lowercased()) }
+      guard missing.isEmpty else { return .failure(.mismatch("Provider read-back is missing label(s): \(missing.joined(separator: ", ")).")) }
+      return .success("Added label(s) verified.")
+    case .removeLabel:
+      let actual = Set(payload.labels.map { $0.lowercased() })
+      let present = command.labels.filter { actual.contains($0.lowercased()) }
+      guard present.isEmpty else { return .failure(.mismatch("Provider read-back still contains label(s): \(present.joined(separator: ", ")).")) }
+      return .success("Removed label(s) verified.")
+    }
+  }
+}

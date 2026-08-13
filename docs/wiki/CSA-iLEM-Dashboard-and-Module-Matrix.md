@@ -62,9 +62,11 @@ The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid
 payload are required. The operator must explicitly arm each remote mutation;
-the arm state resets when the issue, action, or payload changes. The resulting
-operation appears in the local Jobs Center, and the operator reloads the issue
-list to verify provider-side state.
+the arm state resets when the issue, action, or payload changes. After GitHub
+accepts a mutation, CSA-iLEM reads the exact issue back through `gh issue view`
+and verifies the requested state, labels, or comment presence before marking
+the Jobs Center operation successful. Rejected, malformed, or mismatched
+provider responses remain failed and visible for incident review.
 
 ## Install and update invariant
 
