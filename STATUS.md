@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.17 provenance filtering is in progress. The native app now
+Next phase: Phase 13.18 actionability routing is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -99,6 +99,9 @@ Phase 13.17 adds a deterministic provenance filter for overlapping, live-only,
 and imported-only source paths, with live and imported transition kinds shown
 side by side. Filtering is read-only and cannot promote evidence, select a
 canonical source, or authorize transfer, cleanup, deletion, or remote mutation.
+Phase 13.18 adds actionability labels for those rows: live review required,
+compare with live catalog, or imported context only. These labels route
+operator attention but cannot select a source or authorize any operation.
 not discard available local research evidence.
 
 Long-range product roadmap:

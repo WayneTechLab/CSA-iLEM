@@ -480,6 +480,9 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(overlapping.map(\.sourcePath), ["/tmp/shared"])
     XCTAssertEqual(overlapping.first?.liveKind, .changed)
     XCTAssertEqual(overlapping.first?.importedKind, .changed)
+    XCTAssertEqual(liveOnly.first?.actionability, .liveReviewRequired)
+    XCTAssertEqual(overlapping.first?.actionability, .liveComparison)
+    XCTAssertEqual(importedOnly.first?.actionability, .importedContextOnly)
   }
 
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
@@ -792,13 +795,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.3" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.3" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

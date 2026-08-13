@@ -207,6 +207,14 @@ transition kinds, making handoff drift reviewable quickly while preserving the
 fail-closed authority boundary. Filtering does not alter the SQLite catalog,
 source files, canonical selections, transfer plans, or remote state.
 
+## Phase 13.18 actionability routing
+
+Every visible provenance row is also labeled as live review required, compare
+with live catalog, or imported context only. The label is an explanatory
+routing signal for the operator: imported-only context can never become a
+source of action, and neither provenance nor actionability can authorize a
+merge, transfer, cleanup, deletion, or remote mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

@@ -296,6 +296,20 @@ enum CodexEvidenceProvenance: String, Codable, CaseIterable, Sendable {
   }
 }
 
+enum CodexEvidenceActionability: String, Codable, CaseIterable, Sendable {
+  case liveReviewRequired
+  case liveComparison
+  case importedContextOnly
+
+  var label: String {
+    switch self {
+    case .liveReviewRequired: return "Live review required"
+    case .liveComparison: return "Compare with live catalog"
+    case .importedContextOnly: return "Imported context only"
+    }
+  }
+}
+
 enum CodexEvidenceProvenanceFilter: String, Codable, CaseIterable, Identifiable, Sendable {
   case all
   case overlapping
@@ -330,6 +344,14 @@ struct CodexEvidenceProvenanceRow: Codable, Hashable, Identifiable, Sendable {
   let importedKind: CodexDecisionComparisonKind?
 
   var id: String { sourcePath }
+
+  var actionability: CodexEvidenceActionability {
+    switch provenance {
+    case .liveOnly: return .liveReviewRequired
+    case .overlapping: return .liveComparison
+    case .importedOnly: return .importedContextOnly
+    }
+  }
 }
 
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {

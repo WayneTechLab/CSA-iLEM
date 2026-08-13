@@ -607,6 +607,14 @@ Current Phase 13.17 slice:
 - keep filtering read-only and session-scoped, with no catalog promotion,
   canonical selection, transfer, cleanup, deletion, or remote write.
 
+Current Phase 13.18 slice:
+- classify every provenance row as live review required, compare with live
+  catalog, or imported context only;
+- surface the actionability label beside the live/imported transition kinds so
+  operators can route attention without opening a deep scan;
+- keep actionability explanatory only: it cannot select a source, authorize a
+  merge, transfer, cleanup, deletion, or remote mutation.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe
