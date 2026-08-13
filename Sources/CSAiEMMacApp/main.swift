@@ -1650,6 +1650,9 @@ final class CleanupViewModel: ObservableObject {
   }
   @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var codexSmartDecisions: [CodexSmartDecision] = []
+  @Published var codexAdvisoryProviderKind: CodexAdvisoryProviderKind = .lmStudio
+  @Published var codexAdvisory: CodexAIAdvisory?
+  @Published var codexAdvisoryStatus = "No local advisory requested. Deterministic Smart Logic remains authoritative."
   @Published var codexCanonicalSourceByGroup: [String: String] = [:]
   @Published var codexCatalogStatus = "SQLite catalog will be created on the first decision scan."
   @Published var codexActiveSessionID = ""
@@ -2473,6 +2476,33 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexCatalogStatus = "Catalog warning: \(error.localizedDescription)"
       appendLog("[codex] Smart Logic catalog warning: \(error.localizedDescription)\n")
+    }
+  }
+
+  func requestCodexLocalAdvisory() {
+    guard !codexSmartDecisions.isEmpty else {
+      codexAdvisory = nil
+      codexAdvisoryStatus = "Run Scan Sources before requesting a local advisory."
+      return
+    }
+    let providerKind = codexAdvisoryProviderKind
+    let model = providerKind == .lmStudio ? "local-model" : "llama3.2"
+    let input = CodexAdvisoryInput(
+      ruleVersion: CodexSmartLogicEngine.ruleVersion,
+      decisions: codexSmartDecisions,
+      redactionPolicy: "indexed-metadata-only; no source content, credentials, prompts, or raw conversation logs"
+    )
+    codexAdvisory = nil
+    codexAdvisoryStatus = "Contacting \(providerKind.rawValue) on localhost. No write action is attached to the advisory."
+    let provider = LocalCodexAdvisoryProvider(kind: providerKind, model: model)
+    Task { [weak self] in
+      do {
+        let advisory = try await provider.advise(input)
+        self?.codexAdvisory = advisory
+        self?.codexAdvisoryStatus = "Local advisory received from \(advisory.provider.rawValue) / \(advisory.model). Deterministic Smart Logic remains authoritative."
+      } catch {
+        self?.codexAdvisoryStatus = "Local advisory unavailable: \(error.localizedDescription). Deterministic Smart Logic remains authoritative."
+      }
     }
   }
 
@@ -14299,6 +14329,10 @@ private struct CodexDecisionReviewPanel: View {
   let catalogStatus: String
   let sessionID: String
   let canonicalSourceByGroup: [String: String]
+  @Binding var advisoryProvider: CodexAdvisoryProviderKind
+  let advisory: CodexAIAdvisory?
+  let advisoryStatus: String
+  let onRequestAdvisory: () -> Void
   let onChooseCanonical: (CodexSmartDecision) -> Void
 
   private var groupBlockerSummaries: [String] {
@@ -14334,6 +14368,33 @@ private struct CodexDecisionReviewPanel: View {
               .font(.system(size: 10, weight: .medium, design: .monospaced))
               .foregroundStyle(DashboardTheme.muted)
           }
+        }
+
+        HStack(spacing: 8) {
+          Picker("Local advisor", selection: $advisoryProvider) {
+            ForEach(CodexAdvisoryProviderKind.allCases, id: \.self) { provider in
+              Text(provider.rawValue).tag(provider)
+            }
+          }
+          .pickerStyle(.menu)
+          Button {
+            onRequestAdvisory()
+          } label: {
+            Label("Ask Local Advisor", systemImage: "sparkles")
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          Spacer()
+        }
+        Text(advisoryStatus)
+          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+
+        if let advisory {
+          BannerCard(
+            title: "Non-authoritative local advisory",
+            detail: advisory.summary + "\nSuggested review order: " + (advisory.suggestedReviewIDs.isEmpty ? "none returned" : advisory.suggestedReviewIDs.prefix(5).joined(separator: ", ")),
+            kind: .ready
+          )
         }
 
         ForEach(groupBlockerSummaries, id: \.self) { summary in
@@ -14859,6 +14920,12 @@ struct ContentView: View {
         catalogStatus: model.codexCatalogStatus,
         sessionID: model.codexActiveSessionID,
         canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
+        advisoryProvider: $model.codexAdvisoryProviderKind,
+        advisory: model.codexAdvisory,
+        advisoryStatus: model.codexAdvisoryStatus,
+        onRequestAdvisory: {
+          model.requestCodexLocalAdvisory()
+        },
         onChooseCanonical: { decision in
           model.chooseCodexCanonicalSource(decision)
         }

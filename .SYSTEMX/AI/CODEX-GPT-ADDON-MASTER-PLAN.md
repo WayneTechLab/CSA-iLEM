@@ -369,6 +369,10 @@ The current branch has direct evidence for each local milestone gate:
   linked Codex workspaces are carried as read-only tool context in each
   decision and shown in the review panel; these markers never establish
   repository identity or write authority.
+- the native review panel can request a local LM Studio or Ollama advisory
+  over localhost using redacted indexed metadata only; the response is
+  filtered to known decision IDs and remains non-authoritative, review-order
+  guidance only
 - index corpus evidence: the native regression suite scans a 250-file fixture
   twice and a 60-project / 720-file fixture, confirms deterministic entries
   and byte totals, and verifies common generated dependency/build trees are

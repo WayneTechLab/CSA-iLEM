@@ -190,8 +190,111 @@ struct DeterministicOnlyCodexAdvisoryProvider: CodexAdvisoryProvider {
   }
 }
 
+struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
+  let kind: CodexAdvisoryProviderKind
+  let model: String
+
+  private var endpoint: URL {
+    switch kind {
+    case .lmStudio:
+      return URL(string: "http://127.0.0.1:1234/v1/chat/completions")!
+    case .ollama:
+      return URL(string: "http://127.0.0.1:11434/api/chat")!
+    }
+  }
+
+  func advise(_ input: CodexAdvisoryInput) async throws -> CodexAIAdvisory {
+    let redactedDecisions = input.decisions.map { decision in
+      [
+        "id": decision.id,
+        "group": decision.groupKey,
+        "classification": decision.classification.rawValue,
+        "confidence": String(format: "%.2f", decision.confidence),
+        "lead_rank": String(decision.leadRank),
+        "name": decision.evidence.name,
+        "has_git": decision.evidence.hasGit ? "true" : "false",
+        "local_changes": decision.evidence.hasLocalChanges ? "true" : "false",
+        "main_state": decision.evidence.mainLabel,
+        "ide_state": decision.evidence.ideState,
+        "tool_context": decision.evidence.toolEvidence.map(\.rawValue).joined(separator: ", "),
+        "reasons": decision.reasons.joined(separator: " ")
+      ]
+    }
+    let factsData = try JSONSerialization.data(withJSONObject: redactedDecisions, options: [.sortedKeys])
+    let facts = String(data: factsData, encoding: .utf8) ?? "[]"
+    let instruction = "You are a local review assistant for CSA-iLEM. Deterministic classifications are authoritative. Return JSON only with keys summary (string) and suggested_review_ids (array of decision ids). Suggest review order only; never choose a canonical source, authorize writes, or recommend deletion. Evidence is redacted indexed metadata, not source content. Rule version: \(input.ruleVersion). Evidence: \(facts)"
+
+    var request = URLRequest(url: endpoint)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 15
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let body: [String: Any]
+    switch kind {
+    case .lmStudio:
+      body = [
+        "model": model,
+        "temperature": 0,
+        "messages": [["role": "user", "content": instruction]]
+      ]
+    case .ollama:
+      body = [
+        "model": model,
+        "stream": false,
+        "format": "json",
+        "options": ["temperature": 0],
+        "messages": [["role": "user", "content": instruction]]
+      ]
+    }
+    request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+      throw NSError(domain: "CSAiEM.LocalAdvisory", code: status, userInfo: [NSLocalizedDescriptionKey: "Local model endpoint returned HTTP \(status)."])
+    }
+    let responseObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+    let content: String
+    if kind == .lmStudio,
+       let choices = responseObject["choices"] as? [[String: Any]],
+       let message = choices.first?["message"] as? [String: Any],
+       let value = message["content"] as? String {
+      content = value
+    } else if let message = responseObject["message"] as? [String: Any],
+              let value = message["content"] as? String {
+      content = value
+    } else {
+      throw NSError(domain: "CSAiEM.LocalAdvisory", code: 2, userInfo: [NSLocalizedDescriptionKey: "Local model response did not contain message content."])
+    }
+
+    let parsed = parseAdvisoryJSON(content)
+    let validIDs = Set(input.decisions.map(\.id))
+    let suggestions = parsed.ids.filter { validIDs.contains($0) }
+    return CodexAIAdvisory(
+      provider: kind,
+      model: model,
+      summary: parsed.summary,
+      suggestedReviewIDs: suggestions,
+      generatedAt: Date(),
+      isAuthoritative: false
+    )
+  }
+
+  private func parseAdvisoryJSON(_ content: String) -> (summary: String, ids: [String]) {
+    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    let candidate = trimmed.hasPrefix("```")
+      ? trimmed.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+      : trimmed
+    guard let data = candidate.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return (trimmed, [])
+    }
+    let summary = object["summary"] as? String ?? "Local model returned no summary."
+    let ids = object["suggested_review_ids"] as? [String] ?? []
+    return (summary, ids)
+  }
+}
+
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.1"
+  static let ruleVersion = "smart-logic-v2.2"
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in

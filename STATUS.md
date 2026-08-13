@@ -218,6 +218,10 @@ These are the next production-hardening tasks with the best return:
   linked Codex, VS Code/Copilot, Claude, and LM Studio markers into the
   decision evidence and review panel; tool context is explanatory only and
   never becomes an identity or write-authority signal
+- the native review panel now offers an explicit local LM Studio/Ollama
+  advisory action using redacted indexed metadata only; returned suggestions
+  are filtered to current decision IDs, labeled non-authoritative, and cannot
+  select a canonical source, authorize writes, or authorize deletion
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - extend the native project tree from bounded top-level inspection to indexed
   file-level evidence only when a user expands a path; avoid full-directory

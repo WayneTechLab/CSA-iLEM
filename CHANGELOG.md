@@ -6,6 +6,8 @@
 - Disabled native Stage 2 write arming and apply execution while grouped Smart Logic blockers remain unresolved; diagnostic preflight remains available.
 - Added read-only tool-context evidence for linked Codex and project-local VS Code/Copilot, Claude, and LM Studio markers to Smart Logic decisions and the native review panel.
 - Bumped the Smart Logic rule and module version to `smart-logic-v2.1` so persisted decisions cannot be mistaken for the prior evidence schema.
+- Added an explicit localhost LM Studio/Ollama advisory action. It sends only redacted indexed evidence, filters returned IDs, and cannot choose canonical sources or authorize writes/deletion; Smart Logic remains authoritative.
+- Bumped the Smart Logic rule and module version to `smart-logic-v2.2` for the advisory contract.
 
 ## 0.8.0
 
