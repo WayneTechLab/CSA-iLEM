@@ -16895,49 +16895,63 @@ struct ContentView: View {
   @ViewBuilder
   private func codexRouteReceiptPanel() -> some View {
     if let receiptSummary = model.codexRouteReceiptSummary {
-      Text("Route receipt · " + receiptSummary.headline + " · persisted in the local SQLite catalog")
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(receiptSummary.pendingCount > 0 ? DashboardTheme.warning : DashboardTheme.muted)
-      if !model.codexPendingRouteReceipts.isEmpty {
-        DisclosureGroup("Resume audit · " + String(model.codexPendingRouteReceipts.count) + " matching source(s)") {
-          VStack(alignment: .leading, spacing: 5) {
-            ForEach(Array(model.codexPendingRouteReceipts.prefix(12))) { receipt in
-              VStack(alignment: .leading, spacing: 2) {
-                Text(receipt.sourcePath)
-                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                  .textSelection(.enabled)
-                Text(receipt.route.label + " · " + receipt.state.rawValue + " · attempt " + String(receipt.attemptCount))
-                  .font(.system(size: 10, weight: .medium, design: .monospaced))
-                  .foregroundStyle(receipt.state == .failed ? DashboardTheme.warning : DashboardTheme.muted)
-                Text(receipt.detail)
-                  .font(.system(size: 10, weight: .regular, design: .rounded))
-                  .foregroundStyle(DashboardTheme.muted)
-              }
-            }
-            if model.codexPendingRouteReceipts.count > 12 {
-              Text("Showing the first 12 pending receipts; the resume action includes all matching pending sources.")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+      codexRouteReceiptSummaryView(receiptSummary)
+      codexPendingReceiptAuditView()
+      codexPendingReceiptResumeView()
+    }
+  }
+
+  private func codexRouteReceiptSummaryView(_ summary: CodexRouteReceiptSummary) -> some View {
+    Text("Route receipt · " + summary.headline + " · persisted in the local SQLite catalog")
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(summary.pendingCount > 0 ? DashboardTheme.warning : DashboardTheme.muted)
+  }
+
+  @ViewBuilder
+  private func codexPendingReceiptAuditView() -> some View {
+    if !model.codexPendingRouteReceipts.isEmpty {
+      DisclosureGroup("Resume audit · " + String(model.codexPendingRouteReceipts.count) + " matching source(s)") {
+        VStack(alignment: .leading, spacing: 5) {
+          ForEach(Array(model.codexPendingRouteReceipts.prefix(12))) { receipt in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(receipt.sourcePath)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .textSelection(.enabled)
+              Text(receipt.route.label + " · " + receipt.state.rawValue + " · attempt " + String(receipt.attemptCount))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(receipt.state == .failed ? DashboardTheme.warning : DashboardTheme.muted)
+              Text(receipt.detail)
+                .font(.system(size: 10, weight: .regular, design: .rounded))
                 .foregroundStyle(DashboardTheme.muted)
             }
           }
-          .padding(.top, 4)
+          if model.codexPendingRouteReceipts.count > 12 {
+            Text("Showing the first 12 pending receipts; the resume action includes all matching pending sources.")
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
         }
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
-        .foregroundStyle(DashboardTheme.text)
+        .padding(.top, 4)
       }
-      if model.codexPendingRouteCount > 0 {
-        Button {
-          model.resumeCodexPendingRoutes()
-        } label: {
-          Label("Resume \(model.codexPendingRouteCount) pending route(s)", systemImage: "arrow.clockwise.circle")
-        }
-        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
-        .controlSize(.small)
-        .disabled(model.isCodexPortalBusy)
-        Text("Completed and skipped routes remain outside this resume run; the prior project selection is restored afterward.")
-          .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(DashboardTheme.muted)
+      .font(.system(size: 10, weight: .semibold, design: .rounded))
+      .foregroundStyle(DashboardTheme.text)
+    }
+  }
+
+  @ViewBuilder
+  private func codexPendingReceiptResumeView() -> some View {
+    if model.codexPendingRouteCount > 0 {
+      Button {
+        model.resumeCodexPendingRoutes()
+      } label: {
+        Label("Resume \(model.codexPendingRouteCount) pending route(s)", systemImage: "arrow.clockwise.circle")
       }
+      .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      .controlSize(.small)
+      .disabled(model.isCodexPortalBusy)
+      Text("Completed and skipped routes remain outside this resume run; the prior project selection is restored afterward.")
+        .font(.system(size: 10, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
     }
   }
 
