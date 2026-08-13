@@ -633,6 +633,13 @@ struct CodexBaselineAuditValidationError: LocalizedError, Sendable {
   }
 }
 
+struct CodexRejectedBaselineAuditImport: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let sourceName: String
+  let rejectedAt: Date
+  let reasons: [String]
+}
+
 struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendable {
   let id: String
   let sourceName: String

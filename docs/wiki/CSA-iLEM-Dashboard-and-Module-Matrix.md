@@ -432,6 +432,13 @@ validation. New records show **structure validated** after restart; records
 created before this field existed show **legacy validation unknown · review
 required**. This is an evidence label only and cannot authorize any operation.
 
+## Phase 13.44 rejected-import evidence
+
+Malformed baseline-audit imports create a bounded local rejection record. The
+dashboard retains only the source filename, rejection timestamp, and validation
+reasons; raw bundle content is never copied into the rejection ledger. Rejected
+history is diagnostic evidence only and cannot authorize or alter any operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

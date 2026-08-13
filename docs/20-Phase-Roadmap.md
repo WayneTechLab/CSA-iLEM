@@ -370,6 +370,11 @@ Current Phase 13.43 slice:
 - display validated versus legacy review-required state after restart;
 - preserve the state as informational metadata without granting authority.
 
+Current Phase 13.44 slice:
+- retain bounded rejection records for malformed audit imports;
+- preserve source filename, rejection time, and validation reasons only;
+- keep raw bundle content out of the rejection ledger and out of live authority.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

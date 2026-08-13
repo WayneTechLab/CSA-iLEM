@@ -21,6 +21,7 @@
 - Added Phase 13.41 fingerprint-based history upsert, refreshing an existing duplicate handoff entry with the latest source provenance instead of creating redundant local records.
 - Added Phase 13.42 structural validation for imported baseline-audit bundles, rejecting malformed IDs, duplicate event IDs, missing metadata, and oversized payloads before local retention while leaving unknown schemas reviewable.
 - Added Phase 13.43 persisted validation-state metadata for imported audit history, labeling new records as structure validated and older cached records as legacy review-required.
+- Added Phase 13.44 bounded rejected-import evidence, retaining only source name, timestamp, and validation reasons so malformed handoffs remain diagnosable without storing raw bundle content.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.

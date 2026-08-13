@@ -612,6 +612,23 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(record.fingerprint.count, 16)
   }
 
+  func testRejectedBaselineAuditImportRoundTripsReasonsWithoutBundleContent() throws {
+    let rejection = CodexRejectedBaselineAuditImport(
+      id: "rejected",
+      sourceName: "broken.json",
+      rejectedAt: observedDate,
+      reasons: ["event IDs are not unique", "bundle contains more than 50 events"]
+    )
+    let restored = try JSONDecoder().decode(
+      CodexRejectedBaselineAuditImport.self,
+      from: JSONEncoder().encode(rejection)
+    )
+    XCTAssertEqual(restored, rejection)
+    XCTAssertEqual(restored.reasons.count, 2)
+    let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(restored)) as? [String: Any])
+    XCTAssertFalse(json.keys.contains("events"))
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -1125,7 +1142,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.16" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.17" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

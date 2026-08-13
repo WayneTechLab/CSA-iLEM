@@ -83,6 +83,7 @@ private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathC
 private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
 private let codexImportedRouteReceiptHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-route-receipt-history.json")
 private let codexImportedBaselineAuditHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-baseline-audit-history.json")
+private let codexRejectedBaselineAuditImportsFile = (appSupportDir as NSString).appendingPathComponent("codex-rejected-baseline-audit-imports.json")
 private let codexRouteReceiptBaselineDecisionFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-decision.json")
 private let codexRouteReceiptBaselineAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-audit.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
@@ -1774,6 +1775,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexSelectedRouteReceiptBaselineAuditID: String?
   @Published var codexImportedBaselineAuditEvents: [CodexRouteReceiptBaselineAuditEvent] = []
   @Published var codexImportedBaselineAuditHistory: [CodexImportedBaselineAuditRecord] = []
+  @Published var codexRejectedBaselineAuditImports: [CodexRejectedBaselineAuditImport] = []
   @Published var codexImportedBaselineAuditStatus = "No external baseline-audit bundle loaded."
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
@@ -2974,6 +2976,15 @@ final class CleanupViewModel: ObservableObject {
       appendLog("[codex] Read-only baseline audit bundle loaded from " + url.path + "\n")
     } catch {
       codexImportedBaselineAuditEvents = []
+      let rejection = CodexRejectedBaselineAuditImport(
+        id: UUID().uuidString,
+        sourceName: url.lastPathComponent,
+        rejectedAt: Date(),
+        reasons: [error.localizedDescription]
+      )
+      codexRejectedBaselineAuditImports.insert(rejection, at: 0)
+      codexRejectedBaselineAuditImports = Array(codexRejectedBaselineAuditImports.prefix(20))
+      persistCodexRejectedBaselineAuditImports()
       codexImportedBaselineAuditStatus = "Baseline audit import rejected: " + error.localizedDescription
       appendLog("[codex] Baseline audit bundle rejected: " + error.localizedDescription + "\n")
     }
@@ -3475,6 +3486,9 @@ final class CleanupViewModel: ObservableObject {
     if let savedBaselineAuditEvidence: [CodexImportedBaselineAuditRecord] = readJSON([CodexImportedBaselineAuditRecord].self, from: codexImportedBaselineAuditHistoryFile) {
       codexImportedBaselineAuditHistory = Array(savedBaselineAuditEvidence.prefix(20))
     }
+    if let savedRejectedBaselineAudits: [CodexRejectedBaselineAuditImport] = readJSON([CodexRejectedBaselineAuditImport].self, from: codexRejectedBaselineAuditImportsFile) {
+      codexRejectedBaselineAuditImports = Array(savedRejectedBaselineAudits.prefix(20))
+    }
     codexRouteReceiptBaselineDecision = readJSON(CodexRouteReceiptBaselineDecision.self, from: codexRouteReceiptBaselineDecisionFile)
     if let savedBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = readJSON([CodexRouteReceiptBaselineAuditEvent].self, from: codexRouteReceiptBaselineAuditFile) {
       codexRouteReceiptBaselineAudit = Array(savedBaselineAudit.prefix(50))
@@ -3619,6 +3633,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexImportedBaselineAuditHistory() {
     writeJSON(Array(codexImportedBaselineAuditHistory.prefix(20)), to: codexImportedBaselineAuditHistoryFile)
+  }
+
+  private func persistCodexRejectedBaselineAuditImports() {
+    writeJSON(Array(codexRejectedBaselineAuditImports.prefix(20)), to: codexRejectedBaselineAuditImportsFile)
   }
 
   private func persistCodexRouteReceiptBaselineDecision() {
@@ -17384,6 +17402,25 @@ struct ContentView: View {
           .font(.system(size: 10, weight: .medium, design: .monospaced))
           .foregroundStyle(DashboardTheme.muted)
           .textSelection(.enabled)
+      }
+      if !model.codexRejectedBaselineAuditImports.isEmpty {
+        DisclosureGroup("Rejected audit imports · " + String(model.codexRejectedBaselineAuditImports.count)) {
+          ForEach(model.codexRejectedBaselineAuditImports) { rejection in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(rejection.sourceName + " · " + rejection.rejectedAt.formatted(.iso8601))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(DashboardTheme.warning)
+              ForEach(rejection.reasons, id: \.self) { reason in
+                Text(reason)
+                  .font(.system(size: 10, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                  .textSelection(.enabled)
+              }
+            }
+          }
+        }
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
       }
       if !importedEvents.isEmpty {
         DisclosureGroup("Imported read-only audit · " + String(importedEvents.count) + " event(s)") {

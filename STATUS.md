@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.43 baseline-audit validation-state persistence is in progress. The native app now
+Next phase: Phase 13.44 baseline-audit rejection recovery is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -185,6 +185,10 @@ rejected; unknown schema versions remain explicitly reviewable.
 Phase 13.43 persists validation state with imported history. Newly accepted
 records are labeled structure validated; older cached records without the field
 fall back to legacy review-required status rather than being assumed safe.
+
+Phase 13.44 retains bounded rejected-import evidence with source name, timestamp,
+and validation reasons only. Raw malformed bundles are not retained, while the
+rejection trail remains available after restart for diagnosis.
 not discard available local research evidence.
 
 Long-range product roadmap:
