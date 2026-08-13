@@ -8184,7 +8184,54 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
-  private nonisolated static func restoreSnapshotPayload(
+  nonisolated static func restoreSnapshotPayload(
+    payloadPath: String,
+    roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
+    environment: [String: String]
+  ) throws {
+    let fm = FileManager.default
+    let transactionRoot = fm.temporaryDirectory.appendingPathComponent("csa-iem-restore-\(UUID().uuidString)").path
+    let candidateRoots = [roots.codeRoot, roots.importRoot, roots.runtimeRoot].map { NSString(string: $0).standardizingPath }
+    var targets: [String] = []
+    var seenTargets: Set<String> = []
+    for target in candidateRoots where seenTargets.insert(target).inserted {
+      targets.append(target)
+    }
+    var backups: [(target: String, backup: String)] = []
+    try fm.createDirectory(atPath: transactionRoot, withIntermediateDirectories: true, attributes: nil)
+
+    do {
+      for (index, target) in targets.enumerated() where fm.fileExists(atPath: target) {
+        let backup = (transactionRoot as NSString).appendingPathComponent("root-\(index)")
+        try transferItem(from: target, to: backup, mode: .copyBackup, overwrite: false, environment: environment)
+        backups.append((target: target, backup: backup))
+      }
+
+      try restoreSnapshotPayloadMerge(
+        payloadPath: payloadPath,
+        roots: roots,
+        environment: environment
+      )
+
+      if environment["CSA_IEM_TEST_FAIL_DURING_SNAPSHOT_RESTORE"] == "1" {
+        throw NSError(domain: appTitle, code: 97, userInfo: [NSLocalizedDescriptionKey: "Injected snapshot restore failure for rollback verification."])
+      }
+      try? fm.removeItem(atPath: transactionRoot)
+    } catch {
+      for target in targets where fm.fileExists(atPath: target) {
+        try? fm.removeItem(atPath: target)
+      }
+      for backup in backups {
+        if fm.fileExists(atPath: backup.backup) {
+          try? transferItem(from: backup.backup, to: backup.target, mode: .copyBackup, overwrite: true, environment: environment)
+        }
+      }
+      try? fm.removeItem(atPath: transactionRoot)
+      throw error
+    }
+  }
+
+  private nonisolated static func restoreSnapshotPayloadMerge(
     payloadPath: String,
     roots: (codeRoot: String, importRoot: String, runtimeRoot: String),
     environment: [String: String]

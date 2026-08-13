@@ -27,6 +27,9 @@
   and restore a parked source; added a symlink/parked-source regression test.
 - Added injected later-failure coverage for local export transactions, proving
   multi-output promotion rolls back completely without removing source folders.
+- Added a temporary workspace-root backup envelope around snapshot restore so a
+  later merge failure restores Code, Import, and Runtime to their pre-restore
+  state; added partial Code/Import rollback coverage.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

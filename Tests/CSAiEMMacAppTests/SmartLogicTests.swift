@@ -205,6 +205,32 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: sourceB.appendingPathComponent("data.txt").path))
   }
 
+  func testSnapshotRestoreRollsBackWorkspaceRootsOnLaterFailure() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-restore-rollback-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let payload = root.appendingPathComponent("payload")
+    let codeRoot = root.appendingPathComponent("workspace/Code")
+    let importRoot = root.appendingPathComponent("workspace/Import")
+    let runtimeRoot = root.appendingPathComponent("workspace/Runtime")
+    let existingCode = codeRoot.appendingPathComponent("Repos/owner/project/README.md")
+    let incomingCode = payload.appendingPathComponent("Code/Repos/owner/project/README.md")
+    let incomingImport = payload.appendingPathComponent("Import/Repos/owner/imported/data.txt")
+    try FileManager.default.createDirectory(at: existingCode.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: incomingCode.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: incomingImport.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("before".utf8).write(to: existingCode)
+    try Data("incoming".utf8).write(to: incomingCode)
+    try Data("new import".utf8).write(to: incomingImport)
+
+    XCTAssertThrowsError(try CleanupViewModel.restoreSnapshotPayload(
+      payloadPath: payload.path,
+      roots: (codeRoot.path, importRoot.path, runtimeRoot.path),
+      environment: ["CSA_IEM_TEST_FAIL_DURING_SNAPSHOT_RESTORE": "1"]
+    ))
+    XCTAssertEqual(try String(contentsOf: existingCode), "before")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: importRoot.path))
+  }
+
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")
