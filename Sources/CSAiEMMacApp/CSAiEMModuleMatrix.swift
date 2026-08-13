@@ -17,7 +17,7 @@ struct CSAiEMModuleTag: Identifiable, Hashable, Codable {
     .init(id: "status-surface", name: "Top and bottom status", area: "UI", version: appVersion, tag: "ui.status", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "page-scroll", name: "Page scrolling", area: "UI", version: appVersion, tag: "ui.scroll", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "codex-portal", name: "Codex project portal", area: "Feature", version: appVersion, tag: "feature.codex", state: "primary", lastUpdated: "2026-08-11"),
-    .init(id: "smart-logic", name: "Smart Logic and decision matrix", area: "Engine", version: "smart-logic-v2", tag: "engine.smart-logic", state: "primary", lastUpdated: "2026-08-11"),
+    .init(id: "smart-logic", name: "Smart Logic and decision matrix", area: "Engine", version: "smart-logic-v2.1", tag: "engine.smart-logic", state: "primary", lastUpdated: "2026-08-13"),
     .init(id: "index-catalog", name: "Local index catalog", area: "Engine", version: "catalog-v1", tag: "engine.index", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "transfer-receipts", name: "Transfer receipts", area: "Engine", version: "receipt-v2", tag: "engine.receipts", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "stage2", name: "Stage 2 reconciliation", area: "Feature", version: appVersion, tag: "feature.stage2", state: "primary", lastUpdated: "2026-08-11"),

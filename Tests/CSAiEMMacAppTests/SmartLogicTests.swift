@@ -394,6 +394,24 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(CodexDecisionClass.unrelated.isReview)
   }
 
+  func testToolEvidenceIsPersistedAsReadOnlyDecisionContext() {
+    let source = project(
+      path: "/tmp/tool-evidence-project",
+      name: "Tool Evidence",
+      remoteURL: "https://github.com/WayneTechLab/tool-evidence.git",
+      branch: "main",
+      ideState: .linked,
+      hasLocalChanges: false,
+      mainState: .synchronized,
+      toolEvidence: [.visualStudioCode, .claude, .lmStudio]
+    )
+
+    let decision = CodexSmartLogicEngine.evaluate([source]).first!
+    XCTAssertEqual(decision.evidence.toolEvidence, [.visualStudioCode, .claude, .lmStudio])
+    XCTAssertTrue(decision.reasons.contains { $0.contains("Read-only tool evidence") })
+    XCTAssertTrue(decision.reasons.contains { $0.contains("do not establish repository identity or write authority") })
+  }
+
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {
     XCTAssertEqual(CodexBackupMedium.rawDirectory.label, "Raw directory snapshot")
     XCTAssertTrue(CodexBackupMedium.rawDirectory.subtitle.contains("without repackaging"))
@@ -410,7 +428,8 @@ final class SmartLogicTests: XCTestCase {
     ideState: CodexIDEProjectState,
     hasLocalChanges: Bool,
     mainState: CodexGitMainState,
-    hasGit: Bool = true
+    hasGit: Bool = true,
+    toolEvidence: [CodexToolEvidence] = []
   ) -> CodexProjectEntry {
     CodexProjectEntry(
       path: path,
@@ -421,6 +440,7 @@ final class SmartLogicTests: XCTestCase {
       hasDevcontainer: false,
       hasSystemX: true,
       localDevProfile: nil,
+      toolEvidence: toolEvidence,
       remoteURL: remoteURL,
       branch: branch,
       ideState: ideState,

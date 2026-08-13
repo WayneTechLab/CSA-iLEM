@@ -4,6 +4,8 @@
 
 - Repeated Smart Logic identity-group blocker explanations on the native Stage 2 apply surface beside the write-arm control, and normalized the decision-review grouping key path.
 - Disabled native Stage 2 write arming and apply execution while grouped Smart Logic blockers remain unresolved; diagnostic preflight remains available.
+- Added read-only tool-context evidence for linked Codex and project-local VS Code/Copilot, Claude, and LM Studio markers to Smart Logic decisions and the native review panel.
+- Bumped the Smart Logic rule and module version to `smart-logic-v2.1` so persisted decisions cannot be mistaken for the prior evidence schema.
 
 ## 0.8.0
 

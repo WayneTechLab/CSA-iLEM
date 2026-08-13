@@ -365,6 +365,10 @@ The current branch has direct evidence for each local milestone gate:
   point where the operator can authorize workspace changes.
 - native Stage 2 arming and apply execution fail closed while unresolved
   grouped review blockers remain; preflight is still available for diagnosis.
+- bounded project-local markers for VS Code/Copilot, Claude, LM Studio, and
+  linked Codex workspaces are carried as read-only tool context in each
+  decision and shown in the review panel; these markers never establish
+  repository identity or write authority.
 - index corpus evidence: the native regression suite scans a 250-file fixture
   twice, confirms deterministic entries and byte totals, and verifies common
   generated dependency/build trees are omitted from the indexed evidence.

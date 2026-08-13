@@ -213,6 +213,10 @@ These are the next production-hardening tasks with the best return:
 - native Stage 2 arming and apply execution now remain disabled while those
   grouped blockers are present; non-destructive preflight remains available
   to produce the evidence needed for resolution
+- Smart Logic now carries bounded, read-only project-local tool context for
+  linked Codex, VS Code/Copilot, Claude, and LM Studio markers into the
+  decision evidence and review panel; tool context is explanatory only and
+  never becomes an identity or write-authority signal
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - extend the native project tree from bounded top-level inspection to indexed
   file-level evidence only when a user expands a path; avoid full-directory

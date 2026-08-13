@@ -408,6 +408,13 @@ enum CodexIDEProjectState: String, Hashable, Sendable {
   case unavailable = "Codex status unavailable"
 }
 
+enum CodexToolEvidence: String, Codable, CaseIterable, Hashable, Sendable {
+  case codex = "Codex"
+  case visualStudioCode = "VS Code / Copilot"
+  case claude = "Claude"
+  case lmStudio = "LM Studio"
+}
+
 enum CodexGitMainState: Hashable, Sendable {
   case synchronized
   case ahead(Int)
@@ -510,6 +517,7 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
   let hasDevcontainer: Bool
   let hasSystemX: Bool
   let localDevProfile: CodexLocalDevProfile?
+  let toolEvidence: [CodexToolEvidence]
   let remoteURL: String?
   let branch: String?
   let ideState: CodexIDEProjectState
@@ -524,6 +532,7 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
     if hasDevcontainer { values.append("devcontainer") }
     if hasSystemX { values.append("SYSTEMX") }
     if let localDevProfile { values.append(localDevProfile.badge) }
+    values.append(contentsOf: toolEvidence.map(\.rawValue))
     return values
   }
 
@@ -9469,6 +9478,7 @@ final class CleanupViewModel: ObservableObject {
           hasDevcontainer: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".devcontainer")),
           hasSystemX: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".SYSTEMX")),
           localDevProfile: readCodexLocalDevProfile(projectPath: candidate.path),
+          toolEvidence: readCodexToolEvidence(projectPath: candidate.path, codexState: codexRegistry.state(for: candidate.path)),
           remoteURL: metadata.remoteURL,
           branch: gitStatus.branch ?? metadata.branch,
           ideState: codexRegistry.state(for: candidate.path),
@@ -9535,6 +9545,29 @@ final class CleanupViewModel: ObservableObject {
       ? String(head!.dropFirst("ref: refs/heads/".count))
       : nil
     return (true, remoteURL, branch)
+  }
+
+  private nonisolated static func readCodexToolEvidence(
+    projectPath: String,
+    codexState: CodexIDEProjectState
+  ) -> [CodexToolEvidence] {
+    let fileManager = FileManager.default
+    var evidence: Set<CodexToolEvidence> = []
+    if codexState == .active || codexState == .linked {
+      evidence.insert(.codex)
+    }
+
+    let markers: [(CodexToolEvidence, [String])] = [
+      (.visualStudioCode, [".vscode"]),
+      (.claude, [".claude", "CLAUDE.md"]),
+      (.lmStudio, [".lmstudio", "lmstudio.json"])
+    ]
+    for (tool, names) in markers where names.contains(where: { name in
+      fileManager.fileExists(atPath: (projectPath as NSString).appendingPathComponent(name))
+    }) {
+      evidence.insert(tool)
+    }
+    return CodexToolEvidence.allCases.filter { evidence.contains($0) }
   }
 
   private nonisolated static func readCodexDesktopProjectRegistry(
@@ -14331,6 +14364,14 @@ private struct CodexDecisionReviewPanel: View {
                   .font(.system(size: 11, weight: .medium, design: .rounded))
                   .foregroundStyle(DashboardTheme.muted)
                   .lineLimit(2)
+                if !decision.evidence.toolEvidence.isEmpty {
+                  Label(
+                    "Tool context: \(decision.evidence.toolEvidence.map(\.rawValue).joined(separator: ", "))",
+                    systemImage: "wrench.and.screwdriver"
+                  )
+                  .font(.system(size: 10, weight: .semibold, design: .rounded))
+                  .foregroundStyle(DashboardTheme.link)
+                }
                 Text(decision.sourcePath)
                   .font(.system(size: 10, weight: .medium, design: .monospaced))
                   .foregroundStyle(DashboardTheme.muted.opacity(0.85))

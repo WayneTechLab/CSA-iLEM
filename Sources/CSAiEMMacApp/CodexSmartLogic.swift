@@ -59,6 +59,7 @@ struct CodexSourceEvidence: Codable, Hashable, Sendable {
   let hasLocalChanges: Bool
   let mainLabel: String
   let ideState: String
+  let toolEvidence: [CodexToolEvidence]
   let markers: [String]
   let owner: String?
   let observedAt: Date
@@ -190,7 +191,7 @@ struct DeterministicOnlyCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2"
+  static let ruleVersion = "smart-logic-v2.1"
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in
@@ -284,6 +285,10 @@ enum CodexSmartLogicEngine {
       if project.ideState == .unavailable {
         reasons.append("Editor/project-registry evidence was unavailable; it is not used as an identity proof.")
       }
+      if !project.toolEvidence.isEmpty {
+        let tools = project.toolEvidence.map(\.rawValue).joined(separator: ", ")
+        reasons.append("Read-only tool evidence: \(tools). Tool markers describe possible editor or harness context; they do not establish repository identity or write authority.")
+      }
 
       return CodexSmartDecision(
         id: stableID(for: project.path),
@@ -302,6 +307,7 @@ enum CodexSmartLogicEngine {
           hasLocalChanges: project.gitStatus.hasLocalChanges,
           mainLabel: project.gitStatus.mainLabel,
           ideState: project.ideState.rawValue,
+          toolEvidence: project.toolEvidence,
           markers: project.badges,
           owner: owner(from: remote),
           observedAt: Date()
