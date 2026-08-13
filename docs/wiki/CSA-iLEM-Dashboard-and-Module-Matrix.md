@@ -359,6 +359,13 @@ audit events with source and session identifiers. These events are evidence of
 operator context only; they do not change live receipt state or authorize any
 resume, transfer, or cleanup operation.
 
+## Phase 13.35 baseline-history inspection
+
+The baseline decision audit is selectable as a read-only history. Selecting an
+accepted or revoked event displays its session context and source metadata, but
+does not reactivate it, replace the current baseline, or alter the live catalog.
+The dashboard states this non-reactivation boundary next to the selected event.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

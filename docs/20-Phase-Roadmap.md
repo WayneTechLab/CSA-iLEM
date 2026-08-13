@@ -315,6 +315,11 @@ Current Phase 13.34 slice:
 - persist accepted and revoked baseline events in a bounded local audit history;
 - keep revocation outside the live receipt, resume, transfer, and cleanup paths.
 
+Current Phase 13.35 slice:
+- show prior baseline events as a bounded, selectable read-only history;
+- expose selected event session/source context without reactivating a baseline;
+- make the non-reactivation and execution-authority boundary explicit in the UI.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

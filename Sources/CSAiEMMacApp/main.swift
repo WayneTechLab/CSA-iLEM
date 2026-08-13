@@ -1769,6 +1769,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexImportedRouteReceiptStatus = "No external route receipt bundle loaded."
   @Published var codexRouteReceiptBaselineDecision: CodexRouteReceiptBaselineDecision?
   @Published var codexRouteReceiptBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = []
+  @Published var codexSelectedRouteReceiptBaselineAuditID: String?
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
@@ -2343,6 +2344,11 @@ final class CleanupViewModel: ObservableObject {
     let rows = codexRouteReceiptComparisonRows
     guard !rows.isEmpty else { return nil }
     return CodexSmartLogicEngine.routeReceiptComparisonSummary(rows)
+  }
+
+  var codexSelectedRouteReceiptBaselineAudit: CodexRouteReceiptBaselineAuditEvent? {
+    guard let selectedID = codexSelectedRouteReceiptBaselineAuditID else { return nil }
+    return codexRouteReceiptBaselineAudit.first { $0.id == selectedID }
   }
 
   var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
@@ -2986,6 +2992,11 @@ final class CleanupViewModel: ObservableObject {
     codexRouteReceiptBaselineDecision = nil
     persistCodexRouteReceiptBaselineDecision()
     codexImportedRouteReceiptStatus = "Comparison baseline revoked; imported evidence remains available as read-only history and live execution authority is unchanged."
+  }
+
+  func inspectCodexRouteReceiptBaselineAudit(_ event: CodexRouteReceiptBaselineAuditEvent) {
+    codexSelectedRouteReceiptBaselineAuditID = event.id
+    codexImportedRouteReceiptStatus = "Read-only baseline audit event selected: " + event.action.rawValue + " · no baseline was activated or changed."
   }
 
   private func appendCodexRouteReceiptBaselineAudit(
@@ -17213,17 +17224,23 @@ struct ContentView: View {
       Text("This records an operator decision for comparison context only; it does not promote imported receipts into the live catalog.")
         .font(.system(size: 10, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
-      codexRouteReceiptBaselineAuditView()
     }
+    codexRouteReceiptBaselineAuditView()
   }
 
   private func codexRouteReceiptBaselineAuditRow(_ event: CodexRouteReceiptBaselineAuditEvent) -> some View {
     let action = event.action.rawValue.uppercased()
     let label = action + " · " + event.importedSourceName + " · " + event.detail
-    return Text(label)
-      .font(.system(size: 10, weight: .medium, design: .monospaced))
-      .foregroundStyle(event.action == .revoked ? DashboardTheme.warning : DashboardTheme.muted)
-      .textSelection(.enabled)
+    return Button {
+      model.inspectCodexRouteReceiptBaselineAudit(event)
+    } label: {
+      Text(label)
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(event.action == .revoked ? DashboardTheme.warning : DashboardTheme.muted)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .buttonStyle(.plain)
   }
 
   @ViewBuilder
@@ -17233,6 +17250,14 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 4) {
           ForEach(Array(model.codexRouteReceiptBaselineAudit.prefix(10))) { event in
             codexRouteReceiptBaselineAuditRow(event)
+          }
+          if let selected = model.codexSelectedRouteReceiptBaselineAudit {
+            Text("Selected read-only event · " + selected.action.rawValue + " · live " + String(selected.liveSessionID.prefix(8)) + " · imported " + String(selected.importedSessionID.prefix(8)))
+              .font(.system(size: 10, weight: .semibold, design: .monospaced))
+              .foregroundStyle(DashboardTheme.text)
+            Text("History inspection never reactivates a baseline or changes live execution authority.")
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
           }
         }
       }

@@ -12,6 +12,7 @@
 - Added Phase 13.32 live-versus-imported route-receipt comparison, classifying unchanged, changed, live-only, and imported-only sources without allowing imported evidence into execution.
 - Added Phase 13.33 explicit operator acceptance of an imported bundle as a comparison baseline only, with a persisted audit decision and no promotion into live execution state.
 - Added Phase 13.34 explicit comparison-baseline revocation with retained accepted/revoked audit events; revocation clears only the decision and preserves imported evidence.
+- Added Phase 13.35 read-only baseline-history inspection and selection, with explicit non-reactivation messaging and no change to live execution authority.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.
