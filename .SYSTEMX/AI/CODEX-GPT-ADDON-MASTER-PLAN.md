@@ -352,6 +352,11 @@ The current branch has direct evidence for each local milestone gate:
 - native project tree: the Local Project Library exposes on-demand expandable
   Code and Runtime root snapshots with bounded entries and generated-tree
   exclusions, preserving the fast indexed browse path for normal use.
+- lead ranking: verified identity groups now receive a deterministic,
+  review-only lead rank based on Git presence, remote identity, synchronized
+  main state, clean worktree state, branch, and linked/active editor evidence;
+  the strongest candidate is labeled in the native decision review without
+  bypassing operator confirmation or fail-closed apply gates.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the

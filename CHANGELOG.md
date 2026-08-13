@@ -10,6 +10,11 @@
   Code and Runtime roots now expose an expandable, hidden/build-artifact-aware
   snapshot on demand without replacing the indexed scan path or requiring
   Terminal/editor assistance.
+- Added deterministic review-only lead ranking for verified Smart Logic
+  identity groups. The native decision panel now labels the strongest clean,
+  synchronized, linked candidate as the recommended lead and shows lower-ranked
+  sources as review candidates; no automatic merge, move, or deletion is
+  authorized by the recommendation.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.

@@ -14265,6 +14265,11 @@ private struct CodexDecisionReviewPanel: View {
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(DashboardTheme.text)
                   PillBadge(text: decision.classification.label, tint: decision.classification.isReview ? DashboardTheme.warning : DashboardTheme.success)
+                  if decision.isRecommendedLead {
+                    PillBadge(text: "Recommended lead", tint: DashboardTheme.success)
+                  } else if decision.leadRank > 1 {
+                    PillBadge(text: "Lead rank \(decision.leadRank)", tint: DashboardTheme.warning)
+                  }
                 }
                 Text(decision.reasons.joined(separator: " "))
                   .font(.system(size: 11, weight: .medium, design: .rounded))

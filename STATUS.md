@@ -153,6 +153,9 @@ These areas are close, but not fully finished to the standard the app is aiming 
   source decisions, false-positive protection, recoverable versus fatal
   continuation, explicit YOLO limits, Archive_Data routing, native tool
   bridges, and the local-only/server-mode boundary
+- Smart Logic now computes a deterministic review-only lead rank within each
+  verified identity group and labels the strongest candidate in the native
+  decision panel; the operator still has to confirm the canonical source
 - the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `CODEX ~ GPT PORTAL` and `Local Files` now have safer previews, moves, exports, snapshots, and recovery flows, but need more polished cross-platform validation
@@ -188,9 +191,10 @@ These are the next production-hardening tasks with the best return:
 - extend changed-only resume coverage with timing and mutation fixtures across
   large multi-source projects; durable catalog-backed cache reuse is now in the
   runtime path but still needs broader performance evidence
-- implement deterministic identity grouping for same-name folders, broken wiki
-  metadata, editor shadow copies, multi-account ownership, and Dark Labs
-  recovery evidence
+- extend deterministic identity grouping from lead ranking to a grouped
+  apply-block explanation when one candidate remains unresolved; current
+  collision fixtures correctly fail closed but still need the group-level UI
+  explanation wired through every Stage 2 surface
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - extend the native project tree from bounded top-level inspection to indexed
   file-level evidence only when a user expands a path; avoid full-directory

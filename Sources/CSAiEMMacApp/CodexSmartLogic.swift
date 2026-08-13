@@ -70,6 +70,8 @@ struct CodexSmartDecision: Codable, Hashable, Identifiable, Sendable {
   let groupKey: String
   let classification: CodexDecisionClass
   let confidence: Double
+  let leadRank: Int
+  let isRecommendedLead: Bool
   let evidence: CodexSourceEvidence
   let reasons: [String]
   let recommendedDestination: String?
@@ -198,10 +200,24 @@ enum CodexSmartLogicEngine {
       return "name:\(project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
     }
 
+    let leadRanks = grouped.reduce(into: [String: Int]()) { ranks, group in
+      let ordered = group.value.sorted { lhs, rhs in
+        let lhsScore = leadScore(lhs)
+        let rhsScore = leadScore(rhs)
+        if lhsScore != rhsScore { return lhsScore > rhsScore }
+        return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
+      }
+      for (index, project) in ordered.enumerated() {
+        ranks[project.path] = index + 1
+      }
+    }
+
     return projects.map { project in
       let remote = normalizedRemote(project.remoteURL)
       let hasVerifiedRemote = project.hasGit && remote?.isEmpty == false
       let sameGroupCount = grouped[groupKey(for: project)]?.count ?? 1
+      let leadRank = leadRanks[project.path] ?? 1
+      let isRecommendedLead = sameGroupCount > 1 && leadRank == 1 && project.hasGit && hasVerifiedRemote
       var reasons: [String] = []
       let classification: CodexDecisionClass
       let confidence: Double
@@ -218,6 +234,11 @@ enum CodexSmartLogicEngine {
         classification = .mergeCandidate
         confidence = project.gitStatus.hasLocalChanges || !project.gitStatus.isMainSynchronized || project.branch != "main" ? 0.86 : 0.92
         reasons.append("Multiple source folders share the same verified remote identity.")
+        if isRecommendedLead {
+          reasons.append("Deterministic lead recommendation: this source has the strongest synchronized, clean, and linked evidence in the identity group.")
+        } else {
+          reasons.append("Lead rank (leadRank) in the identity group; preserve this source as a review candidate until the operator confirms the canonical source.")
+        }
         if project.gitStatus.hasLocalChanges {
           reasons.append("This source has uncommitted local changes that must be preserved before reconciliation.")
         }
@@ -261,6 +282,8 @@ enum CodexSmartLogicEngine {
         groupKey: groupKey(for: project),
         classification: classification,
         confidence: confidence,
+        leadRank: leadRank,
+        isRecommendedLead: isRecommendedLead,
         evidence: CodexSourceEvidence(
           path: project.path,
           name: project.name,
@@ -282,6 +305,23 @@ enum CodexSmartLogicEngine {
         createdAt: Date()
       )
     }
+  }
+
+  private static func leadScore(_ project: CodexProjectEntry) -> Int {
+    var score = 0
+    if project.hasGit { score += 100 }
+    if normalizedRemote(project.remoteURL)?.isEmpty == false { score += 50 }
+    if project.gitStatus.isMainSynchronized { score += 40 }
+    if !project.gitStatus.hasLocalChanges { score += 30 }
+    if project.branch == "main" { score += 20 }
+    switch project.ideState {
+    case .active: score += 15
+    case .linked: score += 10
+    case .unlinked: break
+    case .unavailable: score -= 5
+    }
+    if project.hasPackageManifest { score += 3 }
+    return score
   }
 
   private static func groupKey(for project: CodexProjectEntry) -> String {
