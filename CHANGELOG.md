@@ -12,6 +12,8 @@
   Flowers/Space/Birds corpus: Fast Index, Full Verification, and YOLO all
   preserved six identity groups and three review-only blockers without
   transfer or cleanup mutation.
+- Added a catalog restart regression proving an interrupted Stage 2 checkpoint
+  remains visible as the latest resume state instead of forcing a full rescan.
 
 ## 0.8.0
 

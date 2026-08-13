@@ -61,6 +61,8 @@ These major product areas are built into the app now:
 - native Swift test target now covers Smart Logic grouping/classification,
   deterministic advisory non-authority, catalog session/checkpoint exports,
   module matrix contracts, review semantics, and backup-medium policy labels
+- the native catalog suite now proves a later `stage2-reconcile=interrupted`
+  checkpoint remains the visible resume state after a fresh catalog restart
 - non-destructive native release preflight is now repeatable locally and in
   GitHub Actions through `.SYSTEMX/scripts/release-preflight.sh` and the
   macOS `CSA-iLEM native preflight` workflow

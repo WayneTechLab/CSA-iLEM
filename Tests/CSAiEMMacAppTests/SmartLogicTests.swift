@@ -230,6 +230,40 @@ final class SmartLogicTests: XCTestCase {
     )
   }
 
+  func testInterruptedLaterStageRemainsVisibleAfterCatalogRestart() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-interrupted-session-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = project(path: "/tmp/interrupted-source", name: "Interrupted", remoteURL: nil, branch: nil, ideState: .unavailable, hasLocalChanges: false, mainState: .noOriginMain)
+    let decision = CodexSmartLogicEngine.evaluate([source]).first!
+    let session = CodexScanSession(id: "interrupted-session", profile: "full-verification", sourceRoots: ["/tmp"], createdAt: observedDate, ruleVersion: CodexSmartLogicEngine.ruleVersion, decisionCount: 1)
+    let indexed = CodexSessionCheckpoint(
+      sessionID: session.id,
+      sourcePath: source.path,
+      stage: "stage1-preflight",
+      state: "completed",
+      updatedAt: observedDate,
+      detail: "index retained"
+    )
+    let interrupted = CodexSessionCheckpoint(
+      sessionID: session.id,
+      sourcePath: source.path,
+      stage: "stage2-reconcile",
+      state: "interrupted",
+      updatedAt: observedDate.addingTimeInterval(60),
+      detail: "process stopped after destination preservation"
+    )
+
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.save(session: session, decisions: [decision], checkpoints: [indexed])
+    try store.saveCheckpoints([interrupted])
+    let reopened = CodexCatalogStore(rootPath: root.path)
+
+    XCTAssertEqual(
+      reopened.latestCheckpointSummary(),
+      "stage2-reconcile=interrupted at 2025-08-11T17:01:00Z"
+    )
+  }
+
   func testCodexIndexIsDeterministicAndSkipsGeneratedTrees() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-corpus-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }

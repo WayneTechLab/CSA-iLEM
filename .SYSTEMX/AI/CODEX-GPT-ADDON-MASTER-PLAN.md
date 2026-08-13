@@ -340,7 +340,7 @@ This is the exact false-positive/identity case Smart Logic must surface.
 The current branch has direct evidence for each local milestone gate:
 
 - native release build: `swift build -c release`;
-- native regression suite: `swift test` with 21 passing Smart Logic/catalog
+- native regression suite: `swift test` with 22 passing Smart Logic/catalog
   tests under `Tests/CSAiEMMacAppTests`;
 - plan integrity: `node .SYSTEMX/scripts/validate-10000-task-plan.mjs`;
 - repository/file integrity: `shasum -a 256 -c --strict SHA256SUMS` and
@@ -391,6 +391,9 @@ The current branch has direct evidence for each local milestone gate:
 - checkpoint recovery evidence: the reopened SQLite catalog exposes the latest
   persisted session checkpoint, and the native Smart Index status surfaces its
   stage, state, and timestamp without requiring a fresh full scan.
+- interrupted-session evidence: a later `stage2-reconcile=interrupted`
+  checkpoint survives a catalog restart and remains the latest visible resume
+  state, proving the operator can continue from the saved session boundary.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the
