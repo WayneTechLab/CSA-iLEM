@@ -8871,7 +8871,7 @@ final class CleanupViewModel: ObservableObject {
     NSString(string: value.trimmingCharacters(in: .whitespacesAndNewlines)).expandingTildeInPath
   }
 
-  private nonisolated static func relocateWorkspaceRoots(
+  nonisolated static func relocateWorkspaceRoots(
     scope: WorkspaceRelocationScope,
     style: WorkspaceStyle,
     codeRoot: String,
@@ -8940,6 +8940,9 @@ final class CleanupViewModel: ObservableObject {
         guard let stagePath = stagePathsByDestination[operation.destination] else { continue }
         try fm.moveItem(atPath: stagePath, toPath: operation.destination)
         stagePathsByDestination.removeValue(forKey: operation.destination)
+      }
+      if environment["CSA_IEM_TEST_FAIL_AFTER_WORKSPACE_PROMOTION"] == "1" {
+        throw NSError(domain: appTitle, code: 96, userInfo: [NSLocalizedDescriptionKey: "Injected workspace relocation failure for rollback verification."])
       }
     } catch {
       for operation in operations {

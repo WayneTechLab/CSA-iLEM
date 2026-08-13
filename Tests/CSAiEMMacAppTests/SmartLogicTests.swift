@@ -231,6 +231,50 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: importRoot.path))
   }
 
+  func testWorkspaceRelocationRollsBackCrossRootPromotionOnLaterFailure() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-relocation-rollback-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let code = root.appendingPathComponent("source/Code")
+    let imported = root.appendingPathComponent("source/Import")
+    let runtime = root.appendingPathComponent("source/Runtime")
+    let destination = root.appendingPathComponent("destination")
+    let sourceFiles = [
+      code.appendingPathComponent("marker.txt"),
+      imported.appendingPathComponent("marker.txt"),
+      runtime.appendingPathComponent("marker.txt")
+    ]
+    for file in sourceFiles {
+      try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("new-\(file.lastPathComponent)-\(file.deletingLastPathComponent().lastPathComponent)".utf8).write(to: file)
+    }
+    let existingDestinationFiles = [
+      destination.appendingPathComponent("Code/marker.txt"),
+      destination.appendingPathComponent("Import/marker.txt"),
+      destination.appendingPathComponent("Runtime/marker.txt")
+    ]
+    for file in existingDestinationFiles {
+      try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("old".utf8).write(to: file)
+    }
+
+    XCTAssertThrowsError(try CleanupViewModel.relocateWorkspaceRoots(
+      scope: .workspace,
+      style: .split,
+      codeRoot: code.path,
+      importRoot: imported.path,
+      runtimeRoot: runtime.path,
+      destinationBase: destination.path,
+      overwrite: true,
+      environment: ["CSA_IEM_TEST_FAIL_AFTER_WORKSPACE_PROMOTION": "1"]
+    ))
+    for file in sourceFiles {
+      XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+    for file in existingDestinationFiles {
+      XCTAssertEqual(try String(contentsOf: file), "old")
+    }
+  }
+
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")

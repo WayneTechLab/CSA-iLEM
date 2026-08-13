@@ -30,6 +30,9 @@
 - Added a temporary workspace-root backup envelope around snapshot restore so a
   later merge failure restores Code, Import, and Runtime to their pre-restore
   state; added partial Code/Import rollback coverage.
+- Added injected cross-root workspace-relocation coverage proving staged Code,
+  Import, and Runtime promotion restores prior destinations and retains sources
+  when a later relocation step fails.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

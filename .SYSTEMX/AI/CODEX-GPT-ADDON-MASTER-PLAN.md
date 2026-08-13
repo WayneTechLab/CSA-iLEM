@@ -377,6 +377,8 @@ The current branch has direct evidence for each local milestone gate:
   remain intact.
 - snapshot restore now protects the affected workspace roots with a temporary
   pre-restore copy and restores them if a later merge step fails.
+- cross-root workspace relocation now has injected later-failure coverage that
+  restores existing destinations and keeps all source roots intact.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred
