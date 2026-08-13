@@ -363,6 +363,9 @@ The current branch has direct evidence for each local milestone gate:
 - index corpus evidence: the native regression suite scans a 250-file fixture
   twice, confirms deterministic entries and byte totals, and verifies common
   generated dependency/build trees are omitted from the indexed evidence.
+- grouped shadow evidence: a clean, synchronized, unlinked same-remote copy
+  is classified as `shadowCopy` when other sources share its identity, making
+  the editor/tool shadow state visible to the group-level fail-closed review.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the

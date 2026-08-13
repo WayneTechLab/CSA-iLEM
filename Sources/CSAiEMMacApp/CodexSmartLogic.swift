@@ -230,6 +230,15 @@ enum CodexSmartLogicEngine {
         classification = .sameNameReview
         confidence = 0.25
         reasons.append("No verified GitHub remote identity is available.")
+      } else if sameGroupCount > 1 &&
+                project.ideState == .unlinked &&
+                !project.gitStatus.hasLocalChanges &&
+                project.gitStatus.isMainSynchronized &&
+                project.branch == "main" {
+        classification = .shadowCopy
+        confidence = 0.55
+        reasons.append("This synchronized copy is not linked to the active local project registry.")
+        reasons.append("Treat it as a shadow-copy review candidate until the operator confirms its role.")
       } else if sameGroupCount > 1 {
         classification = .mergeCandidate
         confidence = project.gitStatus.hasLocalChanges || !project.gitStatus.isMainSynchronized || project.branch != "main" ? 0.86 : 0.92
@@ -237,7 +246,7 @@ enum CodexSmartLogicEngine {
         if isRecommendedLead {
           reasons.append("Deterministic lead recommendation: this source has the strongest synchronized, clean, and linked evidence in the identity group.")
         } else {
-          reasons.append("Lead rank (leadRank) in the identity group; preserve this source as a review candidate until the operator confirms the canonical source.")
+          reasons.append("Lead rank \(leadRank) in the identity group; preserve this source as a review candidate until the operator confirms the canonical source.")
         }
         if project.gitStatus.hasLocalChanges {
           reasons.append("This source has uncommitted local changes that must be preserved before reconciliation.")

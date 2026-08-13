@@ -156,6 +156,10 @@ These areas are close, but not fully finished to the standard the app is aiming 
 - Smart Logic now computes a deterministic review-only lead rank within each
   verified identity group and labels the strongest candidate in the native
   decision panel; the operator still has to confirm the canonical source
+- synchronized, clean, unlinked copies inside a multi-source verified group
+  are now classified as `shadowCopy` review rather than generic merge
+  candidates, so editor/tool shadow folders participate in the group blocker
+  explanation
 - The native decision panel now also explains when a group-level apply is
   blocked by shadow, broken-metadata, unknown-owner, same-name, or fatal
   identity evidence instead of showing lower-risk rows as independently safe.

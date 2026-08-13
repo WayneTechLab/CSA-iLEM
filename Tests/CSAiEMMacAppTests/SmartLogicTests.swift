@@ -78,6 +78,34 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(decision?.reasons.contains("The folder is not linked to the active local project registry.") == true)
   }
 
+  func testGroupedUnlinkedSynchronizedCopyIsShadowReviewAndBlocksLeadGroup() {
+    let lead = project(
+      path: "/tmp/birds-lead",
+      name: "Birds",
+      remoteURL: "https://github.com/WayneTechLab/Birds.git",
+      branch: "main",
+      ideState: .linked,
+      hasLocalChanges: false,
+      mainState: .synchronized
+    )
+    let shadow = project(
+      path: "/tmp/birds-shadow",
+      name: "Birds-shadow",
+      remoteURL: "https://github.com/WayneTechLab/Birds.git",
+      branch: "main",
+      ideState: .unlinked,
+      hasLocalChanges: false,
+      mainState: .synchronized
+    )
+
+    let decisions = CodexSmartLogicEngine.evaluate([lead, shadow])
+
+    XCTAssertEqual(decisions[0].classification, .mergeCandidate)
+    XCTAssertEqual(decisions[1].classification, .shadowCopy)
+    XCTAssertTrue(decisions[1].classification.isReview)
+    XCTAssertTrue(decisions[1].reasons.contains { $0.contains("shadow-copy") })
+  }
+
   func testDeterministicAdvisorySuggestsOnlyReviewDecisions() async throws {
     let projects = [
       project(path: "/tmp/canonical", name: "Birds", remoteURL: "https://github.com/WayneTechLab/Birds", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized),

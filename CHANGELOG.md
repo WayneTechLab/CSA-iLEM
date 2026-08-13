@@ -21,6 +21,9 @@
 - Added a 250-file native index regression corpus that runs twice, verifies
   stable file and byte counts, and proves generated dependency/build trees are
   excluded from the fast index path.
+- Refined grouped Smart Logic classification so a clean, synchronized,
+  unlinked same-remote copy is explicitly treated as a shadow-copy review
+  candidate, with regression coverage for the group-level apply block.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.
