@@ -373,25 +373,32 @@ enum CodexSmartLogicEngine {
   static let ruleVersion = "smart-logic-v2.6"
 
   static func sourceFingerprint(_ project: CodexProjectEntry) -> String {
-    let values = [
-      project.path,
-      project.name,
-      project.discoveredBy,
-      project.remoteURL ?? "",
-      project.branch ?? "",
-      project.ideState.rawValue,
-      project.gitStatus.mainLabel,
-      project.gitStatus.hasLocalChanges ? "dirty" : "clean",
-      project.gitStatus.isMainSynchronized ? "main-synchronized" : "main-unsynchronized",
-      project.hasGit ? "git" : "no-git",
-      project.hasPackageManifest ? "manifest" : "no-manifest",
-      project.snapshot.fileCount.description,
-      project.snapshot.byteCount.description,
-      project.snapshot.latestModification.map(ISO8601DateFormatter().string(from:)) ?? "",
-      project.snapshot.truncated ? "bounded" : "complete",
-      project.toolEvidence.map(\.rawValue).sorted().joined(separator: ","),
-      project.activeToolEvidence.map(\.rawValue).sorted().joined(separator: ",")
-    ]
+    let latestModification = project.snapshot.latestModification.map { ISO8601DateFormatter().string(from: $0) } ?? ""
+    let gitState = project.gitStatus.hasLocalChanges ? "dirty" : "clean"
+    let synchronizationState = project.gitStatus.isMainSynchronized ? "main-synchronized" : "main-unsynchronized"
+    let repositoryState = project.hasGit ? "git" : "no-git"
+    let manifestState = project.hasPackageManifest ? "manifest" : "no-manifest"
+    let snapshotState = project.snapshot.truncated ? "bounded" : "complete"
+    let toolMarkers = project.toolEvidence.map { $0.rawValue }.sorted().joined(separator: ",")
+    let activeToolMarkers = project.activeToolEvidence.map { $0.rawValue }.sorted().joined(separator: ",")
+    var values: [String] = []
+    values.append(project.path)
+    values.append(project.name)
+    values.append(project.discoveredBy)
+    values.append(project.remoteURL ?? "")
+    values.append(project.branch ?? "")
+    values.append(project.ideState.rawValue)
+    values.append(project.gitStatus.mainLabel)
+    values.append(gitState)
+    values.append(synchronizationState)
+    values.append(repositoryState)
+    values.append(manifestState)
+    values.append(project.snapshot.fileCount.description)
+    values.append(project.snapshot.byteCount.description)
+    values.append(latestModification)
+    values.append(snapshotState)
+    values.append(toolMarkers)
+    values.append(activeToolMarkers)
     let bytes = Array(values.joined(separator: "\u{1F}").utf8)
     var hash: UInt64 = 1469598103934665603
     for byte in bytes {
