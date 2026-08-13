@@ -316,6 +316,15 @@ count, and bounded last detail. Failed receipts are listed first, followed by
 interrupted and planned receipts. Completed and skipped receipts are excluded by
 the same deterministic predicate used by the Resume action.
 
+## Phase 13.30 portable route-receipt export
+
+The route receipt summary now exposes an **Export route receipts** action. It
+writes a JSON bundle and CSV table into the existing local catalog `Exports`
+folder. The bundle contains the active session identifier, summary counts, and
+deterministically ordered receipt rows with source path, route, state, attempt
+count, timestamp, and bounded detail. Export is read-only: it does not copy
+source files, mutate SQLite authority, upload anything, or include credentials.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

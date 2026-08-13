@@ -284,6 +284,12 @@ Current Phase 13.29 slice:
 - share one deterministic pending-receipt predicate between the preview and the
   resume action so the UI cannot promise a different source set than execution.
 
+Current Phase 13.30 slice:
+- export the active session's route receipts as read-only JSON and CSV evidence;
+- preserve deterministic source ordering, route state, attempt count, timestamp,
+  and bounded detail in the exported bundle;
+- keep the SQLite catalog authoritative and export no source files or credentials.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

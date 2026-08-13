@@ -1760,6 +1760,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexDecisionComparisonRows: [CodexDecisionComparisonRow] = []
   @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonExportStatus = ""
+  @Published var codexRouteReceiptExportStatus = ""
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
@@ -2873,6 +2874,21 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexComparisonExportStatus = "Comparison export failed: \(error.localizedDescription)"
       appendLog("[codex] Comparison evidence export failed: \(error.localizedDescription)\n")
+    }
+  }
+
+  func exportCodexRouteReceipts() {
+    guard let store = codexCatalogStore, !codexActiveSessionID.isEmpty else {
+      codexRouteReceiptExportStatus = "Run or load a catalog session before exporting route receipts."
+      return
+    }
+    do {
+      let paths = try store.exportRouteReceipts(sessionID: codexActiveSessionID, receipts: codexRouteReceipts)
+      codexRouteReceiptExportStatus = "Route receipts exported locally: " + paths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
+      codexCatalogStatus = "Catalog saved · route receipt JSON/CSV evidence ready"
+    } catch {
+      codexRouteReceiptExportStatus = "Route receipt export failed: " + error.localizedDescription
+      appendLog("[codex] Route receipt export failed: " + error.localizedDescription + "\n")
     }
   }
 
@@ -16898,6 +16914,23 @@ struct ContentView: View {
       codexRouteReceiptSummaryView(receiptSummary)
       codexPendingReceiptAuditView()
       codexPendingReceiptResumeView()
+      HStack(spacing: 8) {
+        Button("Export route receipts") {
+          model.exportCodexRouteReceipts()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .controlSize(.small)
+        .disabled(model.codexRouteReceipts.isEmpty || model.isCodexPortalBusy)
+        Text("Writes read-only JSON and CSV to the local catalog Exports folder.")
+          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+      if !model.codexRouteReceiptExportStatus.isEmpty {
+        Text(model.codexRouteReceiptExportStatus)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.muted)
+          .textSelection(.enabled)
+      }
     }
   }
 

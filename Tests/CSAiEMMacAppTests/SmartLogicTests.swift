@@ -418,6 +418,26 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(pending.contains { $0.state == .completed || $0.state == .skipped })
   }
 
+  func testRouteReceiptExportWritesPortableJSONAndCSVWithoutChangingReceiptOrder() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-route-export-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let receipts = [
+      CodexScanRouteReceipt(sessionID: "export-session", sourcePath: "/tmp/z-source", route: .targetedVerification, state: .failed, attemptCount: 2, updatedAt: observedDate.addingTimeInterval(2), detail: "needs, review"),
+      CodexScanRouteReceipt(sessionID: "export-session", sourcePath: "/tmp/a-source", route: .metadataTriage, state: .completed, attemptCount: 1, updatedAt: observedDate, detail: "completed")
+    ]
+    let store = CodexCatalogStore(rootPath: root.path)
+    let paths = try store.exportRouteReceipts(sessionID: "export-session", receipts: receipts)
+
+    XCTAssertEqual(paths.map { URL(fileURLWithPath: $0).pathExtension }, ["json", "csv"])
+    let bundle = try JSONDecoder().decode(CodexRouteReceiptExportBundle.self, from: Data(contentsOf: URL(fileURLWithPath: paths[0])))
+    XCTAssertEqual(bundle.sessionID, "export-session")
+    XCTAssertEqual(bundle.receipts.map(\.sourcePath), ["/tmp/a-source", "/tmp/z-source"])
+    XCTAssertEqual(bundle.summary.failedCount, 1)
+    let csv = try String(contentsOfFile: paths[1], encoding: .utf8)
+    XCTAssertTrue(csv.contains("session_id,source_path,route,state,attempt_count,updated_at,detail"))
+    XCTAssertTrue(csv.contains("\"needs, review\""))
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -930,8 +950,8 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.3" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

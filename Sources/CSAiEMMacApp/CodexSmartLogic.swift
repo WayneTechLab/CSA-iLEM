@@ -522,6 +522,13 @@ struct CodexRouteReceiptSummary: Codable, Hashable, Sendable {
   }
 }
 
+struct CodexRouteReceiptExportBundle: Codable, Hashable, Sendable {
+  let exportedAt: Date
+  let sessionID: String
+  let summary: CodexRouteReceiptSummary
+  let receipts: [CodexScanRouteReceipt]
+}
+
 extension CodexSmartLogicEngine {
   static func pendingRouteReceipts(_ receipts: [CodexScanRouteReceipt]) -> [CodexScanRouteReceipt] {
     receipts
@@ -1188,7 +1195,7 @@ enum CodexSmartLogicEngine {
     )
   }
 
-  private static func csvEscape(_ value: String) -> String {
+  static func csvEscape(_ value: String) -> String {
     "\"" + value.replacingOccurrences(of: "\"", with: "\"\"").replacingOccurrences(of: "\n", with: " ") + "\""
   }
 
@@ -1499,6 +1506,46 @@ final class CodexCatalogStore: @unchecked Sendable {
     let csvPath = (exportDirectory as NSString).appendingPathComponent("\(stem).csv")
     try encoder.encode(bundle).write(to: URL(fileURLWithPath: jsonPath), options: .atomic)
     try CodexSmartLogicEngine.comparisonCSV(rows).write(toFile: csvPath, atomically: true, encoding: .utf8)
+    return [jsonPath, csvPath]
+  }
+
+  func exportRouteReceipts(
+    sessionID: String,
+    receipts: [CodexScanRouteReceipt]
+  ) throws -> [String] {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true, attributes: nil)
+    let orderedReceipts = receipts.sorted { lhs, rhs in
+      if lhs.sourcePath != rhs.sourcePath { return lhs.sourcePath < rhs.sourcePath }
+      return lhs.updatedAt < rhs.updatedAt
+    }
+    let bundle = CodexRouteReceiptExportBundle(
+      exportedAt: Date(),
+      sessionID: sessionID,
+      summary: CodexSmartLogicEngine.routeReceiptSummary(orderedReceipts),
+      receipts: orderedReceipts
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let stem = "route-receipts-" + sessionID
+    let jsonPath = (exportDirectory as NSString).appendingPathComponent(stem + ".json")
+    let csvPath = (exportDirectory as NSString).appendingPathComponent(stem + ".csv")
+    try encoder.encode(bundle).write(to: URL(fileURLWithPath: jsonPath), options: .atomic)
+    var csv = "session_id,source_path,route,state,attempt_count,updated_at,detail\n"
+    let dateFormatter = ISO8601DateFormatter()
+    for receipt in orderedReceipts {
+      let row = [
+        receipt.sessionID,
+        receipt.sourcePath,
+        receipt.route.rawValue,
+        receipt.state.rawValue,
+        String(receipt.attemptCount),
+        dateFormatter.string(from: receipt.updatedAt),
+        receipt.detail
+      ].map(CodexSmartLogicEngine.csvEscape).joined(separator: ",")
+      csv += row + "\n"
+    }
+    try csv.write(toFile: csvPath, atomically: true, encoding: .utf8)
     return [jsonPath, csvPath]
   }
 
