@@ -343,7 +343,7 @@ The current branch has direct evidence for each local milestone gate:
 - plan integrity: `node .SYSTEMX/scripts/validate-10000-task-plan.mjs`;
 - repository/file integrity: `shasum -a 256 -c --strict SHA256SUMS` and
   `git diff --check`;
-- repository boundary: HEAD contains no WebStack-G1 references;
+- repository boundary: HEAD contains no unrelated-project matches;
 - installed runtime: `/Applications/CSA-iEM.app` reports 0.8.0, one native
   process, and a valid strict code signature;
 - live UI: Home, Import, Projects, CODEX ~ GPT PORTAL, and Project Backups
