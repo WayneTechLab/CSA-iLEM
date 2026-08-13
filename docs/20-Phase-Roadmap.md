@@ -233,6 +233,13 @@ Current Phase 13.22 slice:
 - preserve the evidence-only boundary: imported profile context cannot change
   the live catalog, profile selection, or any operation gate.
 
+Current Phase 13.23 slice:
+- show the exported scan profile and profile-assessment state in retained local
+  evidence-history entries;
+- let operators triage old handoff evidence before opening the full bundle;
+- keep history bounded, local, read-only, and unable to alter catalog state or
+  authorize an operation.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

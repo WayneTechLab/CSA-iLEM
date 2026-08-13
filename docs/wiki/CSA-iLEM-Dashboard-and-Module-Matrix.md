@@ -245,6 +245,13 @@ assessment. When the file is reopened as read-only evidence, CSA-iLEM displays
 that context alongside the session and rule-version metadata. The imported
 context cannot change the live profile, catalog, or operation gates.
 
+## Phase 13.23 retained-history provenance
+
+Retained imported-evidence entries show the exported scan profile and whether
+the profile matched the route assessment or Full Verification was recommended.
+Operators can triage a handoff before opening it. The bounded local history is
+read-only and cannot modify the live catalog or authorize an operation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

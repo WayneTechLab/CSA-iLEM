@@ -270,6 +270,15 @@ struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
   let sourceName: String
   let importedAt: Date
   let bundle: CodexComparisonEvidenceBundle
+
+  var profileLabel: String {
+    bundle.selectedScanProfile?.rawValue ?? "unknown"
+  }
+
+  var profileAuditLabel: String {
+    guard let assessment = bundle.profileAssessment else { return "assessment unavailable" }
+    return assessment.strongerProfileRecommended ? "Full Verification recommended" : "profile matched route"
+  }
 }
 
 struct CodexEvidenceAuthorityComparison: Codable, Hashable, Sendable {

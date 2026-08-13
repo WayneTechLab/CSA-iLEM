@@ -16543,7 +16543,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 5) {
                   ForEach(model.codexImportedEvidenceHistory) { record in
                     HStack(spacing: 8) {
-                      Button(record.sourceName + " · " + String(record.bundle.rows.count) + " row(s)") {
+                      Button(record.sourceName + " · " + String(record.bundle.rows.count) + " row(s) · " + record.profileLabel + " · " + record.profileAuditLabel) {
                         model.inspectCodexEvidenceRecord(record)
                       }
                       .buttonStyle(.plain)

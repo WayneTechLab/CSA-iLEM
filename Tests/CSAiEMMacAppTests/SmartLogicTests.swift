@@ -446,6 +446,8 @@ final class SmartLogicTests: XCTestCase {
     let restored = try JSONDecoder().decode(CodexImportedEvidenceRecord.self, from: JSONEncoder().encode(record))
     XCTAssertEqual(restored, record)
     XCTAssertEqual(restored.bundle.currentSessionID, "current-history")
+    XCTAssertEqual(restored.profileLabel, "unknown")
+    XCTAssertEqual(restored.profileAuditLabel, "assessment unavailable")
   }
 
   func testAuthorityComparisonKeepsLiveAndImportedEvidenceDistinct() {
@@ -825,13 +827,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.7" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.8" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.7" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.8" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
