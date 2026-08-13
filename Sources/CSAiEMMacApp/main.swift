@@ -2299,6 +2299,17 @@ final class CleanupViewModel: ObservableObject {
     )
   }
 
+  var codexRouteReceipts: [CodexScanRouteReceipt] {
+    guard !codexActiveSessionID.isEmpty, let codexCatalogStore else { return [] }
+    return codexCatalogStore.routeReceipts(for: codexActiveSessionID)
+  }
+
+  var codexRouteReceiptSummary: CodexRouteReceiptSummary? {
+    let receipts = codexRouteReceipts
+    guard !receipts.isEmpty else { return nil }
+    return CodexSmartLogicEngine.routeReceiptSummary(receipts)
+  }
+
   var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
     codexImportedEvidenceHistory.filter { codexEvidenceHistoryFilter.includes($0) }
   }
@@ -2740,8 +2751,14 @@ final class CleanupViewModel: ObservableObject {
       changedSourceCount: changedCount,
       affectedGroupCount: changedGroupKeys.count
     )
+    let routeReceipts = CodexSmartLogicEngine.routeReceipts(
+      sessionID: session.id,
+      decisions: decisions,
+      deltas: deltas,
+      dispositions: codexReviewDispositions
+    )
     do {
-      _ = try codexCatalogStore?.save(session: session, decisions: decisions, deltas: deltas, timing: timing)
+      _ = try codexCatalogStore?.save(session: session, decisions: decisions, routeReceipts: routeReceipts, deltas: deltas, timing: timing)
       let sessions = codexCatalogStore?.recentSessions(limit: 6) ?? []
       codexRecentSessions = sessions
       let previousSessionID = sessions.dropFirst().first?.id
@@ -3124,6 +3141,46 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexCatalogStatus = "Catalog checkpoint warning: \(error.localizedDescription)"
       appendLog("[codex] Catalog checkpoint warning: \(error.localizedDescription)\n")
+    }
+  }
+
+  private func updateCodexRouteReceipts(
+    completedPaths: Set<String>,
+    interruptedPaths: Set<String>,
+    failedPaths: Set<String>
+  ) {
+    guard !codexActiveSessionID.isEmpty, let codexCatalogStore else { return }
+    let now = Date()
+    let receipts = codexCatalogStore.routeReceipts(for: codexActiveSessionID).map { receipt -> CodexScanRouteReceipt in
+      if receipt.state == .skipped { return receipt }
+      let nextState: CodexRouteReceiptState
+      let detail: String
+      if failedPaths.contains(receipt.sourcePath) {
+        nextState = .failed
+        detail = "Route stopped at this source; retry is available from the persisted receipt."
+      } else if interruptedPaths.contains(receipt.sourcePath) {
+        nextState = .interrupted
+        detail = "Route was not reached before the operation stopped; resume can reuse the saved decision and index."
+      } else if completedPaths.contains(receipt.sourcePath) {
+        nextState = .completed
+        detail = "Route completed with the selected operation's verification boundary."
+      } else {
+        return receipt
+      }
+      return CodexScanRouteReceipt(
+        sessionID: receipt.sessionID,
+        sourcePath: receipt.sourcePath,
+        route: receipt.route,
+        state: nextState,
+        attemptCount: receipt.attemptCount + 1,
+        updatedAt: now,
+        detail: detail
+      )
+    }
+    do {
+      try codexCatalogStore.saveRouteReceipts(receipts)
+    } catch {
+      appendLog("[codex] Route receipt update warning: \(error.localizedDescription)\n")
     }
   }
 
@@ -5706,6 +5763,8 @@ final class CleanupViewModel: ObservableObject {
     processQueue.async { [weak self] in
       var outcomes: [CodexProjectTransferOutcome] = []
       var failure: Error?
+      var processedPaths: Set<String> = []
+      var failedPath: String?
       var lifecycleSummary = ""
 
       for (index, project) in projects.enumerated() {
@@ -5801,8 +5860,10 @@ final class CleanupViewModel: ObservableObject {
             includeDependencies: includeDependencies
           )
           outcomes.append(outcome)
+          processedPaths.insert(project.path)
         } catch {
           failure = error
+          failedPath = project.path
           break
         }
       }
@@ -5847,12 +5908,24 @@ final class CleanupViewModel: ObservableObject {
         guard let self else { return }
         self.isRunningCodexTransfer = false
         if let failure {
+          let allPaths = Set(projects.map(\.path))
+          let failedPaths = failedPath.map { Set([$0]) } ?? Set<String>()
+          self.updateCodexRouteReceipts(
+            completedPaths: processedPaths,
+            interruptedPaths: allPaths.subtracting(processedPaths).subtracting(failedPaths),
+            failedPaths: failedPaths
+          )
           self.codexPortalProgressText = "Stopped after \(outcomes.count) completed project(s)."
           self.codexPortalStatus = "Transfer stopped safely: \(failure.localizedDescription)"
           if runLifecycle { self.codexLifecycleStatus = self.codexPortalStatus }
           self.updateJob(id: jobID, state: .failed, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
         } else {
+          self.updateCodexRouteReceipts(
+            completedPaths: processedPaths,
+            interruptedPaths: [],
+            failedPaths: []
+          )
           let warningCount = outcomes.reduce(0) { $0 + $1.warnings.count }
           let resumedCount = outcomes.filter(\.resumedExistingDestination).count
           let reconciledCount = outcomes.reduce(0) { $0 + $1.reconciledFileCount }
@@ -16415,6 +16488,12 @@ struct ContentView: View {
           }
           .padding(8)
           .background(DashboardTheme.field, in: RoundedRectangle(cornerRadius: 8))
+        }
+
+        if let receiptSummary = model.codexRouteReceiptSummary {
+          Text("Route receipt · " + receiptSummary.headline + " · persisted in the local SQLite catalog")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(receiptSummary.pendingCount > 0 ? DashboardTheme.warning : DashboardTheme.muted)
         }
 
         FieldLabel(text: "Backup Medium")

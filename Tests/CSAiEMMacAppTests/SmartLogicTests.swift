@@ -376,6 +376,34 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.csv").path))
   }
 
+  func testRouteReceiptsPersistStateAndSummarizePendingWorkAcrossRestart() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-route-receipts-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = [
+      project(path: "/tmp/route-safe", name: "Safe", remoteURL: "https://github.com/example/safe.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized),
+      project(path: "/tmp/route-review", name: "Review", remoteURL: nil, branch: nil, ideState: .linked, hasLocalChanges: true, mainState: .noGit, hasGit: false)
+    ]
+    let decisions = CodexSmartLogicEngine.evaluate(sources)
+    let session = CodexScanSession(id: "route-session", profile: "fast-index", sourceRoots: ["/tmp"], createdAt: observedDate, ruleVersion: CodexSmartLogicEngine.ruleVersion, decisionCount: decisions.count)
+    let deltas = sources.map { CodexSourceDelta(sourcePath: $0.path, kind: .unchanged, previousFingerprint: "same", currentFingerprint: "same") }
+    let planned = CodexSmartLogicEngine.routeReceipts(sessionID: session.id, decisions: decisions, deltas: deltas, dispositions: [:], updatedAt: observedDate)
+    let safe = planned.first { $0.sourcePath == "/tmp/route-safe" }!
+    let review = planned.first { $0.sourcePath == "/tmp/route-review" }!
+    let completed = CodexScanRouteReceipt(sessionID: safe.sessionID, sourcePath: safe.sourcePath, route: safe.route, state: .completed, attemptCount: 1, updatedAt: observedDate.addingTimeInterval(1), detail: "completed")
+    let failed = CodexScanRouteReceipt(sessionID: review.sessionID, sourcePath: review.sourcePath, route: review.route, state: .failed, attemptCount: 1, updatedAt: observedDate.addingTimeInterval(1), detail: "failed")
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.save(session: session, decisions: decisions, routeReceipts: [completed, failed], deltas: deltas)
+    let restored = CodexCatalogStore(rootPath: root.path).routeReceipts(for: session.id)
+
+    XCTAssertEqual(restored.count, 2)
+    XCTAssertEqual(restored.first { $0.sourcePath == completed.sourcePath }?.state, .completed)
+    XCTAssertEqual(restored.first { $0.sourcePath == failed.sourcePath }?.state, .failed)
+    let summary = CodexSmartLogicEngine.routeReceiptSummary(restored)
+    XCTAssertEqual(summary.completedCount, 1)
+    XCTAssertEqual(summary.failedCount, 1)
+    XCTAssertEqual(summary.pendingCount, 1)
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -888,13 +916,14 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.2" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

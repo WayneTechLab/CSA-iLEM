@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.26 deterministic Smart Logic route planning is in progress. The native app now
+Next phase: Phase 13.27 persisted Smart Logic route receipts are in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -132,6 +132,12 @@ Unchanged safe candidates stay on metadata triage, changed or review-blocked
 sources receive targeted verification, and explicitly excluded sources avoid
 deep scans. The plan is explanatory only: it does not dispatch work, change
 the selected profile, or authorize a write or cleanup.
+
+Phase 13.27 persists one route receipt per indexed source in the existing local
+SQLite catalog. Receipts retain planned, skipped, completed, interrupted, and
+failed state plus attempt count and detail. Transfer completion and safe-stop
+paths update the receipts, allowing a restarted session to see pending work
+without treating transient UI state as recovery evidence.
 not discard available local research evidence.
 
 Long-range product roadmap:

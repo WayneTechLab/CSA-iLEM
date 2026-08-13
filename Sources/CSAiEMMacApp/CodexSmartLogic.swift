@@ -487,6 +487,41 @@ struct CodexSmartScanPlan: Codable, Hashable, Sendable {
   }
 }
 
+enum CodexRouteReceiptState: String, Codable, CaseIterable, Sendable {
+  case planned
+  case skipped
+  case completed
+  case interrupted
+  case failed
+}
+
+struct CodexScanRouteReceipt: Codable, Hashable, Identifiable, Sendable {
+  let sessionID: String
+  let sourcePath: String
+  let route: CodexEvidenceScanRoute
+  let state: CodexRouteReceiptState
+  let attemptCount: Int
+  let updatedAt: Date
+  let detail: String
+
+  var id: String { sessionID + "|" + sourcePath }
+}
+
+struct CodexRouteReceiptSummary: Codable, Hashable, Sendable {
+  let totalCount: Int
+  let plannedCount: Int
+  let skippedCount: Int
+  let completedCount: Int
+  let interruptedCount: Int
+  let failedCount: Int
+
+  var pendingCount: Int { plannedCount + interruptedCount + failedCount }
+
+  var headline: String {
+    "(completedCount) completed · (pendingCount) pending · (skippedCount) skipped"
+  }
+}
+
 enum CodexEvidenceScanProfile: String, Codable, CaseIterable, Sendable {
   case fastIndex
   case verified
@@ -1062,15 +1097,13 @@ enum CodexSmartLogicEngine {
     var reviewRequiredCount = 0
 
     for decision in decisions {
-      if dispositions[decision.sourcePath] == .excluded || decision.classification == .unrelated {
+      switch smartScanRoute(for: decision, delta: deltaByPath[decision.sourcePath], disposition: dispositions[decision.sourcePath]) {
+      case .noDeepScan:
         noDeepScanCount += 1
-        continue
-      }
-      let changed = deltaByPath[decision.sourcePath] == .added || deltaByPath[decision.sourcePath] == .changed
-      if decision.classification.isReview || changed {
+      case .targetedVerification:
         targetedVerificationCount += 1
         if decision.classification.isReview { reviewRequiredCount += 1 }
-      } else {
+      case .metadataTriage:
         metadataTriageCount += 1
       }
     }
@@ -1081,6 +1114,50 @@ enum CodexSmartLogicEngine {
       targetedVerificationCount: targetedVerificationCount,
       noDeepScanCount: noDeepScanCount,
       reviewRequiredCount: reviewRequiredCount
+    )
+  }
+
+  static func smartScanRoute(
+    for decision: CodexSmartDecision,
+    delta: CodexSourceDelta.Kind?,
+    disposition: CodexReviewDisposition?
+  ) -> CodexEvidenceScanRoute {
+    if disposition == .excluded || decision.classification == .unrelated { return .noDeepScan }
+    if decision.classification.isReview || delta == .added || delta == .changed { return .targetedVerification }
+    return .metadataTriage
+  }
+
+  static func routeReceipts(
+    sessionID: String,
+    decisions: [CodexSmartDecision],
+    deltas: [CodexSourceDelta],
+    dispositions: [String: CodexReviewDisposition],
+    updatedAt: Date = Date()
+  ) -> [CodexScanRouteReceipt] {
+    let deltaByPath = Dictionary(uniqueKeysWithValues: deltas.map { ($0.sourcePath, $0.kind) })
+    return decisions.map { decision in
+      let route = smartScanRoute(for: decision, delta: deltaByPath[decision.sourcePath], disposition: dispositions[decision.sourcePath])
+      let skipped = route == .noDeepScan
+      return CodexScanRouteReceipt(
+        sessionID: sessionID,
+        sourcePath: decision.sourcePath,
+        route: route,
+        state: skipped ? .skipped : .planned,
+        attemptCount: 0,
+        updatedAt: updatedAt,
+        detail: skipped ? "Route avoided deep scan by deterministic Smart Logic." : "Route planned from indexed decision and source delta evidence."
+      )
+    }
+  }
+
+  static func routeReceiptSummary(_ receipts: [CodexScanRouteReceipt]) -> CodexRouteReceiptSummary {
+    CodexRouteReceiptSummary(
+      totalCount: receipts.count,
+      plannedCount: receipts.filter { $0.state == .planned }.count,
+      skippedCount: receipts.filter { $0.state == .skipped }.count,
+      completedCount: receipts.filter { $0.state == .completed }.count,
+      interruptedCount: receipts.filter { $0.state == .interrupted }.count,
+      failedCount: receipts.filter { $0.state == .failed }.count
     )
   }
 
@@ -1181,6 +1258,7 @@ final class CodexCatalogStore: @unchecked Sendable {
     session: CodexScanSession,
     decisions: [CodexSmartDecision],
     checkpoints: [CodexSessionCheckpoint] = [],
+    routeReceipts: [CodexScanRouteReceipt] = [],
     deltas: [CodexSourceDelta] = [],
     timing: CodexScanTimingEvidence? = nil
   ) throws -> String {
@@ -1198,6 +1276,9 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
     for checkpoint in checkpoints {
       statements.append("INSERT OR REPLACE INTO session_checkpoints (session_id, source_path, stage, state, updated_at, detail) VALUES (\(quote(checkpoint.sessionID)), \(quote(checkpoint.sourcePath)), \(quote(checkpoint.stage)), \(quote(checkpoint.state)), \(quote(iso(checkpoint.updatedAt))), \(quote(checkpoint.detail))); ")
+    }
+    for receipt in routeReceipts {
+      statements.append("INSERT OR REPLACE INTO scan_route_receipts (session_id, source_path, route, state, attempt_count, updated_at, detail) VALUES (\(quote(receipt.sessionID)), \(quote(receipt.sourcePath)), \(quote(receipt.route.rawValue)), \(quote(receipt.state.rawValue)), \(receipt.attemptCount), \(quote(iso(receipt.updatedAt))), \(quote(receipt.detail))); ")
     }
     for delta in deltas {
       statements.append("INSERT OR REPLACE INTO session_source_deltas (session_id, source_path, kind, previous_fingerprint, current_fingerprint) VALUES (\(quote(session.id)), \(quote(delta.sourcePath)), \(quote(delta.kind.rawValue)), \(quote(delta.previousFingerprint ?? "")), \(quote(delta.currentFingerprint ?? ""))); ")
@@ -1222,6 +1303,34 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
     statements.append("COMMIT;")
     try runSQL(statements.joined(separator: "\n"))
+  }
+
+  func saveRouteReceipts(_ receipts: [CodexScanRouteReceipt]) throws {
+    guard !receipts.isEmpty else { return }
+    try FileManager.default.createDirectory(atPath: catalogDirectory, withIntermediateDirectories: true, attributes: nil)
+    try runSQL(schemaSQL)
+    var statements = ["BEGIN IMMEDIATE TRANSACTION;"]
+    for receipt in receipts {
+      statements.append("INSERT OR REPLACE INTO scan_route_receipts (session_id, source_path, route, state, attempt_count, updated_at, detail) VALUES (\(quote(receipt.sessionID)), \(quote(receipt.sourcePath)), \(quote(receipt.route.rawValue)), \(quote(receipt.state.rawValue)), \(receipt.attemptCount), \(quote(iso(receipt.updatedAt))), \(quote(receipt.detail))); ")
+    }
+    statements.append("COMMIT;")
+    try runSQL(statements.joined(separator: "\n"))
+  }
+
+  func routeReceipts(for sessionID: String) -> [CodexScanRouteReceipt] {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return [] }
+    let sql = "SELECT source_path || char(9) || route || char(9) || state || char(9) || attempt_count || char(9) || updated_at || char(9) || detail FROM scan_route_receipts WHERE session_id=\(quote(sessionID)) ORDER BY source_path;"
+    guard let output = runQuery(sql) else { return [] }
+    let formatter = ISO8601DateFormatter()
+    return output.split(whereSeparator: \.isNewline).compactMap { row in
+      let fields = row.split(separator: "\t", maxSplits: 5).map(String.init)
+      guard fields.count == 6,
+            let route = CodexEvidenceScanRoute(rawValue: fields[1]),
+            let state = CodexRouteReceiptState(rawValue: fields[2]),
+            let attempts = Int(fields[3]),
+            let updatedAt = formatter.date(from: fields[4]) else { return nil }
+      return CodexScanRouteReceipt(sessionID: sessionID, sourcePath: fields[0], route: route, state: state, attemptCount: attempts, updatedAt: updatedAt, detail: fields[5])
+    }
   }
 
   func saveIndexRecords(_ records: [CodexScanIndexRecord]) throws {
@@ -1476,6 +1585,7 @@ final class CodexCatalogStore: @unchecked Sendable {
     CREATE TABLE IF NOT EXISTS scan_sessions (id TEXT PRIMARY KEY, profile TEXT NOT NULL, source_roots TEXT NOT NULL, created_at TEXT NOT NULL, rule_version TEXT NOT NULL, decision_count INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_path TEXT NOT NULL, group_key TEXT NOT NULL, classification TEXT NOT NULL, confidence REAL NOT NULL, evidence_json TEXT NOT NULL, reasons_json TEXT NOT NULL, destination_path TEXT NOT NULL, rule_version TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS session_checkpoints (session_id TEXT NOT NULL, source_path TEXT NOT NULL, stage TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, detail TEXT NOT NULL, PRIMARY KEY (session_id, source_path, stage));
+    CREATE TABLE IF NOT EXISTS scan_route_receipts (session_id TEXT NOT NULL, source_path TEXT NOT NULL, route TEXT NOT NULL, state TEXT NOT NULL, attempt_count INTEGER NOT NULL, updated_at TEXT NOT NULL, detail TEXT NOT NULL, PRIMARY KEY (session_id, source_path));
     CREATE TABLE IF NOT EXISTS scan_index_records (source_path TEXT NOT NULL, destination_path TEXT NOT NULL, source_index_path TEXT NOT NULL, destination_index_path TEXT NOT NULL, options_key TEXT NOT NULL, source_index_digest TEXT NOT NULL, destination_index_digest TEXT NOT NULL, source_file_count INTEGER NOT NULL, source_byte_count INTEGER NOT NULL, captured_at TEXT NOT NULL, PRIMARY KEY (source_path, destination_path, options_key));
     CREATE TABLE IF NOT EXISTS session_source_deltas (session_id TEXT NOT NULL, source_path TEXT NOT NULL, kind TEXT NOT NULL, previous_fingerprint TEXT NOT NULL, current_fingerprint TEXT NOT NULL, PRIMARY KEY (session_id, source_path));
     CREATE TABLE IF NOT EXISTS session_timing (session_id TEXT PRIMARY KEY, discovery_ms INTEGER NOT NULL, decision_ms INTEGER NOT NULL, total_ms INTEGER NOT NULL, discovered_count INTEGER NOT NULL, evaluated_count INTEGER NOT NULL, reused_count INTEGER NOT NULL, changed_count INTEGER NOT NULL, affected_group_count INTEGER NOT NULL);
@@ -1483,6 +1593,7 @@ final class CodexCatalogStore: @unchecked Sendable {
     CREATE INDEX IF NOT EXISTS decisions_group_idx ON decisions(group_key);
     CREATE INDEX IF NOT EXISTS scan_index_records_digest_idx ON scan_index_records(source_index_digest);
     CREATE INDEX IF NOT EXISTS session_source_deltas_session_idx ON session_source_deltas(session_id);
+    CREATE INDEX IF NOT EXISTS scan_route_receipts_session_idx ON scan_route_receipts(session_id);
     """
   }
 }

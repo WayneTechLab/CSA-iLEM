@@ -288,6 +288,17 @@ The plan reports the counts and explains whether the selected profile matches th
 evidence. It does not schedule a scan, change profile selection, promote a lead,
 or authorize transfer, cleanup, deletion, or remote writes.
 
+## Phase 13.27 persisted route receipts
+
+Each indexed source now has a route receipt in the existing local SQLite catalog.
+The receipt records its route, state, attempt count, update time, and bounded
+detail. States are `planned`, `skipped`, `completed`, `interrupted`, and `failed`.
+
+The dashboard shows the receipt summary beside the route plan. Successful and
+safe-stop transfer paths update the receipt state. Reopening the catalog restores
+the receipt state and pending count, so the operator can resume from known route
+evidence without treating an interrupted UI session as a completed operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

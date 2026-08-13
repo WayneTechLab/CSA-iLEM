@@ -263,6 +263,13 @@ Current Phase 13.26 slice:
 - show the plan and profile guidance before execution without dispatching work or
   changing any safety gate.
 
+Current Phase 13.27 slice:
+- persist one route receipt per indexed source in the existing SQLite catalog;
+- update receipts to completed, failed, or interrupted when the selected
+  operation reaches or stops before a source;
+- restore route state after catalog restart and expose pending counts without
+  relying on transient UI state or forcing a full source rescan.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
