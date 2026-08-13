@@ -103,6 +103,37 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.csv").path))
   }
 
+  func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
+    let catalog = CSAiEMModuleTag.catalog
+    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")
+    XCTAssertEqual(catalog.count, 16)
+    XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
+    XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
+    XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
+    XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
+  }
+
+  func testDecisionReviewSemanticsKeepFatalConditionsVisible() {
+    XCTAssertFalse(CodexDecisionClass.canonical.isReview)
+    XCTAssertFalse(CodexDecisionClass.mergeCandidate.isReview)
+    XCTAssertTrue(CodexDecisionClass.sameNameReview.isReview)
+    XCTAssertTrue(CodexDecisionClass.brokenMetadataReview.isReview)
+    XCTAssertTrue(CodexDecisionClass.shadowCopy.isReview)
+    XCTAssertTrue(CodexDecisionClass.unknownOwnerReview.isReview)
+    XCTAssertTrue(CodexDecisionClass.fatalIdentityConflict.isReview)
+    XCTAssertFalse(CodexDecisionClass.unrelated.isReview)
+  }
+
+  func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {
+    XCTAssertEqual(CodexBackupMedium.rawDirectory.label, "Raw directory snapshot")
+    XCTAssertTrue(CodexBackupMedium.rawDirectory.subtitle.contains("without repackaging"))
+    XCTAssertTrue(CodexBackupMedium.apfsClone.subtitle.contains("same-volume"))
+    XCTAssertTrue(CodexBackupMedium.sparseImage.subtitle.contains("Mac image"))
+    XCTAssertTrue(CodexBackupMedium.verifiedZip.subtitle.contains("interchange"))
+  }
+
   private func project(
     path: String,
     name: String,

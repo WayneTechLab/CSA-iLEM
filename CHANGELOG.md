@@ -2,9 +2,10 @@
 
 ## 0.8.0
 
-- Added the first native Swift test target covering Smart Logic identity grouping,
-  broken-metadata and shadow-copy classification, deterministic advisory
-  boundaries, and SQLite session/checkpoint/export persistence.
+- Added the native Swift regression target covering Smart Logic identity
+  grouping, broken-metadata and shadow-copy classification, deterministic
+  advisory boundaries, SQLite session/checkpoint/export persistence, module
+  matrix contracts, review semantics, and backup-medium policy labels.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

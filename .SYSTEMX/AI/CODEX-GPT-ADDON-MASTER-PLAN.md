@@ -1,9 +1,28 @@
 # CODEX ~ GPT Add-on Master Plan
 
-Status: active design and implementation plan
+Status: 0.8.0 local macOS milestone closure candidate; future phases remain separately tracked
 Product: CSA-iLEM / CSA-iEM native macOS operator application
 Repository scope: this CSA-iLEM checkout only
-Current baseline: 0.7.0
+Current baseline: 0.8.0
+
+## Closure scope
+
+This document closes the current local macOS CODEX ~ GPT Add-on milestone:
+
+- native dashboard shell and Project Backups composition;
+- bounded source-to-destination Smart Logic flow;
+- deterministic identity grouping and review-only ambiguity handling;
+- local SQLite index, JSON/CSV exports, and session checkpoints;
+- receipt-linked verification and fail-closed transfer/cleanup boundaries;
+- module/version/tag matrix, single-app install lifecycle, and local release
+  verification;
+- native regression coverage for the decision and catalog contracts.
+
+The following are deliberately post-milestone phases, not hidden blockers to
+the 0.8.0 local close: a native Windows GUI, notarized public distribution,
+multi-account GitHub administration, broad rollback chaos testing, and local
+network/server mode. They remain in the roadmap and must not be represented as
+implemented by this milestone.
 
 ## Repository boundary
 
@@ -313,3 +332,26 @@ This is the exact false-positive/identity case Smart Logic must surface.
 - fatal identity/integrity/deletion conditions remain fail-closed;
 - all writes remain receipt-linked and recoverable;
 - build, install, single-app replacement, and live UI verification pass.
+
+## 0.8.0 closure evidence
+
+The current branch has direct evidence for each local milestone gate:
+
+- native release build: `swift build -c release`;
+- native regression suite: `swift test` with five passing Smart Logic/catalog
+  tests under `Tests/CSAiEMMacAppTests`;
+- plan integrity: `node .SYSTEMX/scripts/validate-10000-task-plan.mjs`;
+- repository/file integrity: `shasum -a 256 -c --strict SHA256SUMS` and
+  `git diff --check`;
+- repository boundary: HEAD contains no WebStack-G1 references;
+- installed runtime: `/Applications/CSA-iEM.app` reports 0.8.0, one native
+  process, and a valid strict code signature;
+- live UI: Home, Import, Projects, CODEX ~ GPT PORTAL, and Project Backups
+  expose the matrix, status rail, source/output flow, Smart Logic, and index
+  state;
+- disposable safety fixtures: dirty and history-unavailable destinations were
+  blocked with zero applied mutations and preserved receipts/fixtures.
+
+When these checks are run on the merged `main` commit, the 0.8.0 local
+milestone is closed. Any remaining items belong to the explicitly deferred
+roadmap phases above.

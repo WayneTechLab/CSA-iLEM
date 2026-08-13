@@ -1,9 +1,16 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-08-11`
+Updated: `2026-08-12`
 
 This file is the current production-status snapshot for `CSA-iEM`.
+
+Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone is a
+closure candidate on branch `agent/csa-iem-0.8-dashboard-hardening`. Its
+acceptance evidence is recorded in
+`.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The remaining production gaps
+listed below are post-milestone work, not evidence that the implemented local
+dashboard slice is incomplete.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
@@ -48,7 +55,8 @@ These major product areas are built into the app now:
   with JSON/CSV exports and Stage 1 preflight checkpoints; verified remote
   identity is required for automatic grouping
 - native Swift test target now covers Smart Logic grouping/classification,
-  deterministic advisory non-authority, and catalog session/checkpoint exports
+  deterministic advisory non-authority, catalog session/checkpoint exports,
+  module matrix contracts, review semantics, and backup-medium policy labels
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
