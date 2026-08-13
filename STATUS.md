@@ -202,6 +202,9 @@ These are the next production-hardening tasks with the best return:
   proves generated dependency/build trees are skipped and the repeated result
   is deterministic; large real-world timing and external-volume evidence is
   still open
+- the SQLite catalog now exposes the latest persisted session checkpoint after
+  reopen, and the native Smart Index status reports that checkpoint so an
+  interrupted or resumed session is visible without rebuilding its index
 - extend deterministic identity grouping from lead ranking to a grouped
   apply-block explanation when one candidate remains unresolved; current
   collision fixtures correctly fail closed but still need the group-level UI

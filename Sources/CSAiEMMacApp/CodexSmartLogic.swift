@@ -461,6 +461,16 @@ final class CodexCatalogStore: @unchecked Sendable {
     return runQuery(sql)?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
   }
 
+  func latestCheckpointSummary() -> String? {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return nil }
+    let sql = "SELECT stage || '|' || state || '|' || updated_at FROM session_checkpoints ORDER BY updated_at DESC LIMIT 1;"
+    guard let row = runQuery(sql)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !row.isEmpty else { return nil }
+    let fields = row.split(separator: "|", maxSplits: 2).map(String.init)
+    guard fields.count == 3 else { return nil }
+    return "\(fields[0])=\(fields[1]) at \(fields[2])"
+  }
+
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

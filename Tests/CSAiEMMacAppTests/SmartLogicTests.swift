@@ -160,6 +160,7 @@ final class SmartLogicTests: XCTestCase {
     try store.saveIndexRecords([record])
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/catalog.sqlite").path))
     let reopened = CodexCatalogStore(rootPath: root.path)
+    XCTAssertNil(reopened.latestCheckpointSummary())
     XCTAssertTrue(reopened.indexRecordMatches(
       sourcePath: record.sourcePath,
       destinationPath: record.destinationPath,
@@ -184,6 +185,31 @@ final class SmartLogicTests: XCTestCase {
     let row = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
     XCTAssertTrue(row.contains("/tmp/catalog-source|git=1;finder=0;deps=0;checksum=0|"))
     XCTAssertTrue(row.contains(record.sourceIndexDigest))
+  }
+
+  func testCatalogStoreReportsLatestCheckpointAfterReopen() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-checkpoint-status-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = project(path: "/tmp/checkpoint-source", name: "Checkpoint", remoteURL: nil, branch: nil, ideState: .unavailable, hasLocalChanges: false, mainState: .noOriginMain)
+    let decision = CodexSmartLogicEngine.evaluate([source]).first!
+    let session = CodexScanSession(id: "checkpoint-session", profile: "fast-index", sourceRoots: ["/tmp"], createdAt: observedDate, ruleVersion: CodexSmartLogicEngine.ruleVersion, decisionCount: 1)
+    let checkpoint = CodexSessionCheckpoint(
+      sessionID: session.id,
+      sourcePath: source.path,
+      stage: "stage1-preflight",
+      state: "indexed",
+      updatedAt: observedDate,
+      detail: "unchanged index retained"
+    )
+
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.save(session: session, decisions: [decision], checkpoints: [checkpoint])
+    let reopened = CodexCatalogStore(rootPath: root.path)
+
+    XCTAssertEqual(
+      reopened.latestCheckpointSummary(),
+      "stage1-preflight=indexed at 2025-08-11T17:00:00Z"
+    )
   }
 
   func testCodexIndexIsDeterministicAndSkipsGeneratedTrees() throws {

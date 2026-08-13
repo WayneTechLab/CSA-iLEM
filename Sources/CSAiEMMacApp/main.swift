@@ -2033,7 +2033,11 @@ final class CleanupViewModel: ObservableObject {
 
   var codexSmartIndexStatus: String {
     if let codexCatalogStore {
-      return codexCatalogStore.status
+      let base = codexCatalogStore.status
+      if let checkpoint = codexCatalogStore.latestCheckpointSummary() {
+        return "\(base) · latest checkpoint \(checkpoint)"
+      }
+      return base
     }
     let indexPath = codexSmartIndexPath
     return FileManager.default.fileExists(atPath: indexPath) ? "Saved transfer index available" : "No saved index yet"

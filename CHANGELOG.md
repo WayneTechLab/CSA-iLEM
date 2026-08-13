@@ -24,6 +24,9 @@
 - Refined grouped Smart Logic classification so a clean, synchronized,
   unlinked same-remote copy is explicitly treated as a shadow-copy review
   candidate, with regression coverage for the group-level apply block.
+- Added latest-checkpoint recovery status to the SQLite catalog and native
+  Smart Index status. After reopening the catalog, the app can show the most
+  recent persisted stage/state/timestamp without rebuilding the scan index.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.
