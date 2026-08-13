@@ -350,6 +350,15 @@ comparison-only detail. Loading a different bundle clears the prior decision.
 The decision never promotes imported receipts into SQLite, pending-route
 selection, transfer execution, or cleanup authority.
 
+## Phase 13.34 comparison-baseline revocation
+
+An accepted comparison baseline can be revoked from the dashboard. Revocation
+clears only the active baseline decision and leaves the imported bundle and its
+history intact. Both acceptance and revocation are retained as bounded local
+audit events with source and session identifiers. These events are evidence of
+operator context only; they do not change live receipt state or authorize any
+resume, transfer, or cleanup operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

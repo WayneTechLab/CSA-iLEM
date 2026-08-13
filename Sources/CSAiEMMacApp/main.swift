@@ -83,6 +83,7 @@ private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathC
 private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
 private let codexImportedRouteReceiptHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-route-receipt-history.json")
 private let codexRouteReceiptBaselineDecisionFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-decision.json")
+private let codexRouteReceiptBaselineAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-audit.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
 private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
 private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
@@ -1767,6 +1768,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexImportedRouteReceiptHistory: [CodexImportedRouteReceiptRecord] = []
   @Published var codexImportedRouteReceiptStatus = "No external route receipt bundle loaded."
   @Published var codexRouteReceiptBaselineDecision: CodexRouteReceiptBaselineDecision?
+  @Published var codexRouteReceiptBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = []
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
@@ -2958,8 +2960,53 @@ final class CleanupViewModel: ObservableObject {
     )
     codexRouteReceiptBaselineDecision = decision
     persistCodexRouteReceiptBaselineDecision()
+    appendCodexRouteReceiptBaselineAudit(
+      action: .accepted,
+      liveSessionID: decision.liveSessionID,
+      importedSessionID: decision.importedSessionID,
+      importedSourceName: decision.importedSourceName,
+      detail: decision.detail
+    )
     codexImportedRouteReceiptStatus = "Comparison baseline accepted: " + sourceName + " · read-only evidence only; live execution authority unchanged."
     appendLog("[codex] Imported route receipts accepted as comparison baseline only for live session " + codexActiveSessionID + "\n")
+  }
+
+  func revokeCodexRouteReceiptBaseline() {
+    guard let decision = codexRouteReceiptBaselineDecision else {
+      codexImportedRouteReceiptStatus = "No comparison baseline is currently accepted."
+      return
+    }
+    appendCodexRouteReceiptBaselineAudit(
+      action: .revoked,
+      liveSessionID: decision.liveSessionID,
+      importedSessionID: decision.importedSessionID,
+      importedSourceName: decision.importedSourceName,
+      detail: "Operator revoked comparison-baseline acceptance; imported evidence remains retained and read-only."
+    )
+    codexRouteReceiptBaselineDecision = nil
+    persistCodexRouteReceiptBaselineDecision()
+    codexImportedRouteReceiptStatus = "Comparison baseline revoked; imported evidence remains available as read-only history and live execution authority is unchanged."
+  }
+
+  private func appendCodexRouteReceiptBaselineAudit(
+    action: CodexRouteReceiptBaselineAuditAction,
+    liveSessionID: String,
+    importedSessionID: String,
+    importedSourceName: String,
+    detail: String
+  ) {
+    let event = CodexRouteReceiptBaselineAuditEvent(
+      id: UUID().uuidString,
+      action: action,
+      liveSessionID: liveSessionID,
+      importedSessionID: importedSessionID,
+      importedSourceName: importedSourceName,
+      occurredAt: Date(),
+      detail: detail
+    )
+    codexRouteReceiptBaselineAudit.insert(event, at: 0)
+    codexRouteReceiptBaselineAudit = Array(codexRouteReceiptBaselineAudit.prefix(50))
+    persistCodexRouteReceiptBaselineAudit()
   }
 
   func removeCodexImportedRouteReceiptRecord(_ record: CodexImportedRouteReceiptRecord) {
@@ -3332,6 +3379,9 @@ final class CleanupViewModel: ObservableObject {
       codexImportedRouteReceiptHistory = Array(savedRouteReceiptEvidence.prefix(10))
     }
     codexRouteReceiptBaselineDecision = readJSON(CodexRouteReceiptBaselineDecision.self, from: codexRouteReceiptBaselineDecisionFile)
+    if let savedBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = readJSON([CodexRouteReceiptBaselineAuditEvent].self, from: codexRouteReceiptBaselineAuditFile) {
+      codexRouteReceiptBaselineAudit = Array(savedBaselineAudit.prefix(50))
+    }
     let defaults = UserDefaults.standard
     if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
       codexOutputRootDraft = savedOutputRoot
@@ -3476,6 +3526,10 @@ final class CleanupViewModel: ObservableObject {
     } else {
       try? FileManager.default.removeItem(atPath: codexRouteReceiptBaselineDecisionFile)
     }
+  }
+
+  private func persistCodexRouteReceiptBaselineAudit() {
+    writeJSON(Array(codexRouteReceiptBaselineAudit.prefix(50)), to: codexRouteReceiptBaselineAuditFile)
   }
 
   private func configureStage2DefaultsIfNeeded() {
@@ -17139,8 +17193,17 @@ struct ContentView: View {
     if let decision = model.codexRouteReceiptBaselineDecision {
       let liveSession = String(decision.liveSessionID.prefix(8))
       let importedSession = String(decision.importedSessionID.prefix(8))
-      Text("BASELINE ACCEPTED · live session " + liveSession + " · imported session " + importedSession + " · comparison only")
+      let baselineLabel = "BASELINE ACCEPTED · live session " + liveSession + " · imported session " + importedSession + " · comparison only"
+      Text(baselineLabel)
         .foregroundStyle(DashboardTheme.success)
+      Button("Revoke comparison baseline") {
+        model.revokeCodexRouteReceiptBaseline()
+      }
+      .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      .controlSize(.small)
+      Text("Revocation removes only the baseline decision; imported evidence remains retained and read-only.")
+        .font(.system(size: 10, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
     } else {
       Button("Accept as comparison baseline") {
         model.acceptCodexRouteReceiptBaseline()
@@ -17150,6 +17213,31 @@ struct ContentView: View {
       Text("This records an operator decision for comparison context only; it does not promote imported receipts into the live catalog.")
         .font(.system(size: 10, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
+      codexRouteReceiptBaselineAuditView()
+    }
+  }
+
+  private func codexRouteReceiptBaselineAuditRow(_ event: CodexRouteReceiptBaselineAuditEvent) -> some View {
+    let action = event.action.rawValue.uppercased()
+    let label = action + " · " + event.importedSourceName + " · " + event.detail
+    return Text(label)
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(event.action == .revoked ? DashboardTheme.warning : DashboardTheme.muted)
+      .textSelection(.enabled)
+  }
+
+  @ViewBuilder
+  private func codexRouteReceiptBaselineAuditView() -> some View {
+    if !model.codexRouteReceiptBaselineAudit.isEmpty {
+      DisclosureGroup("Baseline decision audit · " + String(model.codexRouteReceiptBaselineAudit.count)) {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(Array(model.codexRouteReceiptBaselineAudit.prefix(10))) { event in
+            codexRouteReceiptBaselineAuditRow(event)
+          }
+        }
+      }
+      .font(.system(size: 10, weight: .semibold, design: .rounded))
+      .foregroundStyle(DashboardTheme.text)
     }
   }
 

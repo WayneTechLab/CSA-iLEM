@@ -309,6 +309,12 @@ Current Phase 13.33 slice:
 - reset the decision when a different imported bundle is loaded and never promote
   the decision into live operation authority.
 
+Current Phase 13.34 slice:
+- allow an operator to revoke the active comparison baseline without deleting
+  imported evidence;
+- persist accepted and revoked baseline events in a bounded local audit history;
+- keep revocation outside the live receipt, resume, transfer, and cleanup paths.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

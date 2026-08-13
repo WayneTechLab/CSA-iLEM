@@ -323,6 +323,21 @@ struct CodexRouteReceiptBaselineDecision: Codable, Hashable, Sendable {
   let detail: String
 }
 
+enum CodexRouteReceiptBaselineAuditAction: String, Codable, Sendable {
+  case accepted
+  case revoked
+}
+
+struct CodexRouteReceiptBaselineAuditEvent: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let action: CodexRouteReceiptBaselineAuditAction
+  let liveSessionID: String
+  let importedSessionID: String
+  let importedSourceName: String
+  let occurredAt: Date
+  let detail: String
+}
+
 enum CodexEvidenceCompatibilityState: String, Codable, CaseIterable, Identifiable, Sendable {
   case complete
   case partial
