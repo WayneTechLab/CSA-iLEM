@@ -17265,16 +17265,23 @@ struct ContentView: View {
     }
   }
 
-  @ViewBuilder
-  private func codexRouteReceiptBaselineAuditSelectionView() -> some View {
-    if let selected = model.codexSelectedRouteReceiptBaselineAudit {
-      Text("Selected read-only event · " + selected.action.rawValue + " · live " + String(selected.liveSessionID.prefix(8)) + " · imported " + String(selected.importedSessionID.prefix(8)))
+  private func codexRouteReceiptBaselineAuditSelectionView() -> AnyView {
+    guard let selected = model.codexSelectedRouteReceiptBaselineAudit else {
+      return AnyView(EmptyView())
+    }
+    let action = selected.action.rawValue
+    let liveID = String(selected.liveSessionID.prefix(8))
+    let importedID = String(selected.importedSessionID.prefix(8))
+    let summary = "Selected read-only event · " + action + " · live " + liveID + " · imported " + importedID
+    let selection = VStack(alignment: .leading, spacing: 2) {
+      Text(summary)
         .font(.system(size: 10, weight: .semibold, design: .monospaced))
         .foregroundStyle(DashboardTheme.text)
       Text("History inspection never reactivates a baseline or changes live execution authority.")
         .font(.system(size: 10, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
     }
+    return AnyView(selection)
   }
 
   private func codexRouteReceiptSummaryView(_ summary: CodexRouteReceiptSummary) -> some View {
