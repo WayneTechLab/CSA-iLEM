@@ -488,6 +488,21 @@ Current Phase 13.5 slice:
 - documentation and navigation remain research/read-only surfaces and do not
   choose a canonical source, merge files, or authorize a remote mutation.
 
+Current Phase 13.6 slice:
+- each discovered source carries a bounded warm-index snapshot of file count,
+  byte estimate, latest modification, and truncation state while excluding
+  generated and dependency trees;
+- the Smart Logic decision record separates project-local tool markers from
+  bounded host activity evidence for Codex, VS Code/Copilot, Claude, and LM
+  Studio, so running tools are visible without being treated as identity or
+  write-authority proof;
+- the decision review panel shows source snapshot size and host activity next
+  to each classification, and the persisted rule version advances with the
+  evidence contract;
+- deterministic grouping and canonical/merge/shadow/broken metadata decisions
+  remain authoritative; host activity can explain review priority but cannot
+  promote a source, merge a folder, or authorize deletion.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

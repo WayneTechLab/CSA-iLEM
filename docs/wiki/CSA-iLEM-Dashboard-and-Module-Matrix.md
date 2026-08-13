@@ -83,6 +83,20 @@ use the selected repository and GitHub host already bound in the app. They are
 navigation shortcuts only and do not dispatch workflows, edit files, dismiss
 alerts, or authorize any other remote operation.
 
+## Phase 13.6 source snapshot and active-tool boundary
+
+The Smart Logic source record now carries a bounded warm-index snapshot for
+each discovered folder: file count, byte estimate, latest modification, and a
+truncation flag. Generated and dependency trees remain excluded so this first
+pass is suitable for fast grouping rather than deep verification.
+
+Project-local markers (for example `.vscode`, `.claude`, or `lmstudio.json`)
+remain separate from host activity evidence. The app may report that Codex,
+VS Code/Copilot, Claude, or LM Studio is running on the Mac, but it does not
+claim that the process opened a specific folder. Host activity is review
+context only and cannot establish repository identity, select a canonical
+source, authorize a merge, or authorize deletion.
+
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.

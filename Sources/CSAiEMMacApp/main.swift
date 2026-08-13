@@ -438,6 +438,26 @@ enum CodexToolEvidenceDetector {
     }
     return CodexToolEvidence.allCases.filter { evidence.contains($0) }
   }
+
+  static func activeHostTools(processNames: [String]) -> [CodexToolEvidence] {
+    let names = Set(processNames.map { $0.lowercased() })
+    let matches: [(CodexToolEvidence, Set<String>)] = [
+      (.codex, ["codex", "codex desktop"]),
+      (.visualStudioCode, ["code", "visual studio code", "cursor", "vscodium"]),
+      (.claude, ["claude", "claude desktop"]),
+      (.lmStudio, ["lm studio", "lmstudio"])
+    ]
+    return matches.compactMap { tool, aliases in
+      aliases.contains(where: { alias in names.contains(alias) || names.contains { $0.contains(alias) } }) ? tool : nil
+    }
+  }
+
+  static func activeHostTools() -> [CodexToolEvidence] {
+    let processNames = NSWorkspace.shared.runningApplications.flatMap { application in
+      [application.localizedName, application.bundleIdentifier].compactMap { $0 }
+    }
+    return activeHostTools(processNames: processNames)
+  }
 }
 
 enum CodexGitMainState: Hashable, Sendable {
@@ -543,6 +563,8 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
   let hasSystemX: Bool
   let localDevProfile: CodexLocalDevProfile?
   let toolEvidence: [CodexToolEvidence]
+  let activeToolEvidence: [CodexToolEvidence]
+  let snapshot: CodexProjectSnapshot
   let remoteURL: String?
   let branch: String?
   let ideState: CodexIDEProjectState
@@ -558,6 +580,8 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
     if hasSystemX { values.append("SYSTEMX") }
     if let localDevProfile { values.append(localDevProfile.badge) }
     values.append(contentsOf: toolEvidence.map(\.rawValue))
+    values.append(contentsOf: activeToolEvidence.map { "active:\($0.rawValue)" })
+    values.append(snapshot.summary)
     return values
   }
 
@@ -565,6 +589,18 @@ struct CodexProjectEntry: Identifiable, Hashable, Sendable {
     ([name, path, discoveredBy, remoteURL ?? "", branch ?? "", ideState.rawValue, gitStatus.mainLabel, localDevProfile?.commandLabel ?? ""] + badges)
       .joined(separator: " ")
       .lowercased()
+  }
+}
+
+struct CodexProjectSnapshot: Codable, Hashable, Sendable {
+  let fileCount: Int
+  let byteCount: Int64
+  let latestModification: Date?
+  let truncated: Bool
+
+  var summary: String {
+    let size = ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    return "snapshot:\(fileCount) files / \(size)" + (truncated ? " / bounded" : "")
   }
 }
 
@@ -10033,6 +10069,7 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let codexRegistry = readCodexDesktopProjectRegistry(environment: environment)
+    let activeToolEvidence = CodexToolEvidenceDetector.activeHostTools()
     let candidates = discovered.map { (path: $0.key, source: $0.value) }
       .sorted {
         ($0.path as NSString).lastPathComponent.localizedCaseInsensitiveCompare(
@@ -10054,6 +10091,7 @@ final class CleanupViewModel: ObservableObject {
           metadata: metadata,
           environment: environment
         )
+        let snapshot = readCodexProjectSnapshot(projectPath: candidate.path)
         let entry = CodexProjectEntry(
           path: candidate.path,
           name: (candidate.path as NSString).lastPathComponent,
@@ -10065,6 +10103,8 @@ final class CleanupViewModel: ObservableObject {
           hasSystemX: fileManager.fileExists(atPath: (candidate.path as NSString).appendingPathComponent(".SYSTEMX")),
           localDevProfile: readCodexLocalDevProfile(projectPath: candidate.path),
           toolEvidence: readCodexToolEvidence(projectPath: candidate.path, codexState: codexRegistry.state(for: candidate.path)),
+          activeToolEvidence: activeToolEvidence,
+          snapshot: snapshot,
           remoteURL: metadata.remoteURL,
           branch: gitStatus.branch ?? metadata.branch,
           ideState: codexRegistry.state(for: candidate.path),
@@ -10138,6 +10178,41 @@ final class CleanupViewModel: ObservableObject {
     codexState: CodexIDEProjectState
   ) -> [CodexToolEvidence] {
     CodexToolEvidenceDetector.detect(projectPath: projectPath, codexState: codexState)
+  }
+
+  private nonisolated static func readCodexProjectSnapshot(projectPath: String, maxFiles: Int = 400, maxDepth: Int = 3) -> CodexProjectSnapshot {
+    let root = URL(fileURLWithPath: projectPath).standardizedFileURL
+    let ignored: Set<String> = [".git", "node_modules", ".build", "DerivedData", "Pods", "dist", "build", ".next", ".turbo"]
+    let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+    var fileCount = 0
+    var byteCount: Int64 = 0
+    var latest: Date?
+    var truncated = false
+    guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: Array(keys), options: [.skipsPackageDescendants], errorHandler: { _, _ in true }) else {
+      return CodexProjectSnapshot(fileCount: 0, byteCount: 0, latestModification: nil, truncated: false)
+    }
+    while let url = enumerator.nextObject() as? URL {
+      let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+      let components = relative.split(separator: "/")
+      if components.contains(where: { ignored.contains(String($0)) }) {
+        enumerator.skipDescendants()
+        continue
+      }
+      if components.count > maxDepth + 1 {
+        enumerator.skipDescendants()
+        continue
+      }
+      guard let values = try? url.resourceValues(forKeys: keys) else { continue }
+      if values.isDirectory == true { continue }
+      fileCount += 1
+      if fileCount > maxFiles {
+        truncated = true
+        break
+      }
+      byteCount += Int64(values.fileSize ?? 0)
+      if let date = values.contentModificationDate, date > (latest ?? .distantPast) { latest = date }
+    }
+    return CodexProjectSnapshot(fileCount: min(fileCount, maxFiles), byteCount: byteCount, latestModification: latest, truncated: truncated)
   }
 
   private nonisolated static func readCodexDesktopProjectRegistry(
@@ -14973,6 +15048,17 @@ private struct CodexDecisionReviewPanel: View {
                   .font(.system(size: 10, weight: .semibold, design: .rounded))
                   .foregroundStyle(DashboardTheme.link)
                 }
+                if !decision.evidence.activeToolEvidence.isEmpty {
+                  Label(
+                    "Host activity: \(decision.evidence.activeToolEvidence.map(\.rawValue).joined(separator: ", "))",
+                    systemImage: "desktopcomputer"
+                  )
+                  .font(.system(size: 10, weight: .semibold, design: .rounded))
+                  .foregroundStyle(DashboardTheme.deepBlue)
+                }
+                Text(decision.evidence.snapshot.summary)
+                  .font(.system(size: 10, weight: .medium, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.muted)
                 Text(decision.sourcePath)
                   .font(.system(size: 10, weight: .medium, design: .monospaced))
                   .foregroundStyle(DashboardTheme.muted.opacity(0.85))

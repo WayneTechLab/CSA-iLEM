@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Extended Phase 13.6 Smart Logic with bounded warm-index source snapshots
+  (file count, byte estimate, latest modification, and truncation state) and
+  separate host activity evidence for Codex, VS Code/Copilot, Claude, and LM
+  Studio. Runtime activity is explanatory only and cannot establish identity,
+  select a lead, authorize a merge, or authorize deletion.
 - Extended Phase 13.5 research with bounded local and remote documentation
   snapshots plus native repository navigation links for Actions, Issues, Pull
   Requests, Projects, Security, and Insights. Documentation remains bounded

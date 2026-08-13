@@ -686,13 +686,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.3" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.4" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.5" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
@@ -814,6 +814,34 @@ final class SmartLogicTests: XCTestCase {
     )
   }
 
+  func testActiveHostToolEvidenceIsSeparateFromProjectMarkerEvidence() {
+    XCTAssertEqual(
+      CodexToolEvidenceDetector.activeHostTools(processNames: ["Visual Studio Code", "LM Studio", "unrelated-helper"]),
+      [.visualStudioCode, .lmStudio]
+    )
+    XCTAssertEqual(CodexToolEvidenceDetector.activeHostTools(processNames: ["unrelated-helper"]), [])
+  }
+
+  func testSmartLogicCarriesBoundedSnapshotAndHostActivityWithoutPromotingIdentity() {
+    let source = project(
+      path: "/tmp/active-tool-source",
+      name: "Flowers",
+      remoteURL: "https://github.com/WayneTechLab/flowers.git",
+      branch: "main",
+      ideState: .linked,
+      hasLocalChanges: false,
+      mainState: .synchronized,
+      activeToolEvidence: [.visualStudioCode],
+      snapshot: CodexProjectSnapshot(fileCount: 400, byteCount: 12_345, latestModification: observedDate, truncated: true)
+    )
+    let decision = CodexSmartLogicEngine.evaluate([source]).first!
+    XCTAssertEqual(decision.classification, .canonical)
+    XCTAssertEqual(decision.evidence.activeToolEvidence, [.visualStudioCode])
+    XCTAssertTrue(decision.evidence.snapshot.truncated)
+    XCTAssertTrue(decision.reasons.contains { $0.contains("does not prove the process opened this project") })
+    XCTAssertTrue(decision.reasons.contains { $0.contains("deep content verification remains separate") })
+  }
+
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {
     XCTAssertEqual(CodexBackupMedium.rawDirectory.label, "Raw directory snapshot")
     XCTAssertTrue(CodexBackupMedium.rawDirectory.subtitle.contains("without repackaging"))
@@ -831,7 +859,9 @@ final class SmartLogicTests: XCTestCase {
     hasLocalChanges: Bool,
     mainState: CodexGitMainState,
     hasGit: Bool = true,
-    toolEvidence: [CodexToolEvidence] = []
+    toolEvidence: [CodexToolEvidence] = [],
+    activeToolEvidence: [CodexToolEvidence] = [],
+    snapshot: CodexProjectSnapshot = CodexProjectSnapshot(fileCount: 0, byteCount: 0, latestModification: nil, truncated: false)
   ) -> CodexProjectEntry {
     CodexProjectEntry(
       path: path,
@@ -843,6 +873,8 @@ final class SmartLogicTests: XCTestCase {
       hasSystemX: true,
       localDevProfile: nil,
       toolEvidence: toolEvidence,
+      activeToolEvidence: activeToolEvidence,
+      snapshot: snapshot,
       remoteURL: remoteURL,
       branch: branch,
       ideState: ideState,

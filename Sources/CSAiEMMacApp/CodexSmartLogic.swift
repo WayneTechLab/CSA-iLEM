@@ -60,6 +60,8 @@ struct CodexSourceEvidence: Codable, Hashable, Sendable {
   let mainLabel: String
   let ideState: String
   let toolEvidence: [CodexToolEvidence]
+  let activeToolEvidence: [CodexToolEvidence]
+  let snapshot: CodexProjectSnapshot
   let markers: [String]
   let owner: String?
   let observedAt: Date
@@ -217,6 +219,8 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
         "main_state": decision.evidence.mainLabel,
         "ide_state": decision.evidence.ideState,
         "tool_context": decision.evidence.toolEvidence.map(\.rawValue).joined(separator: ", "),
+        "active_host_tools": decision.evidence.activeToolEvidence.map(\.rawValue).joined(separator: ", "),
+        "snapshot": decision.evidence.snapshot.summary,
         "reasons": decision.reasons.joined(separator: " ")
       ]
     }
@@ -294,7 +298,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.2"
+  static let ruleVersion = "smart-logic-v2.3"
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in
@@ -392,6 +396,13 @@ enum CodexSmartLogicEngine {
         let tools = project.toolEvidence.map(\.rawValue).joined(separator: ", ")
         reasons.append("Read-only tool evidence: \(tools). Tool markers describe possible editor or harness context; they do not establish repository identity or write authority.")
       }
+      if !project.activeToolEvidence.isEmpty {
+        let tools = project.activeToolEvidence.map(\.rawValue).joined(separator: ", ")
+        reasons.append("Read-only host activity evidence: \(tools) appears to be running on this Mac; this does not prove the process opened this project or grant write authority.")
+      }
+      if project.snapshot.truncated {
+        reasons.append("The source snapshot is bounded at (project.snapshot.fileCount) files; deep content verification remains separate.")
+      }
 
       return CodexSmartDecision(
         id: stableID(for: project.path),
@@ -411,6 +422,8 @@ enum CodexSmartLogicEngine {
           mainLabel: project.gitStatus.mainLabel,
           ideState: project.ideState.rawValue,
           toolEvidence: project.toolEvidence,
+          activeToolEvidence: project.activeToolEvidence,
+          snapshot: project.snapshot,
           markers: project.badges,
           owner: owner(from: remote),
           observedAt: Date()
