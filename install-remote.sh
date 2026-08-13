@@ -12,6 +12,8 @@ USE_FORCE=0
 UPDATE_SHELL_PROFILE=1
 KEEP_TEMP=0
 BOOTSTRAP_DEPS=1
+INSTALL_GUI_APP=1
+OPEN_GUI_APP=1
 REF_VALUE="$DEFAULT_REF"
 REPO_SLUG="$DEFAULT_REPO_SLUG"
 
@@ -36,6 +38,8 @@ Options:
   --force                  Force reinstall of the target version.
   --no-shell-profile       Do not modify ~/.zprofile.
   --no-deps                Skip dependency bootstrap in the local installer.
+  --no-gui-app             Do not build or install the native app bundle.
+  --no-open                Do not open the installed app after installation.
   --keep-temp              Keep the downloaded temp directory after install.
   --version                Show the installer version.
   --help                   Show this help.
@@ -76,6 +80,13 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --no-deps)
       BOOTSTRAP_DEPS=0
+      ;;
+    --no-gui-app)
+      INSTALL_GUI_APP=0
+      OPEN_GUI_APP=0
+      ;;
+    --no-open)
+      OPEN_GUI_APP=0
       ;;
     --keep-temp)
       KEEP_TEMP=1
@@ -180,6 +191,12 @@ if [[ "$UPDATE_SHELL_PROFILE" -eq 0 ]]; then
 fi
 if [[ "$BOOTSTRAP_DEPS" -eq 0 ]]; then
   INSTALL_ARGS+=(--no-deps)
+fi
+if [[ "$INSTALL_GUI_APP" -eq 0 ]]; then
+  INSTALL_ARGS+=(--no-gui-app)
+fi
+if [[ "$OPEN_GUI_APP" -eq 0 ]]; then
+  INSTALL_ARGS+=(--no-open)
 fi
 
 echo "Running local installer..."

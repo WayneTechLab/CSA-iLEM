@@ -74,6 +74,13 @@ These major product areas are built into the app now:
 - the lifecycle smoke now checks the installed copy’s complete `SHA256SUMS`
   payload after install, directly guarding against incomplete runtime
   allowlists
+- an opt-in `.SYSTEMX/scripts/remote-install-live-smoke.sh` now covers the
+  networked GitHub archive path, temporary-root install, installed payload
+  checksum, GUI build, and strict bundle verification without changing the
+  shell profile or installed app
+- `install-remote.sh` now exposes `--no-gui-app` and `--no-open` passthroughs,
+  so automated or headless installs can explicitly avoid building or launching
+  the native app
 - the macOS installer now preserves all manifest-covered tracked payload roots
   (`.devcontainer`, `Tests`, `Prompt_Inject.MD`, and `Transfer_Note.MD`) so an
   installed remote copy can re-run GUI source checksum verification

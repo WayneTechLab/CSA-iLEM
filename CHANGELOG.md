@@ -34,6 +34,10 @@
   verification after installation.
 - Added a direct installed-payload checksum assertion to the disposable
   lifecycle gate.
+- Added an opt-in networked remote-install smoke for temporary-root payload,
+  checksum, and GUI-build verification.
+- Added explicit `--no-gui-app` and `--no-open` options to the macOS remote
+  installer for safe headless automation.
 
 ## 0.8.0
 

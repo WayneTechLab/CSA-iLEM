@@ -425,6 +425,12 @@ The current branch has direct evidence for each local milestone gate:
   `Tests`, `Prompt_Inject.MD`, and `Transfer_Note.MD`.
 - the disposable lifecycle smoke checks the installed copy’s complete
   `SHA256SUMS` payload directly after installation.
+- an opt-in networked remote-install smoke covers the GitHub archive,
+  temporary-root installation, installed payload checksum, GUI build, and
+  strict bundle verification with profile and installed-app side effects
+  disabled.
+- the macOS remote installer supports explicit `--no-gui-app` and `--no-open`
+  passthroughs for headless and automated installation.
 - recovery safety smoke: `.SYSTEMX/scripts/recovery-safety-smoke.sh` runs a
   partial-metadata Stage 2 preflight in temporary roots and proves the report
   is retained while the source and `.git` tree remain unchanged and no
