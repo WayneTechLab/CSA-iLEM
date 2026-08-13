@@ -206,6 +206,54 @@ struct CodexSessionDiffSummary: Codable, Hashable, Sendable {
   }
 }
 
+struct CodexDecisionSnapshot: Codable, Hashable, Identifiable, Sendable {
+  let sourcePath: String
+  let groupKey: String
+  let classification: CodexDecisionClass
+  let confidence: Double
+
+  var id: String { sourcePath }
+}
+
+enum CodexDecisionComparisonKind: String, Codable, Sendable {
+  case added
+  case removed
+  case changed
+  case unchanged
+}
+
+struct CodexDecisionComparisonRow: Codable, Hashable, Identifiable, Sendable {
+  let sourcePath: String
+  let kind: CodexDecisionComparisonKind
+  let previousGroupKey: String?
+  let currentGroupKey: String?
+  let previousClassification: CodexDecisionClass?
+  let currentClassification: CodexDecisionClass?
+  let previousFingerprint: String?
+  let currentFingerprint: String?
+
+  var id: String { sourcePath }
+
+  var explanation: String {
+    switch kind {
+    case .added:
+      return "New source in the selected session."
+    case .removed:
+      return "Source was present in the comparison session but is absent from the selected session."
+    case .unchanged:
+      return "Decision, identity group, and indexed fingerprint are unchanged."
+    case .changed:
+      var changes: [String] = []
+      if previousGroupKey != currentGroupKey { changes.append("identity group changed") }
+      if previousClassification != currentClassification {
+        changes.append("classification changed from \(previousClassification?.label ?? "none") to \(currentClassification?.label ?? "none")")
+      }
+      if previousFingerprint != currentFingerprint { changes.append("indexed evidence fingerprint changed") }
+      return changes.isEmpty ? "Decision evidence changed without a classified transition." : changes.joined(separator: "; ") + "."
+    }
+  }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -633,6 +681,42 @@ enum CodexSmartLogicEngine {
     decisions.filter { dispositions[$0.sourcePath] != .excluded }
   }
 
+  static func compareSnapshots(
+    current: [CodexDecisionSnapshot],
+    baseline: [CodexDecisionSnapshot],
+    currentFingerprints: [String: String],
+    baselineFingerprints: [String: String]
+  ) -> [CodexDecisionComparisonRow] {
+    let currentByPath = Dictionary(uniqueKeysWithValues: current.map { ($0.sourcePath, $0) })
+    let baselineByPath = Dictionary(uniqueKeysWithValues: baseline.map { ($0.sourcePath, $0) })
+    let paths = Set(currentByPath.keys).union(baselineByPath.keys).union(currentFingerprints.keys).union(baselineFingerprints.keys).sorted()
+    return paths.map { path in
+      let previous = baselineByPath[path]
+      let now = currentByPath[path]
+      let previousFingerprint = baselineFingerprints[path]
+      let currentFingerprint = currentFingerprints[path]
+      let kind: CodexDecisionComparisonKind
+      switch (previous, now) {
+      case (nil, .some): kind = .added
+      case (.some, nil): kind = .removed
+      case let (.some(old), .some(new)) where old.groupKey == new.groupKey && old.classification == new.classification && old.confidence == new.confidence && previousFingerprint == currentFingerprint:
+        kind = .unchanged
+      case (.some, .some): kind = .changed
+      case (nil, nil): kind = .changed
+      }
+      return CodexDecisionComparisonRow(
+        sourcePath: path,
+        kind: kind,
+        previousGroupKey: previous?.groupKey,
+        currentGroupKey: now?.groupKey,
+        previousClassification: previous?.classification,
+        currentClassification: now?.classification,
+        previousFingerprint: previousFingerprint,
+        currentFingerprint: currentFingerprint
+      )
+    }
+  }
+
   private static func leadScore(_ project: CodexProjectEntry) -> Int {
     var score = 0
     if project.hasGit { score += 100 }
@@ -847,6 +931,37 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
   }
 
+  func decisionSnapshots(for sessionID: String) -> [CodexDecisionSnapshot] {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return [] }
+    let sql = "SELECT hex(source_path) || char(9) || group_key || char(9) || classification || char(9) || confidence FROM decisions WHERE session_id=\(quote(sessionID)) ORDER BY source_path;"
+    guard let output = runQuery(sql) else { return [] }
+    return output.split(whereSeparator: \.isNewline).compactMap { row in
+      let fields = row.split(separator: "\t", maxSplits: 3).map(String.init)
+      guard fields.count == 4,
+            let pathData = Self.decodeHex(fields[0]),
+            let path = String(data: pathData, encoding: .utf8),
+            let classification = CodexDecisionClass(rawValue: fields[2]),
+            let confidence = Double(fields[3]) else { return nil }
+      return CodexDecisionSnapshot(sourcePath: path, groupKey: fields[1], classification: classification, confidence: confidence)
+    }
+  }
+
+  func currentFingerprints(for sessionID: String) -> [String: String] {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return [:] }
+    let sql = "SELECT hex(source_path) || char(9) || current_fingerprint FROM session_source_deltas WHERE session_id=\(quote(sessionID));"
+    guard let output = runQuery(sql) else { return [:] }
+    var fingerprints: [String: String] = [:]
+    for row in output.split(whereSeparator: \.isNewline) {
+      let fields = row.split(separator: "\t", maxSplits: 1).map(String.init)
+      guard fields.count == 2,
+            let pathData = Self.decodeHex(fields[0]),
+            let path = String(data: pathData, encoding: .utf8),
+            !fields[1].isEmpty else { continue }
+      fingerprints[path] = fields[1]
+    }
+    return fingerprints
+  }
+
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -925,6 +1040,19 @@ final class CodexCatalogStore: @unchecked Sendable {
 
   private func csvEscape(_ value: String) -> String {
     "\"" + value.replacingOccurrences(of: "\"", with: "\"\"").replacingOccurrences(of: "\n", with: " ") + "\""
+  }
+
+  private static func decodeHex(_ value: String) -> Data? {
+    guard value.count.isMultiple(of: 2) else { return nil }
+    var data = Data(capacity: value.count / 2)
+    var index = value.startIndex
+    while index < value.endIndex {
+      let next = value.index(index, offsetBy: 2)
+      guard let byte = UInt8(value[index..<next], radix: 16) else { return nil }
+      data.append(byte)
+      index = next
+    }
+    return data
   }
 
   private var schemaSQL: String {

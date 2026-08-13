@@ -1755,6 +1755,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonSessionID = ""
   @Published var codexComparisonGroupKey = ""
   @Published var codexComparisonDeltas: [CodexSourceDelta] = []
+  @Published var codexDecisionComparisonRows: [CodexDecisionComparisonRow] = []
+  @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
   @Published var activeContainers: [LiveContainerEntry] = []
@@ -2247,6 +2249,11 @@ final class CleanupViewModel: ObservableObject {
     return codexComparisonDeltas.filter { paths.contains($0.sourcePath) }
   }
 
+  var codexVisibleDecisionComparisonRows: [CodexDecisionComparisonRow] {
+    guard !codexComparisonGroupKey.isEmpty else { return codexDecisionComparisonRows }
+    return codexDecisionComparisonRows.filter { $0.currentGroupKey == codexComparisonGroupKey || $0.previousGroupKey == codexComparisonGroupKey }
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -2722,6 +2729,8 @@ final class CleanupViewModel: ObservableObject {
     guard let timing = store.timing(for: sessionID) else {
       codexComparisonSessionID = sessionID
       codexComparisonDeltas = store.sourceDeltas(for: sessionID)
+      codexComparisonBaselineSessionID = sessions.dropFirst(index + 1).first?.id ?? ""
+      compareCodexSessions(currentSessionID: sessionID, baselineSessionID: codexComparisonBaselineSessionID)
       codexComparisonStatus = "Session \(String(sessionID.prefix(8))) has no timing receipt; older sessions remain visible but cannot be compared quantitatively."
       return
     }
@@ -2742,8 +2751,27 @@ final class CleanupViewModel: ObservableObject {
     codexComparisonSessionID = sessionID
     codexComparisonDeltas = deltas
     codexComparisonGroupKey = ""
+    codexComparisonBaselineSessionID = previousSessionID ?? ""
     codexSessionDiffSummary = summary
+    compareCodexSessions(currentSessionID: sessionID, baselineSessionID: codexComparisonBaselineSessionID)
     codexComparisonStatus = "Loaded SQLite session \(String(sessionID.prefix(8))) with \(deltas.count) source-level delta row(s)."
+  }
+
+  func compareCodexSessions(currentSessionID: String, baselineSessionID: String) {
+    guard let store = codexCatalogStore, !currentSessionID.isEmpty else { return }
+    let current = store.decisionSnapshots(for: currentSessionID)
+    let baseline = baselineSessionID.isEmpty ? [] : store.decisionSnapshots(for: baselineSessionID)
+    let currentFingerprints = store.currentFingerprints(for: currentSessionID)
+    let baselineFingerprints = baselineSessionID.isEmpty ? [:] : store.currentFingerprints(for: baselineSessionID)
+    codexDecisionComparisonRows = CodexSmartLogicEngine.compareSnapshots(
+      current: current,
+      baseline: baseline,
+      currentFingerprints: currentFingerprints,
+      baselineFingerprints: baselineFingerprints
+    )
+    codexComparisonStatus = baselineSessionID.isEmpty
+      ? "Compared session \(String(currentSessionID.prefix(8))) with no baseline; all rows are treated as added evidence."
+      : "Compared session \(String(currentSessionID.prefix(8))) with baseline \(String(baselineSessionID.prefix(8))) across \(codexDecisionComparisonRows.count) source row(s)."
   }
 
   func setCodexComparisonGroup(_ groupKey: String) {
@@ -16338,6 +16366,22 @@ struct ContentView: View {
             .pickerStyle(.menu)
             .frame(maxWidth: 420, alignment: .leading)
 
+            Picker("Compare against baseline", selection: Binding(
+              get: { model.codexComparisonBaselineSessionID },
+              set: {
+                model.codexComparisonBaselineSessionID = $0
+                model.compareCodexSessions(currentSessionID: model.codexComparisonSessionID, baselineSessionID: $0)
+              }
+            )) {
+              Text("No baseline").tag("")
+              ForEach(model.codexRecentSessions.filter { $0.id != model.codexComparisonSessionID }) { session in
+                Text("\(session.shortID) · \(session.profile) · \(session.decisionCount) decisions")
+                  .tag(session.id)
+              }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 420, alignment: .leading)
+
             Picker("Identity group filter", selection: Binding(
               get: { model.codexComparisonGroupKey },
               set: { model.setCodexComparisonGroup($0) }
@@ -16362,6 +16406,25 @@ struct ContentView: View {
                     .textSelection(.enabled)
                 }
               }
+            }
+
+            if !model.codexVisibleDecisionComparisonRows.isEmpty {
+              DisclosureGroup("Decision transitions · \(model.codexVisibleDecisionComparisonRows.count)") {
+                LazyVStack(alignment: .leading, spacing: 5) {
+                  ForEach(Array(model.codexVisibleDecisionComparisonRows.prefix(20))) { row in
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text("\(row.kind.rawValue.uppercased()) · \(row.sourcePath)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(row.kind == .unchanged ? DashboardTheme.muted : DashboardTheme.warning)
+                      Text(row.explanation)
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(DashboardTheme.muted)
+                    }
+                  }
+                }
+              }
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
             }
 
             HStack(spacing: 8) {

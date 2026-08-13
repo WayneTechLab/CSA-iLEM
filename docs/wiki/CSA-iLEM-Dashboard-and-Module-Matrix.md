@@ -149,6 +149,16 @@ session history remains available after restart. These measurements describe
 work avoided by the index; they never authorize a merge, transfer, cleanup,
 deletion, or provider mutation.
 
+## Phase 13.12 cross-session evidence boundary
+
+Operators can select a saved session and an independent comparison baseline.
+The dashboard compares decision snapshots and indexed fingerprints by source
+path, then reports added, removed, changed, and unchanged rows. Changed rows
+explain identity-group moves, classification transitions, and evidence
+fingerprint changes. The comparison reads the local SQLite catalog only; it
+does not rewrite sessions, choose a canonical source, or authorize any
+transfer, cleanup, deletion, or remote provider mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

@@ -549,6 +549,16 @@ Current Phase 13.10 slice:
 - keep timing and session comparison informational; canonical selection,
   verification, transfer, cleanup, and remote write gates remain unchanged.
 
+Current Phase 13.12 slice:
+- compare any two saved catalog sessions rather than only the latest session
+  against its immediate predecessor;
+- show source-level added, removed, changed, and unchanged rows with prior and
+  current identity groups, classifications, confidence, and fingerprints;
+- provide operator-readable explanations for group transitions,
+  classification transitions, and changed indexed evidence;
+- keep comparison strictly read-only and independent of canonical selection,
+  transfer, cleanup, deletion, and remote mutation gates.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

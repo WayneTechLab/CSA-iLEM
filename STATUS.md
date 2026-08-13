@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.10 session-diff observability is in progress. The native app now
+Next phase: Phase 13.12 cross-session evidence comparison is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -69,6 +69,11 @@ SQLite catalog, compares the current scan with the previous catalog session,
 and exposes evaluated-versus-reused counts and recent session history in the
 dashboard. Timing is evidence of the local scan path, not permission to bypass
 verification or write gates.
+Phase 13.12 adds arbitrary two-session source comparison. Operators can inspect
+added, removed, changed, and unchanged sources, identity-group transitions,
+classification transitions, and fingerprint changes with explanations. The
+comparison is read-only evidence and does not alter either session or grant
+write authority.
 not discard available local research evidence.
 
 Long-range product roadmap:

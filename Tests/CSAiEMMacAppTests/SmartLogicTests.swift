@@ -943,6 +943,32 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertNil(restored.previousDisposition)
   }
 
+  func testDecisionComparisonExplainsGroupClassificationAndFingerprintTransitions() {
+    let baseline = [
+      CodexDecisionSnapshot(sourcePath: "/tmp/lead", groupKey: "name:flowers", classification: .canonical, confidence: 0.98),
+      CodexDecisionSnapshot(sourcePath: "/tmp/shadow", groupKey: "name:flowers", classification: .shadowCopy, confidence: 0.55),
+      CodexDecisionSnapshot(sourcePath: "/tmp/removed", groupKey: "name:flowers", classification: .mergeCandidate, confidence: 0.8)
+    ]
+    let current = [
+      CodexDecisionSnapshot(sourcePath: "/tmp/lead", groupKey: "remote:github.com/example/flowers", classification: .canonical, confidence: 0.98),
+      CodexDecisionSnapshot(sourcePath: "/tmp/shadow", groupKey: "name:flowers", classification: .mergeCandidate, confidence: 0.86),
+      CodexDecisionSnapshot(sourcePath: "/tmp/added", groupKey: "name:flowers", classification: .brokenMetadataReview, confidence: 0.15)
+    ]
+
+    let rows = CodexSmartLogicEngine.compareSnapshots(
+      current: current,
+      baseline: baseline,
+      currentFingerprints: ["/tmp/lead": "new-lead", "/tmp/shadow": "same-shadow", "/tmp/added": "added"],
+      baselineFingerprints: ["/tmp/lead": "old-lead", "/tmp/shadow": "same-shadow", "/tmp/removed": "removed"]
+    )
+
+    XCTAssertEqual(rows.first(where: { $0.sourcePath == "/tmp/added" })?.kind, .added)
+    XCTAssertEqual(rows.first(where: { $0.sourcePath == "/tmp/removed" })?.kind, .removed)
+    XCTAssertEqual(rows.first(where: { $0.sourcePath == "/tmp/shadow" })?.kind, .changed)
+    XCTAssertTrue(rows.first(where: { $0.sourcePath == "/tmp/shadow" })?.explanation.contains("classification changed") == true)
+    XCTAssertTrue(rows.first(where: { $0.sourcePath == "/tmp/lead" })?.explanation.contains("identity group changed") == true)
+  }
+
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {
     XCTAssertEqual(CodexBackupMedium.rawDirectory.label, "Raw directory snapshot")
     XCTAssertTrue(CodexBackupMedium.rawDirectory.subtitle.contains("without repackaging"))
