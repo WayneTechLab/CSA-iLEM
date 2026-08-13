@@ -380,6 +380,19 @@ struct CodexEvidenceProvenanceRow: Codable, Hashable, Identifiable, Sendable {
   }
 }
 
+struct CodexEvidenceScanRouteSummary: Codable, Hashable, Sendable {
+  let totalCount: Int
+  let metadataTriageCount: Int
+  let targetedVerificationCount: Int
+  let noDeepScanCount: Int
+
+  var deepScanAvoidedCount: Int { metadataTriageCount + noDeepScanCount }
+
+  var headline: String {
+    "(totalCount) source(s) · (metadataTriageCount) metadata triage · (targetedVerificationCount) targeted · (noDeepScanCount) deep scan avoided"
+  }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -906,6 +919,15 @@ enum CodexSmartLogicEngine {
         importedKind: imported?.kind
       )
     }
+  }
+
+  static func scanRouteSummary(_ rows: [CodexEvidenceProvenanceRow]) -> CodexEvidenceScanRouteSummary {
+    CodexEvidenceScanRouteSummary(
+      totalCount: rows.count,
+      metadataTriageCount: rows.filter { $0.scanRoute == .metadataTriage }.count,
+      targetedVerificationCount: rows.filter { $0.scanRoute == .targetedVerification }.count,
+      noDeepScanCount: rows.filter { $0.scanRoute == .noDeepScan }.count
+    )
   }
 
   private static func csvEscape(_ value: String) -> String {

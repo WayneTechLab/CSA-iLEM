@@ -209,6 +209,14 @@ Current Phase 13.19 slice:
 - keep route guidance informational and operator-controlled, with no automatic
   scan scheduling, merge, transfer, cleanup, deletion, or remote write.
 
+Current Phase 13.20 slice:
+- summarize the visible route decisions before execution with metadata-triage,
+  targeted-verification, and deep-scan-avoided counts;
+- expose the fast-path savings without dispatching a scan or treating the
+  summary as permission;
+- preserve operator control and the existing merge, transfer, cleanup,
+  deletion, and remote-write gates.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

@@ -223,6 +223,14 @@ out of expensive deep verification, while changed live evidence is routed to
 focused review. The label does not schedule work and cannot authorize any
 merge, transfer, cleanup, deletion, or remote mutation.
 
+## Phase 13.20 route summary
+
+The authority panel summarizes the visible route decisions before execution:
+metadata triage, targeted verification, and deep scans avoided. This makes the
+fast path measurable without scheduling work. The summary remains evidence
+only and does not grant permission for merge, transfer, cleanup, deletion, or
+remote mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

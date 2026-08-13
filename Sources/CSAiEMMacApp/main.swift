@@ -2278,6 +2278,11 @@ final class CleanupViewModel: ObservableObject {
     )
   }
 
+  var codexEvidenceScanRouteSummary: CodexEvidenceScanRouteSummary? {
+    guard codexImportedEvidenceBundle != nil else { return nil }
+    return CodexSmartLogicEngine.scanRouteSummary(codexVisibleEvidenceProvenanceRows)
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -16570,6 +16575,10 @@ struct ContentView: View {
                   .pickerStyle(.menu)
                   .frame(maxWidth: 300, alignment: .leading)
                   Text("Showing " + String(model.codexVisibleEvidenceProvenanceRows.count) + " source(s) for this filter.")
+                  if let routeSummary = model.codexEvidenceScanRouteSummary {
+                    Text("Routing summary · " + routeSummary.headline)
+                    Text("Fast path avoids " + String(routeSummary.deepScanAvoidedCount) + " deep scan(s); targeted verification remains operator-controlled.")
+                  }
                   ForEach(Array(model.codexVisibleEvidenceProvenanceRows.prefix(12))) { row in
                     let liveKind = row.liveKind?.rawValue.uppercased() ?? "—"
                     let importedKind = row.importedKind?.rawValue.uppercased() ?? "—"
