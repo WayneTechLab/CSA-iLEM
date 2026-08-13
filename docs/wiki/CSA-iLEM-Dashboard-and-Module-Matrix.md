@@ -393,6 +393,14 @@ clear controls. This history is only a handoff cache: it does not write to the
 live SQLite catalog, merge events into live history, activate a baseline, or
 authorize any operation.
 
+## Phase 13.39 baseline-audit compatibility triage
+
+Each imported audit-history entry retains the audit schema version and counts of
+accepted and revoked events. The dashboard labels known `baseline-audit-v1`
+bundles as schema compatible and unknown versions as review required before
+inspection. These labels are informational only and never promote imported
+evidence into live authority.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

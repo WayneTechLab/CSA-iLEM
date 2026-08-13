@@ -2951,7 +2951,15 @@ final class CleanupViewModel: ObservableObject {
       let data = try Data(contentsOf: url)
       let bundle = try JSONDecoder().decode(CodexRouteReceiptBaselineAuditExportBundle.self, from: data)
       codexImportedBaselineAuditEvents = bundle.events
-      let record = CodexImportedBaselineAuditRecord(id: UUID().uuidString, sourceName: url.lastPathComponent, importedAt: Date(), events: bundle.events)
+      let record = CodexImportedBaselineAuditRecord(
+        id: UUID().uuidString,
+        sourceName: url.lastPathComponent,
+        importedAt: Date(),
+        auditVersion: bundle.auditVersion,
+        acceptedCount: bundle.events.filter { $0.action == .accepted }.count,
+        revokedCount: bundle.events.filter { $0.action == .revoked }.count,
+        events: bundle.events
+      )
       codexImportedBaselineAuditHistory.removeAll { $0.sourceName == record.sourceName && $0.events == record.events }
       codexImportedBaselineAuditHistory.insert(record, at: 0)
       codexImportedBaselineAuditHistory = Array(codexImportedBaselineAuditHistory.prefix(20))
@@ -17385,7 +17393,7 @@ struct ContentView: View {
           VStack(alignment: .leading, spacing: 5) {
             ForEach(model.codexImportedBaselineAuditHistory) { record in
               HStack(spacing: 8) {
-                Button(record.sourceName + " · " + String(record.events.count) + " event(s)") {
+                Button(record.sourceName + " · " + String(record.events.count) + " event(s) · " + record.compatibilityLabel) {
                   model.inspectCodexImportedBaselineAuditRecord(record)
                 }
                 .buttonStyle(.plain)

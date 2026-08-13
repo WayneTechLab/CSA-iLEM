@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.38 persisted baseline-audit handoff history is in progress. The native app now
+Next phase: Phase 13.39 baseline-audit compatibility triage is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -164,6 +164,10 @@ operation.
 Phase 13.38 adds a bounded local history for imported baseline-audit bundles.
 Entries can be inspected, removed, or cleared after restart; these actions only
 change the local handoff cache and never change live audit history or authority.
+
+Phase 13.39 adds schema-version and accepted/revoked-count metadata to imported
+audit history entries. Compatible and unknown schemas are labeled before event
+inspection; this metadata remains informational and cannot grant authority.
 not discard available local research evidence.
 
 Long-range product roadmap:

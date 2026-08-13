@@ -612,7 +612,14 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
   let id: String
   let sourceName: String
   let importedAt: Date
+  let auditVersion: String
+  let acceptedCount: Int
+  let revokedCount: Int
   let events: [CodexRouteReceiptBaselineAuditEvent]
+
+  var compatibilityLabel: String {
+    auditVersion == "baseline-audit-v1" ? "schema compatible" : "unknown schema · review required"
+  }
 }
 
 extension CodexSmartLogicEngine {

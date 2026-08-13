@@ -339,6 +339,12 @@ Current Phase 13.38 slice:
 - keep history operations isolated from live audit history, SQLite authority,
   baseline activation, and all transfer or cleanup paths.
 
+Current Phase 13.39 slice:
+- retain the exported audit schema version and accepted/revoked event counts in
+  imported history records;
+- label compatible versus unknown schemas before opening event details;
+- keep compatibility metadata informational and non-authoritative.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

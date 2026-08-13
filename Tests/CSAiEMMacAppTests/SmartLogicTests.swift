@@ -519,6 +519,35 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: (root.path as NSString).appendingPathComponent(".SYSTEMX/Index/catalog.sqlite")))
   }
 
+  func testImportedBaselineAuditHistoryRetainsCompatibilityMetadata() throws {
+    let event = CodexRouteReceiptBaselineAuditEvent(
+      id: "event",
+      action: .accepted,
+      liveSessionID: "live",
+      importedSessionID: "imported",
+      importedSourceName: "bundle.json",
+      occurredAt: observedDate,
+      detail: "comparison only"
+    )
+    let record = CodexImportedBaselineAuditRecord(
+      id: "history",
+      sourceName: "bundle.json",
+      importedAt: observedDate,
+      auditVersion: "baseline-audit-v1",
+      acceptedCount: 1,
+      revokedCount: 0,
+      events: [event]
+    )
+    let restored = try JSONDecoder().decode(
+      CodexImportedBaselineAuditRecord.self,
+      from: JSONEncoder().encode(record)
+    )
+    XCTAssertEqual(restored, record)
+    XCTAssertEqual(restored.compatibilityLabel, "schema compatible")
+    XCTAssertEqual(restored.acceptedCount, 1)
+    XCTAssertEqual(restored.revokedCount, 0)
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -1032,7 +1061,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.11" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.12" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
