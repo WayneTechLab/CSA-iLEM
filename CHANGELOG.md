@@ -20,6 +20,10 @@
   scope header remain eligible for the later manual gate.
 - Added a local fake-`gh` contract check for the limited-token guard, covering
   both forbidden-scope rejection and the unchanged no-token read-only path.
+- Added a reproducible PowerShell parser smoke to the release preflight and
+  verified an isolated current-branch GUI bundle with the available Apple
+  Development signing identity and hardened runtime; public notarization and
+  independent distribution trust remain separate release gates.
 
 ## 0.8.0
 

@@ -149,6 +149,10 @@ These are the known production gaps or weak spots still open:
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
 - the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source; the local manifest contract now has deterministic tamper-rejection coverage
+- the current Mac host has a valid Apple Development signing identity; an
+  isolated current-branch bundle was signed with the hardened runtime and
+  passed strict verification, but public distribution signing, notarization,
+  and an independent trust anchor remain open
 - destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures; the currently exercised post-promotion, export, snapshot-restore, and cross-root relocation boundaries are covered
 - GitHub admin features have local multi-account binding and mismatch fixtures,
   and the opt-in live read-only smoke now verifies two live owner/account
@@ -166,6 +170,9 @@ These areas are close, but not fully finished to the standard the app is aiming 
 
 - GUI-first product direction is established, but a few legacy CLI concepts and compatibility entry points still exist around the edges
 - Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
+- the release preflight now runs a reproducible PowerShell parser smoke when
+  `pwsh` is available; this validates script syntax only and does not replace
+  real Windows 11 runtime validation
 - The CODEX ~ GPT Add-on master plan now defines deterministic five-second
   source decisions, false-positive protection, recoverable versus fatal
   continuation, explicit YOLO limits, Archive_Data routing, native tool

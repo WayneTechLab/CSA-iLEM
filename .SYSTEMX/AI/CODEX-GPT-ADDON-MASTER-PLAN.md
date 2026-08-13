@@ -403,6 +403,14 @@ The current branch has direct evidence for each local milestone gate:
   the semantic version and installer payload checksums, then deliberately
   tampers with a staged installer and proves verification fails closed; this
   is a local/hosted integrity gate, not a signing or notarization claim.
+- local release-signing evidence: the current Mac host exposes a valid Apple
+  Development identity, and an isolated current-branch bundle was signed with
+  the hardened runtime and passed strict verification; Apple notarization,
+  public distribution signing, and an independent trust anchor remain open.
+- PowerShell boundary evidence: `.SYSTEMX/scripts/powershell-parse-smoke.sh`
+  validates all repository `.ps1` files with the PowerShell parser when
+  `pwsh` is available. It is syntax evidence only and does not claim Windows
+  runtime or native GUI validation.
 - isolated lifecycle smoke: `.SYSTEMX/scripts/install-lifecycle-smoke.sh`
   exercises CLI install, same-version replacement/update, wrapper identity,
   GUI bundle build and signature verification, uninstall, and sentinel
