@@ -128,6 +128,17 @@ The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.
 
+## Phase 13.9 indexed review recovery boundary
+
+Review disposition changes and targeted group re-evaluations are written to a
+bounded local audit ledger. The dashboard exposes the latest entries and can
+undo the last disposition action after confirming that its source remains in
+the current decision table. A separate local fingerprint baseline classifies
+the next scan as added, changed, unchanged, or removed. Only affected identity
+groups are evaluated again; unchanged decision rows remain retained for the
+current session. This optimization does not bypass canonical selection, Stage
+2 preflight, transfer verification, or any remote write gate.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

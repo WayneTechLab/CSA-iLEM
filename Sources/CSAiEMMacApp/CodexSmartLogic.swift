@@ -57,6 +57,34 @@ enum CodexReviewDisposition: String, Codable, CaseIterable, Sendable {
   }
 }
 
+struct CodexReviewAuditEntry: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let sessionID: String
+  let sourcePath: String
+  let groupKey: String
+  let previousDisposition: CodexReviewDisposition?
+  let nextDisposition: CodexReviewDisposition?
+  let action: String
+  let detail: String
+  let occurredAt: Date
+}
+
+struct CodexSourceDelta: Codable, Hashable, Identifiable, Sendable {
+  enum Kind: String, Codable, Sendable {
+    case added
+    case changed
+    case unchanged
+    case removed
+  }
+
+  let sourcePath: String
+  let kind: Kind
+  let previousFingerprint: String?
+  let currentFingerprint: String?
+
+  var id: String { sourcePath }
+}
+
 enum CodexIncidentSeverity: String, Codable, CaseIterable, Sendable {
   case recoverable
   case fatal
@@ -342,7 +370,54 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.5"
+  static let ruleVersion = "smart-logic-v2.6"
+
+  static func sourceFingerprint(_ project: CodexProjectEntry) -> String {
+    let values = [
+      project.path,
+      project.name,
+      project.discoveredBy,
+      project.remoteURL ?? "",
+      project.branch ?? "",
+      project.ideState.rawValue,
+      project.gitStatus.mainLabel,
+      project.gitStatus.hasLocalChanges ? "dirty" : "clean",
+      project.gitStatus.isMainSynchronized ? "main-synchronized" : "main-unsynchronized",
+      project.hasGit ? "git" : "no-git",
+      project.hasPackageManifest ? "manifest" : "no-manifest",
+      project.snapshot.fileCount.description,
+      project.snapshot.byteCount.description,
+      project.snapshot.latestModification.map(ISO8601DateFormatter().string(from:)) ?? "",
+      project.snapshot.truncated ? "bounded" : "complete",
+      project.toolEvidence.map(\.rawValue).sorted().joined(separator: ","),
+      project.activeToolEvidence.map(\.rawValue).sorted().joined(separator: ",")
+    ]
+    let bytes = Array(values.joined(separator: "\u{1F}").utf8)
+    var hash: UInt64 = 1469598103934665603
+    for byte in bytes {
+      hash ^= UInt64(byte)
+      hash = hash &* 1099511628211
+    }
+    return String(format: "%016llx", hash)
+  }
+
+  static func sourceDeltas(previous: [String: String], current: [CodexProjectEntry]) -> [CodexSourceDelta] {
+    let currentFingerprints = Dictionary(uniqueKeysWithValues: current.map { ($0.path, sourceFingerprint($0)) })
+    let paths = Set(previous.keys).union(currentFingerprints.keys).sorted()
+    return paths.map { path in
+      let old = previous[path]
+      let now = currentFingerprints[path]
+      let kind: CodexSourceDelta.Kind
+      switch (old, now) {
+      case (nil, .some): kind = .added
+      case (.some, nil): kind = .removed
+      case let (.some(oldValue), .some(newValue)) where oldValue == newValue: kind = .unchanged
+      case (.some, .some): kind = .changed
+      case (nil, nil): kind = .unchanged
+      }
+      return CodexSourceDelta(sourcePath: path, kind: kind, previousFingerprint: old, currentFingerprint: now)
+    }
+  }
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in

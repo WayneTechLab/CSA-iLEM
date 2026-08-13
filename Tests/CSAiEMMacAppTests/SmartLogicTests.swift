@@ -686,7 +686,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.6" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
@@ -887,6 +887,41 @@ final class SmartLogicTests: XCTestCase {
     let data = try JSONEncoder().encode(dispositions)
     let restored = try JSONDecoder().decode([String: CodexReviewDisposition].self, from: data)
     XCTAssertEqual(restored, dispositions)
+  }
+
+  func testSourceFingerprintDeltaDetectsAddedChangedUnchangedAndRemovedRows() {
+    let unchanged = project(path: "/tmp/unchanged", name: "Unchanged", remoteURL: nil, branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized)
+    let changed = project(path: "/tmp/changed", name: "Changed", remoteURL: nil, branch: "main", ideState: .linked, hasLocalChanges: true, mainState: .diverged(ahead: 1, behind: 1))
+    let current = [unchanged, changed, project(path: "/tmp/added", name: "Added", remoteURL: nil, branch: nil, ideState: .unavailable, hasLocalChanges: false, mainState: .noOriginMain)]
+    let previous = [
+      unchanged.path: CodexSmartLogicEngine.sourceFingerprint(unchanged),
+      changed.path: CodexSmartLogicEngine.sourceFingerprint(project(path: changed.path, name: changed.name, remoteURL: nil, branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized)),
+      "/tmp/removed": "old-fingerprint"
+    ]
+
+    let deltas = CodexSmartLogicEngine.sourceDeltas(previous: previous, current: current)
+    XCTAssertEqual(deltas.first(where: { $0.sourcePath == unchanged.path })?.kind, .unchanged)
+    XCTAssertEqual(deltas.first(where: { $0.sourcePath == changed.path })?.kind, .changed)
+    XCTAssertEqual(deltas.first(where: { $0.sourcePath == "/tmp/added" })?.kind, .added)
+    XCTAssertEqual(deltas.first(where: { $0.sourcePath == "/tmp/removed" })?.kind, .removed)
+  }
+
+  func testReviewAuditEntryRoundTripsReversibleDispositionMetadata() throws {
+    let entry = CodexReviewAuditEntry(
+      id: "audit-1",
+      sessionID: "session-1",
+      sourcePath: "/tmp/shadow",
+      groupKey: "remote:https://github.com/example/project",
+      previousDisposition: nil,
+      nextDisposition: .excluded,
+      action: "disposition-changed",
+      detail: "Operator excluded a false-positive shadow copy.",
+      occurredAt: observedDate
+    )
+    let restored = try JSONDecoder().decode(CodexReviewAuditEntry.self, from: JSONEncoder().encode(entry))
+    XCTAssertEqual(restored, entry)
+    XCTAssertEqual(restored.nextDisposition, .excluded)
+    XCTAssertNil(restored.previousDisposition)
   }
 
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {

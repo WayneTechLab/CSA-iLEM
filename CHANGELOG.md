@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are

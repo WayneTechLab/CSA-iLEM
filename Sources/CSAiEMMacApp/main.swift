@@ -77,6 +77,9 @@ private let codexCreateCompatibilityLinkKey = "com.waynetechlab.csa-iem.codex-cr
 private let codexRearmGitMainKey = "com.waynetechlab.csa-iem.codex-rearm-git-main"
 private let codexAutoResumeExistingKey = "com.waynetechlab.csa-iem.codex-auto-resume-existing"
 private let codexReviewDispositionsFile = (appSupportDir as NSString).appendingPathComponent("codex-review-dispositions.json")
+private let codexReviewAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-review-audit.json")
+private let codexSourceFingerprintsFile = (appSupportDir as NSString).appendingPathComponent("codex-source-fingerprints.json")
+private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathComponent("codex-smart-decisions.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
 private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
 private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
@@ -1737,6 +1740,9 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var codexSmartDecisions: [CodexSmartDecision] = []
   @Published var codexReviewDispositions: [String: CodexReviewDisposition] = [:]
+  @Published var codexReviewAudit: [CodexReviewAuditEntry] = []
+  @Published var codexSourceDeltas: [CodexSourceDelta] = []
+  @Published var codexScanDeltaStatus = "No prior scan baseline is available; the first scan evaluates all discovered sources."
   @Published var codexGroupReviewStatus = "No group has been re-evaluated from the saved decision evidence."
   @Published var codexAdvisoryProviderKind: CodexAdvisoryProviderKind = .lmStudio
   @Published var codexAdvisory: CodexAIAdvisory?
@@ -2582,8 +2588,50 @@ final class CleanupViewModel: ObservableObject {
   private func recordCodexSmartDecisions(_ projects: [CodexProjectEntry], sourceRoots: [String], profile: CodexSmartScanMode) {
     refreshCodexCatalogStore()
     let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
-    let decisions = CodexSmartLogicEngine.evaluate(projects, destinationRoot: destinationRoot)
+    let previousFingerprints: [String: String] = readJSON([String: String].self, from: codexSourceFingerprintsFile) ?? [:]
+    let deltas = CodexSmartLogicEngine.sourceDeltas(previous: previousFingerprints, current: projects)
+    codexSourceDeltas = deltas
+    let changedPaths = Set(deltas.filter { $0.kind != .unchanged }.map(\.sourcePath))
+    let evaluateAll = codexSmartDecisions.isEmpty || previousFingerprints.isEmpty
+    let changedGroupKeys = Set(projects.filter { changedPaths.contains($0.path) }.map { project in
+      if let remote = project.remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty {
+        return "remote:\(remote.lowercased().hasSuffix(".git") ? String(remote.dropLast(4)) : remote.lowercased())"
+      }
+      return "name:\(project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    })
+    let projectsToEvaluate: [CodexProjectEntry]
+    if evaluateAll {
+      projectsToEvaluate = projects
+      codexScanDeltaStatus = "Initial baseline: evaluated all (projects.count) discovered source row(s)."
+    } else {
+      projectsToEvaluate = projects.filter { project in
+        changedPaths.contains(project.path) || changedGroupKeys.contains { key in
+          if let remote = project.remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty {
+            let normalized = remote.lowercased().hasSuffix(".git") ? String(remote.dropLast(4)) : remote.lowercased()
+            return key == "remote:\(normalized)"
+          }
+          return key == "name:\(project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+        }
+      }
+      codexScanDeltaStatus = changedPaths.isEmpty
+        ? "No source fingerprints changed: retained (codexSmartDecisions.count) saved decision row(s) without re-evaluation."
+        : "Delta scan: (changedPaths.count) source row(s) changed; evaluated (projectsToEvaluate.count) row(s) across (changedGroupKeys.count) affected group(s)."
+    }
+    let refreshed = CodexSmartLogicEngine.evaluate(projectsToEvaluate, destinationRoot: destinationRoot)
+    let decisions: [CodexSmartDecision]
+    if evaluateAll {
+      decisions = refreshed
+    } else {
+      let refreshedPaths = Set(refreshed.map(\.sourcePath))
+      let currentPaths = Set(projects.map(\.path))
+      decisions = codexSmartDecisions
+        .filter { currentPaths.contains($0.sourcePath) && !refreshedPaths.contains($0.sourcePath) }
+        + refreshed
+    }
     codexSmartDecisions = decisions
+    writeJSON(decisions, to: codexSmartDecisionsFile)
+    let currentFingerprints = Dictionary(uniqueKeysWithValues: projects.map { ($0.path, CodexSmartLogicEngine.sourceFingerprint($0)) })
+    writeJSON(currentFingerprints, to: codexSourceFingerprintsFile)
     codexReviewDispositions = codexReviewDispositions.filter { entry in
       decisions.contains { $0.sourcePath == entry.key }
     }
@@ -2658,6 +2706,7 @@ final class CleanupViewModel: ObservableObject {
       codexPortalStatus = "Only review-classified sources can be deferred or excluded."
       return
     }
+    let previousDisposition = codexReviewDispositions[decision.sourcePath]
     if let disposition {
       codexReviewDispositions[decision.sourcePath] = disposition
       if disposition == .excluded {
@@ -2673,10 +2722,47 @@ final class CleanupViewModel: ObservableObject {
       codexReviewDispositions.removeValue(forKey: decision.sourcePath)
       codexPortalStatus = "Restored \(decision.evidence.name) to active group readiness review."
     }
+    appendCodexReviewAudit(
+      sourcePath: decision.sourcePath,
+      groupKey: decision.groupKey,
+      previousDisposition: previousDisposition,
+      nextDisposition: disposition,
+      action: "disposition-changed",
+      detail: "Operator changed the review disposition for \(decision.evidence.name)."
+    )
     persistCodexReviewDispositions()
     codexTransferPlans.removeAll()
     stage2SafetyArmed = false
     codexLifecycleSafetyArmed = false
+  }
+
+  func undoLastCodexReviewAction() {
+    guard let index = codexReviewAudit.lastIndex(where: { $0.action == "disposition-changed" }) else {
+      codexPortalStatus = "No reversible review disposition is recorded."
+      return
+    }
+    let entry = codexReviewAudit[index]
+    guard let decision = codexSmartDecisions.first(where: { $0.sourcePath == entry.sourcePath }) else {
+      codexPortalStatus = "The source for the last review action is not in the current decision table; scan before undoing it."
+      return
+    }
+    codexReviewDispositions.removeValue(forKey: entry.sourcePath)
+    if let previous = entry.previousDisposition {
+      codexReviewDispositions[entry.sourcePath] = previous
+    }
+    appendCodexReviewAudit(
+      sourcePath: entry.sourcePath,
+      groupKey: entry.groupKey,
+      previousDisposition: entry.nextDisposition,
+      nextDisposition: entry.previousDisposition,
+      action: "disposition-undone",
+      detail: "Operator reverted the previous review disposition for \(decision.evidence.name)."
+    )
+    persistCodexReviewDispositions()
+    codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
+    codexLifecycleSafetyArmed = false
+    codexPortalStatus = "Reverted the last review disposition for \(decision.evidence.name). Recheck the group before applying any operation."
   }
 
   func reEvaluateCodexGroup(_ groupKey: String) {
@@ -2691,6 +2777,14 @@ final class CleanupViewModel: ObservableObject {
     codexSmartDecisions = codexSmartDecisions.filter { $0.groupKey != groupKey } + refreshed
     codexCanonicalSourceByGroup.removeValue(forKey: groupKey)
     codexGroupReviewStatus = "Re-evaluated \(groupKey) from \(projects.count) saved indexed source row(s); unrelated groups were not rescanned."
+    appendCodexReviewAudit(
+      sourcePath: "group:\(groupKey)",
+      groupKey: groupKey,
+      previousDisposition: nil,
+      nextDisposition: nil,
+      action: "group-re-evaluated",
+      detail: "Targeted group re-evaluation used saved indexed source rows; unrelated groups were retained."
+    )
     persistCodexReviewDispositions()
     codexTransferPlans.removeAll()
     stage2SafetyArmed = false
@@ -2699,6 +2793,32 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexReviewDispositions() {
     writeJSON(codexReviewDispositions, to: codexReviewDispositionsFile)
+  }
+
+  private func appendCodexReviewAudit(
+    sourcePath: String,
+    groupKey: String,
+    previousDisposition: CodexReviewDisposition?,
+    nextDisposition: CodexReviewDisposition?,
+    action: String,
+    detail: String
+  ) {
+    let entry = CodexReviewAuditEntry(
+      id: UUID().uuidString,
+      sessionID: codexActiveSessionID,
+      sourcePath: sourcePath,
+      groupKey: groupKey,
+      previousDisposition: previousDisposition,
+      nextDisposition: nextDisposition,
+      action: action,
+      detail: detail,
+      occurredAt: Date()
+    )
+    codexReviewAudit.append(entry)
+    if codexReviewAudit.count > 200 {
+      codexReviewAudit = Array(codexReviewAudit.suffix(200))
+    }
+    writeJSON(codexReviewAudit, to: codexReviewAuditFile)
   }
 
   private func recordCodexTransferCheckpoints(_ plans: [CodexTransferPlan]) {
@@ -2756,6 +2876,12 @@ final class CleanupViewModel: ObservableObject {
     }
     if let savedDispositions: [String: CodexReviewDisposition] = readJSON([String: CodexReviewDisposition].self, from: codexReviewDispositionsFile) {
       codexReviewDispositions = savedDispositions
+    }
+    if let savedAudit: [CodexReviewAuditEntry] = readJSON([CodexReviewAuditEntry].self, from: codexReviewAuditFile) {
+      codexReviewAudit = Array(savedAudit.suffix(200))
+    }
+    if let savedDecisions: [CodexSmartDecision] = readJSON([CodexSmartDecision].self, from: codexSmartDecisionsFile) {
+      codexSmartDecisions = savedDecisions
     }
     let defaults = UserDefaults.standard
     if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
@@ -16045,6 +16171,32 @@ struct ContentView: View {
       Text(model.codexGroupReviewStatus)
         .font(.system(size: 11, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
+
+      HStack(spacing: 8) {
+        Text(model.codexScanDeltaStatus)
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+        Spacer()
+        Button("Undo last review action") {
+          model.undoLastCodexReviewAction()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .controlSize(.small)
+        .disabled(!model.codexReviewAudit.contains { $0.action == "disposition-changed" })
+      }
+
+      if !model.codexReviewAudit.isEmpty {
+        DisclosureGroup("Review audit · latest \(min(model.codexReviewAudit.count, 5))") {
+          ForEach(Array(model.codexReviewAudit.suffix(5).reversed())) { entry in
+            Text("\(entry.action) · \(entry.detail)")
+              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+              .textSelection(.enabled)
+          }
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      }
 
       Text(model.codexCanonicalSelectionSummary)
         .font(.system(size: 11, weight: .bold, design: .rounded))

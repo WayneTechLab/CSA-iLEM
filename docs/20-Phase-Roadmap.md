@@ -528,6 +528,17 @@ Current Phase 13.8 slice:
 - the dashboard shows the before/after group state and keeps exclusion,
   canonical selection, and remote mutation as separate operator decisions.
 
+Current Phase 13.9 slice:
+- review disposition changes and targeted group re-evaluations are retained in
+  a bounded local audit ledger with an undo path for the last disposition;
+- source fingerprints classify later scans as added, changed, unchanged, or
+  removed without reading full project contents again;
+- only affected identity groups are evaluated again, while unchanged decision
+  rows remain retained for the current session and removed rows leave the
+  active table;
+- the delta path remains advisory and fail-closed: it does not authorize a
+  merge, transfer, deletion, or remote write without downstream gates.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe
