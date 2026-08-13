@@ -362,6 +362,10 @@ The current branch has direct evidence for each local milestone gate:
   partial-metadata Stage 2 preflight in temporary roots and proves the report
   is retained while the source and `.git` tree remain unchanged and no
   canonical destination is created.
+- GitHub identity-scope smoke: `.SYSTEMX/scripts/github-identity-scope-smoke.sh`
+  validates two owner/login bindings, records independent binding digests, and
+  blocks a mismatched token response without contacting GitHub or changing
+  global `gh` authentication state.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred

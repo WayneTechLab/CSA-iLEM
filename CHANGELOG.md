@@ -16,6 +16,9 @@
   harness with temporary roots, signature verification, and sentinel checks.
 - Added a recovery safety smoke harness proving weak/partial Stage 2 sources
   remain unchanged when preflight blocks them and no canonical output is made.
+- Added a disposable GitHub identity-scope smoke harness covering two owner /
+  login bindings and fail-closed mismatched-login behavior without contacting
+  GitHub or changing global `gh` authentication state.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.
@@ -427,3 +430,5 @@
 - added built-in CLI flags for `--about`, `--notice`, `--terms`, `--privacy`, and `--disclaimer`
 - updated product branding to Wayne Tech Lab LLC / WayneTechLab.com
 - kept the Diamond, WTL, Public, and opener flows aligned with the production CLI surface
+- Added a disposable GitHub identity-scope smoke test covering two-account
+  binding and fail-closed mismatched-login behavior.

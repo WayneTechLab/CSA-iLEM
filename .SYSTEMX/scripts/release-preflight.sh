@@ -37,4 +37,7 @@ bash .SYSTEMX/scripts/install-lifecycle-smoke.sh
 echo "[9/9] Recovery safety smoke"
 bash .SYSTEMX/scripts/recovery-safety-smoke.sh
 
+echo "[10/10] GitHub identity-scope smoke"
+bash .SYSTEMX/scripts/github-identity-scope-smoke.sh
+
 echo "PASS: CSA-iLEM release preflight"

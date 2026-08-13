@@ -66,6 +66,8 @@ These major product areas are built into the app now:
   under temporary roots without touching the installed app or user profile
 - blocked Stage 2 recovery safety smoke now preserves partial-metadata source
   trees and writes only an isolated preflight report with no apply mutation
+- local GitHub identity-scope smoke now exercises two owner/login bindings and
+  a mismatched token response without contacting GitHub or changing gh auth
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
@@ -121,7 +123,9 @@ These are the known production gaps or weak spots still open:
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
 - the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source
 - destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures
-- GitHub admin features have not yet been fully smoke-tested across multiple accounts, organizations, and intentionally limited token scopes
+- GitHub admin features have local multi-account binding and mismatch fixtures,
+  but have not yet been fully smoke-tested against multiple live organizations
+  and intentionally limited token scopes
 - there is still no deep automated regression suite for install, uninstall, GUI actions, and GitHub-side operations
 
 ## Almost Done
