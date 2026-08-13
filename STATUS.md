@@ -71,6 +71,9 @@ These major product areas are built into the app now:
 - remote-installer argument inspection plus isolated install/update/uninstall
   and GUI bundle lifecycle smoke now passes under temporary roots without
   touching the installed app or user profile
+- the lifecycle smoke now checks the installed copy’s complete `SHA256SUMS`
+  payload after install, directly guarding against incomplete runtime
+  allowlists
 - the macOS installer now preserves all manifest-covered tracked payload roots
   (`.devcontainer`, `Tests`, `Prompt_Inject.MD`, and `Transfer_Note.MD`) so an
   installed remote copy can re-run GUI source checksum verification

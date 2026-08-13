@@ -32,6 +32,8 @@
 - Fixed remote macOS installs so the installed GUI builder retains all
   manifest-covered tracked payload roots and can pass its own source checksum
   verification after installation.
+- Added a direct installed-payload checksum assertion to the disposable
+  lifecycle gate.
 
 ## 0.8.0
 

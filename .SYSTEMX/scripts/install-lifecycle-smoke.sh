@@ -48,6 +48,8 @@ test -d "$INSTALL_ROOT/$(sed -n '1p' "$ROOT_DIR/VERSION")"
 test -x "$BIN_DIR/csa-ilem"
 test -x "$BIN_DIR/csa-iem"
 "$BIN_DIR/csa-ilem" --help >/dev/null
+(cd "$INSTALL_ROOT/current" && shasum -a 256 -c --strict SHA256SUMS >/dev/null)
+echo "Installed payload checksum verified"
 
 echo "[2/7] installed wrapper identity"
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/$(sed -n '1p' "$ROOT_DIR/VERSION")"
