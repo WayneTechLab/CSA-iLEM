@@ -54,6 +54,9 @@ These major product areas are built into the app now:
 - native Smart Logic decision records now persist to `.SYSTEMX/Index/catalog.sqlite`
   with JSON/CSV exports and Stage 1 preflight checkpoints; verified remote
   identity is required for automatic grouping
+- durable transfer-index records now persist source/destination artifact
+  digests, option sets, counts, and paths in the same SQLite catalog; saved
+  cache reuse requires that catalog record and current artifact digests
 - native Swift test target now covers Smart Logic grouping/classification,
   deterministic advisory non-authority, catalog session/checkpoint exports,
   module matrix contracts, review semantics, and backup-medium policy labels
@@ -163,8 +166,9 @@ These are the next production-hardening tasks with the best return:
   - devcontainer lifecycle
   - GitHub cleanup dry-run
 - add clearer permission/scope diagnostics everywhere GitHub API data can be partially unavailable
-- add the durable scan catalog and CSV/JSON export on top of the current JSON
-  transfer indexes so changed-only resume survives a closed app session
+- extend changed-only resume coverage with timing and mutation fixtures across
+  large multi-source projects; durable catalog-backed cache reuse is now in the
+  runtime path but still needs broader performance evidence
 - implement deterministic identity grouping for same-name folders, broken wiki
   metadata, editor shadow copies, multi-account ownership, and Dark Labs
   recovery evidence

@@ -103,6 +103,56 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.csv").path))
   }
 
+  func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let sourceIndex = root.appendingPathComponent("source-index.json")
+    let destinationIndex = root.appendingPathComponent("destination-index.json")
+    try Data("source-v1".utf8).write(to: sourceIndex)
+    try Data("destination-v1".utf8).write(to: destinationIndex)
+    let record = CodexScanIndexRecord(
+      sourcePath: "/tmp/catalog-source",
+      destinationPath: "/tmp/catalog-destination",
+      sourceIndexPath: sourceIndex.path,
+      destinationIndexPath: destinationIndex.path,
+      optionsKey: "git=1;finder=0;deps=0;checksum=0",
+      sourceIndexDigest: CodexCatalogStore.artifactDigest(at: sourceIndex.path)!,
+      destinationIndexDigest: CodexCatalogStore.artifactDigest(at: destinationIndex.path)!,
+      sourceFileCount: 12,
+      sourceByteCount: 4096,
+      capturedAt: observedDate
+    )
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.saveIndexRecords([record])
+    XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/catalog.sqlite").path))
+    let reopened = CodexCatalogStore(rootPath: root.path)
+    XCTAssertTrue(reopened.indexRecordMatches(
+      sourcePath: record.sourcePath,
+      destinationPath: record.destinationPath,
+      optionsKey: record.optionsKey,
+      sourceIndexPath: record.sourceIndexPath,
+      destinationIndexPath: record.destinationIndexPath
+    ))
+    XCTAssertFalse(reopened.indexRecordMatches(
+      sourcePath: record.sourcePath,
+      destinationPath: record.destinationPath,
+      optionsKey: "git=0;finder=0;deps=0;checksum=0",
+      sourceIndexPath: record.sourceIndexPath,
+      destinationIndexPath: record.destinationIndexPath
+    ))
+    let query = Process()
+    query.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+    query.arguments = [store.databasePath, "SELECT source_path || '|' || options_key || '|' || source_index_digest FROM scan_index_records;"]
+    let output = Pipe()
+    query.standardOutput = output
+    try query.run()
+    query.waitUntilExit()
+    let row = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    XCTAssertTrue(row.contains("/tmp/catalog-source|git=1;finder=0;deps=0;checksum=0|"))
+    XCTAssertTrue(row.contains(record.sourceIndexDigest))
+  }
+
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")

@@ -95,6 +95,19 @@ struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let detail: String
 }
 
+struct CodexScanIndexRecord: Codable, Hashable, Sendable {
+  let sourcePath: String
+  let destinationPath: String?
+  let sourceIndexPath: String
+  let destinationIndexPath: String?
+  let optionsKey: String
+  let sourceIndexDigest: String
+  let destinationIndexDigest: String?
+  let sourceFileCount: Int
+  let sourceByteCount: Int64
+  let capturedAt: Date
+}
+
 enum CodexBackupMedium: String, Codable, CaseIterable, Identifiable, Sendable {
   case rawDirectory
   case apfsClone
@@ -321,6 +334,16 @@ final class CodexCatalogStore: @unchecked Sendable {
     FileManager.default.fileExists(atPath: databasePath) ? "SQLite catalog ready" : "SQLite catalog will be created on first scan"
   }
 
+  static func artifactDigest(at path: String) -> String? {
+    guard let data = FileManager.default.contents(atPath: path) else { return nil }
+    var hash: UInt64 = 1469598103934665603
+    for byte in data {
+      hash ^= UInt64(byte)
+      hash = hash &* 1099511628211
+    }
+    return String(format: "%016llx", hash)
+  }
+
   @discardableResult
   func save(session: CodexScanSession, decisions: [CodexSmartDecision], checkpoints: [CodexSessionCheckpoint] = []) throws -> String {
     let fm = FileManager.default
@@ -355,6 +378,38 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
     statements.append("COMMIT;")
     try runSQL(statements.joined(separator: "\n"))
+  }
+
+  func saveIndexRecords(_ records: [CodexScanIndexRecord]) throws {
+    guard !records.isEmpty else { return }
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: catalogDirectory, withIntermediateDirectories: true, attributes: nil)
+    try runSQL(schemaSQL)
+    var statements = ["BEGIN IMMEDIATE TRANSACTION;"]
+    for record in records {
+      let destination = quote(record.destinationPath ?? "")
+      let destinationIndex = quote(record.destinationIndexPath ?? "")
+      let destinationDigest = quote(record.destinationIndexDigest ?? "")
+      statements.append("INSERT OR REPLACE INTO scan_index_records (source_path, destination_path, source_index_path, destination_index_path, options_key, source_index_digest, destination_index_digest, source_file_count, source_byte_count, captured_at) VALUES (\(quote(record.sourcePath)), \(destination), \(quote(record.sourceIndexPath)), \(destinationIndex), \(quote(record.optionsKey)), \(quote(record.sourceIndexDigest)), \(destinationDigest), \(record.sourceFileCount), \(record.sourceByteCount), \(quote(iso(record.capturedAt))));")
+    }
+    statements.append("COMMIT;")
+    try runSQL(statements.joined(separator: "\n"))
+  }
+
+  func indexRecordMatches(
+    sourcePath: String,
+    destinationPath: String?,
+    optionsKey: String,
+    sourceIndexPath: String,
+    destinationIndexPath: String?
+  ) -> Bool {
+    guard FileManager.default.fileExists(atPath: databasePath),
+          let sourceDigest = Self.artifactDigest(at: sourceIndexPath) else { return false }
+    let destinationDigest = destinationIndexPath.flatMap(Self.artifactDigest(at:)) ?? ""
+    let destination = quote(destinationPath ?? "")
+    let destinationIndex = quote(destinationIndexPath ?? "")
+    let sql = "SELECT count(*) FROM scan_index_records WHERE source_path=\(quote(sourcePath)) AND destination_path=\(destination) AND options_key=\(quote(optionsKey)) AND source_index_path=\(quote(sourceIndexPath)) AND destination_index_path=\(destinationIndex) AND source_index_digest=\(quote(sourceDigest)) AND destination_index_digest=\(quote(destinationDigest));"
+    return runQuery(sql)?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
   }
 
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {
@@ -402,6 +457,26 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
   }
 
+  private func runQuery(_ sql: String) -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+    process.arguments = ["-batch", databasePath]
+    let input = Pipe()
+    let output = Pipe()
+    process.standardInput = input
+    process.standardOutput = output
+    do {
+      try process.run()
+      input.fileHandleForWriting.write(Data(sql.utf8))
+      input.fileHandleForWriting.closeFile()
+      process.waitUntilExit()
+      guard process.terminationStatus == 0 else { return nil }
+      return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+    } catch {
+      return nil
+    }
+  }
+
   private func encode<T: Encodable>(_ value: T) throws -> String {
     let data = try JSONEncoder().encode(value)
     return String(data: data, encoding: .utf8) ?? "null"
@@ -423,8 +498,10 @@ final class CodexCatalogStore: @unchecked Sendable {
     CREATE TABLE IF NOT EXISTS scan_sessions (id TEXT PRIMARY KEY, profile TEXT NOT NULL, source_roots TEXT NOT NULL, created_at TEXT NOT NULL, rule_version TEXT NOT NULL, decision_count INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_path TEXT NOT NULL, group_key TEXT NOT NULL, classification TEXT NOT NULL, confidence REAL NOT NULL, evidence_json TEXT NOT NULL, reasons_json TEXT NOT NULL, destination_path TEXT NOT NULL, rule_version TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS session_checkpoints (session_id TEXT NOT NULL, source_path TEXT NOT NULL, stage TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, detail TEXT NOT NULL, PRIMARY KEY (session_id, source_path, stage));
+    CREATE TABLE IF NOT EXISTS scan_index_records (source_path TEXT NOT NULL, destination_path TEXT NOT NULL, source_index_path TEXT NOT NULL, destination_index_path TEXT NOT NULL, options_key TEXT NOT NULL, source_index_digest TEXT NOT NULL, destination_index_digest TEXT NOT NULL, source_file_count INTEGER NOT NULL, source_byte_count INTEGER NOT NULL, captured_at TEXT NOT NULL, PRIMARY KEY (source_path, destination_path, options_key));
     CREATE INDEX IF NOT EXISTS decisions_session_idx ON decisions(session_id);
     CREATE INDEX IF NOT EXISTS decisions_group_idx ON decisions(group_key);
+    CREATE INDEX IF NOT EXISTS scan_index_records_digest_idx ON scan_index_records(source_index_digest);
     """
   }
 }

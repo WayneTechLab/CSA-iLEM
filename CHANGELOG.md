@@ -19,6 +19,9 @@
 - Added a disposable GitHub identity-scope smoke harness covering two owner /
   login bindings and fail-closed mismatched-login behavior without contacting
   GitHub or changing global `gh` authentication state.
+- Added durable SQLite transfer-index records containing source/destination
+  artifact digests, option sets, counts, and paths; saved changed-only cache
+  reuse now requires a matching catalog record and current artifact digests.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

@@ -2447,6 +2447,27 @@ final class CleanupViewModel: ObservableObject {
     }
     do {
       try codexCatalogStore.saveCheckpoints(checkpoints)
+      let indexRecords = plans.compactMap { plan -> CodexScanIndexRecord? in
+        guard let sourceDigest = CodexCatalogStore.artifactDigest(at: plan.sourceIndexPath) else { return nil }
+        return CodexScanIndexRecord(
+          sourcePath: plan.projectPath,
+          destinationPath: plan.destinationPath,
+          sourceIndexPath: plan.sourceIndexPath,
+          destinationIndexPath: plan.destinationIndexPath,
+          optionsKey: [
+            plan.includeGitMetadata == true ? "git=1" : "git=0",
+            plan.includeFinderMetadata == true ? "finder=1" : "finder=0",
+            plan.includeDependencies == true ? "deps=1" : "deps=0",
+            plan.fullChecksumAudit ? "checksum=1" : "checksum=0"
+          ].joined(separator: ";"),
+          sourceIndexDigest: sourceDigest,
+          destinationIndexDigest: plan.destinationIndexPath.flatMap { CodexCatalogStore.artifactDigest(at: $0) },
+          sourceFileCount: plan.sourceFileCount,
+          sourceByteCount: plan.sourceByteCount,
+          capturedAt: plan.createdAt
+        )
+      }
+      try codexCatalogStore.saveIndexRecords(indexRecords)
       codexCatalogStatus = "Catalog and Stage 1 checkpoints saved · session \(codexActiveSessionID.prefix(8))"
     } catch {
       codexCatalogStatus = "Catalog checkpoint warning: \(error.localizedDescription)"
@@ -10434,6 +10455,12 @@ final class CleanupViewModel: ObservableObject {
     let sourceIndexPath = (indexDirectory as NSString).appendingPathComponent("source-index.json")
     let destinationIndexPath = (indexDirectory as NSString).appendingPathComponent("destination-index.json")
     let planPath = (indexDirectory as NSString).appendingPathComponent("transfer-plan.json")
+    let optionsKey = [
+      includeGit ? "git=1" : "git=0",
+      includeFinderMetadata ? "finder=1" : "finder=0",
+      includeDependencies ? "deps=1" : "deps=0",
+      fullChecksumAudit ? "checksum=1" : "checksum=0"
+    ].joined(separator: ";")
     guard let cachedPlan = readCodexIndexArtifact(CodexTransferPlan.self, from: planPath),
           let sourceIndex = readCodexIndexArtifact(CodexFileIndexSnapshot.self, from: sourceIndexPath),
           let destinationIndex = readCodexIndexArtifact(CodexFileIndexSnapshot.self, from: destinationIndexPath),
@@ -10445,7 +10472,14 @@ final class CleanupViewModel: ObservableObject {
           cachedPlan.destinationPath == destinationPath,
           cachedPlan.typeConflictPaths.isEmpty,
           NSString(string: sourceIndex.rootPath).standardizingPath == NSString(string: project.path).standardizingPath,
-          NSString(string: destinationIndex.rootPath).standardizingPath == NSString(string: destinationPath).standardizingPath else {
+          NSString(string: destinationIndex.rootPath).standardizingPath == NSString(string: destinationPath).standardizingPath,
+          CodexCatalogStore(rootPath: outputRoot).indexRecordMatches(
+            sourcePath: project.path,
+            destinationPath: destinationPath,
+            optionsKey: optionsKey,
+            sourceIndexPath: sourceIndexPath,
+            destinationIndexPath: destinationIndexPath
+          ) else {
       return nil
     }
 

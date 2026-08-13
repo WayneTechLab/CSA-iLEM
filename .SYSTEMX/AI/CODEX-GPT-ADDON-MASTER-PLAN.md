@@ -366,6 +366,9 @@ The current branch has direct evidence for each local milestone gate:
   validates two owner/login bindings, records independent binding digests, and
   blocks a mismatched token response without contacting GitHub or changing
   global `gh` authentication state.
+- durable transfer-index records now persist under the local SQLite catalog;
+  cache reuse validates the source/destination index artifact digests and the
+  exact scan option set before using changed-only verification.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred
