@@ -345,6 +345,13 @@ Current Phase 13.39 slice:
 - label compatible versus unknown schemas before opening event details;
 - keep compatibility metadata informational and non-authoritative.
 
+Current Phase 13.40 slice:
+- derive a stable content fingerprint from the audit schema and canonical event
+  ordering;
+- retain and display the fingerprint in imported history;
+- use the fingerprint, not filename or import time, as the duplicate identity
+  signal while keeping the handoff non-authoritative.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

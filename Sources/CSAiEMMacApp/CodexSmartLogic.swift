@@ -615,14 +615,78 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
   let auditVersion: String
   let acceptedCount: Int
   let revokedCount: Int
+  let fingerprint: String
   let events: [CodexRouteReceiptBaselineAuditEvent]
 
   var compatibilityLabel: String {
     auditVersion == "baseline-audit-v1" ? "schema compatible" : "unknown schema · review required"
   }
+
+  init(
+    id: String,
+    sourceName: String,
+    importedAt: Date,
+    auditVersion: String,
+    acceptedCount: Int,
+    revokedCount: Int,
+    fingerprint: String? = nil,
+    events: [CodexRouteReceiptBaselineAuditEvent]
+  ) {
+    self.id = id
+    self.sourceName = sourceName
+    self.importedAt = importedAt
+    self.auditVersion = auditVersion
+    self.acceptedCount = acceptedCount
+    self.revokedCount = revokedCount
+    self.events = events
+    self.fingerprint = fingerprint ?? CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: auditVersion, events: events)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, sourceName, importedAt, auditVersion, acceptedCount, revokedCount, fingerprint, events
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let events = try container.decode([CodexRouteReceiptBaselineAuditEvent].self, forKey: .events)
+    self.init(
+      id: try container.decode(String.self, forKey: .id),
+      sourceName: try container.decode(String.self, forKey: .sourceName),
+      importedAt: try container.decode(Date.self, forKey: .importedAt),
+      auditVersion: try container.decode(String.self, forKey: .auditVersion),
+      acceptedCount: try container.decode(Int.self, forKey: .acceptedCount),
+      revokedCount: try container.decode(Int.self, forKey: .revokedCount),
+      fingerprint: try container.decodeIfPresent(String.self, forKey: .fingerprint),
+      events: events
+    )
+  }
 }
 
 extension CodexSmartLogicEngine {
+  static func baselineAuditFingerprint(
+    auditVersion: String,
+    events: [CodexRouteReceiptBaselineAuditEvent]
+  ) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
+    let payload = CodexRouteReceiptBaselineAuditExportBundle(
+      exportedAt: Date(timeIntervalSince1970: 0),
+      auditVersion: auditVersion,
+      events: events.sorted { lhs, rhs in
+        if lhs.occurredAt != rhs.occurredAt { return lhs.occurredAt < rhs.occurredAt }
+        return lhs.id < rhs.id
+      }
+    )
+    guard let data = try? encoder.encode(payload) else { return "unavailable" }
+    var hash: UInt64 = 1469598103934665603
+    for byte in data {
+      hash ^= UInt64(byte)
+      hash = hash &* 1099511628211
+    }
+    return String(format: "%016llx", hash)
+  }
+
   static func compareRouteReceipts(
     live: [CodexScanRouteReceipt],
     imported: [CodexScanRouteReceipt]

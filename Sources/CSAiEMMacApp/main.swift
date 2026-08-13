@@ -2958,6 +2958,7 @@ final class CleanupViewModel: ObservableObject {
         auditVersion: bundle.auditVersion,
         acceptedCount: bundle.events.filter { $0.action == .accepted }.count,
         revokedCount: bundle.events.filter { $0.action == .revoked }.count,
+        fingerprint: CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: bundle.auditVersion, events: bundle.events),
         events: bundle.events
       )
       codexImportedBaselineAuditHistory.removeAll { $0.sourceName == record.sourceName && $0.events == record.events }
@@ -17393,7 +17394,7 @@ struct ContentView: View {
           VStack(alignment: .leading, spacing: 5) {
             ForEach(model.codexImportedBaselineAuditHistory) { record in
               HStack(spacing: 8) {
-                Button(record.sourceName + " · " + String(record.events.count) + " event(s) · " + record.compatibilityLabel) {
+                Button(record.sourceName + " · " + String(record.events.count) + " event(s) · " + record.compatibilityLabel + " · " + record.fingerprint) {
                   model.inspectCodexImportedBaselineAuditRecord(record)
                 }
                 .buttonStyle(.plain)

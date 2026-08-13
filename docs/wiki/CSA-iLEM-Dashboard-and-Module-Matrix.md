@@ -401,6 +401,14 @@ bundles as schema compatible and unknown versions as review required before
 inspection. These labels are informational only and never promote imported
 evidence into live authority.
 
+## Phase 13.40 baseline-audit fingerprints
+
+Imported baseline-audit entries retain a stable content fingerprint derived from
+the schema version and canonical event ordering. The dashboard displays this
+fingerprint so duplicate handoffs can be recognized even when filenames or
+import times differ. It is evidence metadata only and never authorizes a
+baseline, transfer, cleanup, deletion, or remote mutation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

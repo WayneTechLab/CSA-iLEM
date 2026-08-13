@@ -546,6 +546,23 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(restored.compatibilityLabel, "schema compatible")
     XCTAssertEqual(restored.acceptedCount, 1)
     XCTAssertEqual(restored.revokedCount, 0)
+    XCTAssertEqual(restored.fingerprint, CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: "baseline-audit-v1", events: [event]))
+    XCTAssertEqual(restored.fingerprint.count, 16)
+  }
+
+  func testBaselineAuditFingerprintIgnoresSourceFilenameAndImportTime() {
+    let event = CodexRouteReceiptBaselineAuditEvent(
+      id: "event",
+      action: .revoked,
+      liveSessionID: "live",
+      importedSessionID: "imported",
+      importedSourceName: "bundle.json",
+      occurredAt: observedDate,
+      detail: "revoked"
+    )
+    let first = CodexImportedBaselineAuditRecord(id: "one", sourceName: "one.json", importedAt: observedDate, auditVersion: "baseline-audit-v1", acceptedCount: 0, revokedCount: 1, events: [event])
+    let second = CodexImportedBaselineAuditRecord(id: "two", sourceName: "two.json", importedAt: observedDate.addingTimeInterval(100), auditVersion: "baseline-audit-v1", acceptedCount: 0, revokedCount: 1, events: [event])
+    XCTAssertEqual(first.fingerprint, second.fingerprint)
   }
 
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
@@ -1061,7 +1078,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.12" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.13" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
