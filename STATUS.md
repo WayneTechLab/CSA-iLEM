@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.3 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.4 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -33,6 +33,12 @@ does not install, resolve, or contact package providers.
 Research snapshots now also retain bounded remote release entries and local
 CHANGELOG/HISTORY/RELEASES heading evidence with explicit provenance,
 Unreleased detection, and truncation warnings. Remote release read failures do
+not suppress local evidence. Phase 13.4 adds a bounded GitHub Actions workflow
+inventory, local workflow-surface flags for action references, permissions,
+`pull_request_target`, secrets, and fork context, plus availability-only
+security endpoint outcomes. The security surface is explicitly read-only: no
+secret values, workflow writes, alert dismissal, or administrative changes are
+performed.
 not discard available local research evidence.
 
 Long-range product roadmap:

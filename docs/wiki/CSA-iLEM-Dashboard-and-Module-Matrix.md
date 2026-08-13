@@ -52,6 +52,20 @@ When an operator reports a broken surface:
 4. Compare the relevant receipt, index, or runtime log.
 5. Update the module entry and CHANGELOG only after the fix is verified.
 
+## Phase 13.4 research and security boundary
+
+The research workspace includes a bounded `gh workflow list` inventory for the
+selected repository and a bounded local scan of exact-match `.github/workflows`
+files. The local evidence records action references and flags explicit
+permissions, `pull_request_target`, secret references, and fork context so an
+operator can review workflow risk without opening a deep scan.
+
+Security endpoints are queried only for availability and permission status for
+vulnerability alerts, secret-scanning alerts, and code-scanning alerts. The
+native app does not read secret values, edit workflows, dismiss alerts, or
+perform administrative changes in this research phase. Remote failures are
+categorized and retained alongside available local evidence.
+
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.

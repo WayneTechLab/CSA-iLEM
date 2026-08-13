@@ -461,6 +461,20 @@ Current Phase 13.3 slice:
   codebase and changelog evidence remains available, and neither source is
   treated as an authorization or canonical-source decision.
 
+Current Phase 13.4 slice:
+- the selected-repository research snapshot reads a bounded GitHub Actions
+  workflow inventory through `gh workflow list`, retaining workflow identity,
+  path, and state without dispatching or editing workflows;
+- exact local matches receive bounded `.github/workflows` evidence including
+  action references, explicit permissions, `pull_request_target`, secret, and
+  fork-context flags, with hidden workflow directories included intentionally;
+- GitHub vulnerability-alert, secret-scanning, and code-scanning endpoints are
+  queried only for availability and permission outcomes, never for secret
+  values, alert dismissal, workflow writes, or administrative changes;
+- remote failures remain categorized while local workflow evidence remains
+  available, and all workflow/security evidence stays research context rather
+  than a canonical-source or authorization decision.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

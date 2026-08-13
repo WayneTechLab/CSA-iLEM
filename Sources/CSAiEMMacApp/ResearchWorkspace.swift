@@ -286,6 +286,77 @@ struct CSAiEMLocalChangelogSummary: Identifiable, Hashable, Codable {
   }
 }
 
+struct CSAiEMLocalWorkflowSummary: Identifiable, Hashable, Codable {
+  let path: String
+  let workflowName: String
+  let actionReferences: [String]
+  let hasPermissionsBlock: Bool
+  let usesPullRequestTarget: Bool
+  let referencesSecrets: Bool
+  let referencesForks: Bool
+  let warnings: [String]
+
+  var id: String { path }
+
+  var summary: String {
+    let flags = [
+      hasPermissionsBlock ? "permissions declared" : "permissions not explicit",
+      usesPullRequestTarget ? "pull_request_target" : nil,
+      referencesSecrets ? "secrets referenced" : nil,
+      referencesForks ? "fork context" : nil
+    ].compactMap { $0 }
+    return workflowName + " · " + (flags.isEmpty ? "no flagged surface" : flags.joined(separator: " · "))
+  }
+
+  static func scan(paths: [String], maxFiles: Int = 40, maxBytesPerFile: Int = 64_000) -> [Self] {
+    var workflowPaths: [String] = []
+    for rootPath in paths {
+      let root = URL(fileURLWithPath: rootPath).appendingPathComponent(".github/workflows")
+      guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [], errorHandler: { _, _ in true }) else { continue }
+      while let url = enumerator.nextObject() as? URL {
+        guard url.pathExtension.lowercased() == "yml" || url.pathExtension.lowercased() == "yaml" else { continue }
+        workflowPaths.append(url.path)
+        if workflowPaths.count >= maxFiles { break }
+      }
+      if workflowPaths.count >= maxFiles { break }
+    }
+    return workflowPaths.compactMap { scan(path: $0, maxBytes: maxBytesPerFile) }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+  }
+
+  static func scan(path: String, maxBytes: Int = 64_000) -> Self? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: [.uncached]), let contents = String(data: data.prefix(maxBytes), encoding: .utf8) else { return nil }
+    let lines = contents.split(whereSeparator: \.isNewline).map(String.init)
+    let workflowName = lines.first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("name:") })?.split(separator: ":", maxSplits: 1).dropFirst().first.map { $0.trimmingCharacters(in: .whitespaces) } ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+    let actionReferences = Array(Set(lines.compactMap { line -> String? in
+      guard let range = line.range(of: "uses:") else { return nil }
+      return line[range.upperBound...].trimmingCharacters(in: .whitespaces)
+    })).sorted()
+    let lower = contents.lowercased()
+    var warnings: [String] = []
+    if lower.contains("pull_request_target") { warnings.append("Workflow runs in pull_request_target context; review untrusted-code boundaries.") }
+    if lower.contains("secrets.") || lower.contains("secrets[") { warnings.append("Workflow references secrets; values were not read.") }
+    if lower.contains("permissions:") == false { warnings.append("Workflow does not declare an explicit permissions block.") }
+    if lower.contains("pull_request") && lower.contains("fork") { warnings.append("Workflow text references pull-request/fork context; review token scope.") }
+    if data.count >= maxBytes { warnings.append("Workflow read capped at " + String(maxBytes) + " bytes.") }
+    return Self(path: path, workflowName: workflowName, actionReferences: actionReferences, hasPermissionsBlock: lower.contains("permissions:"), usesPullRequestTarget: lower.contains("pull_request_target"), referencesSecrets: lower.contains("secrets.") || lower.contains("secrets["), referencesForks: lower.contains("fork"), warnings: warnings)
+  }
+}
+
+struct CSAiEMResearchSecuritySummary: Hashable, Codable {
+  let vulnerabilityAlerts: String
+  let secretScanningAlerts: String
+  let codeScanningAlerts: String
+  let workflowCount: Int
+  let localWorkflowCount: Int
+  let localWorkflowWarnings: Int
+  let readBoundary: String
+  let warnings: [String]
+
+  var summary: String {
+    String(workflowCount) + " remote workflows · " + String(localWorkflowCount) + " local workflow files · " + String(localWorkflowWarnings) + " local review flags · vulnerability alerts " + vulnerabilityAlerts + " · secret scanning " + secretScanningAlerts + " · code scanning " + codeScanningAlerts
+  }
+}
+
 struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
   let id: String
   let repository: String
@@ -307,6 +378,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
   let localSummaries: [CSAiEMLocalCodebaseSummary]
   let releases: [CSAiEMResearchReleaseEntry]
   let localChangelogs: [CSAiEMLocalChangelogSummary]
+  let localWorkflows: [CSAiEMLocalWorkflowSummary]
+  let security: CSAiEMResearchSecuritySummary?
   let riskNotes: [String]
   let relationshipNotes: [String]
 
@@ -322,6 +395,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
     localSummaries: [CSAiEMLocalCodebaseSummary] = [],
     releases: [CSAiEMResearchReleaseEntry] = [],
     localChangelogs: [CSAiEMLocalChangelogSummary] = [],
+    localWorkflows: [CSAiEMLocalWorkflowSummary] = [],
+    security: CSAiEMResearchSecuritySummary? = nil,
     capturedAt: Date = Date()
   ) -> Self {
     var risks: [String] = []
@@ -366,6 +441,8 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
       localSummaries: localSummaries.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
       releases: releases,
       localChangelogs: localChangelogs.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
+      localWorkflows: localWorkflows.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
+      security: security,
       riskNotes: risks,
       relationshipNotes: relationships
     )

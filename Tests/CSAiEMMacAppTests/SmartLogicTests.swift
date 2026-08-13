@@ -692,7 +692,52 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.3" })
+  }
+
+  func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-workflow-" + UUID().uuidString)
+    let workflowDirectory = root.appendingPathComponent(".github/workflows")
+    try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+    let workflow = workflowDirectory.appendingPathComponent("build.yml")
+    try """
+    name: CI
+    on:
+      pull_request_target:
+    permissions:
+      contents: read
+    jobs:
+      build:
+        steps:
+          - uses: actions/checkout@v4
+          - run: echo \"${{ secrets.TEST_TOKEN }}\"
+    """.write(to: workflow, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let summaries = CSAiEMLocalWorkflowSummary.scan(paths: [root.path])
+    XCTAssertEqual(summaries.count, 1)
+    XCTAssertEqual(summaries[0].workflowName, "CI")
+    XCTAssertEqual(summaries[0].actionReferences, ["actions/checkout@v4"])
+    XCTAssertTrue(summaries[0].hasPermissionsBlock)
+    XCTAssertTrue(summaries[0].usesPullRequestTarget)
+    XCTAssertTrue(summaries[0].referencesSecrets)
+    XCTAssertFalse(summaries[0].warnings.isEmpty)
+  }
+
+  func testResearchSecuritySummaryKeepsReadBoundaryExplicit() {
+    let summary = CSAiEMResearchSecuritySummary(
+      vulnerabilityAlerts: "permission denied",
+      secretScanningAlerts: "available",
+      codeScanningAlerts: "not enabled or unavailable",
+      workflowCount: 2,
+      localWorkflowCount: 1,
+      localWorkflowWarnings: 2,
+      readBoundary: "Read-only metadata and bounded local workflow text; no secret values, workflow writes, alert dismissal, or administrative changes.",
+      warnings: ["Remote workflow inventory unavailable [permission denied]."]
+    )
+    XCTAssertTrue(summary.summary.contains("2 remote workflows"))
+    XCTAssertTrue(summary.readBoundary.contains("no secret values"))
+    XCTAssertEqual(summary.warnings.count, 1)
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

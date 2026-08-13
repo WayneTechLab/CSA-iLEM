@@ -6670,6 +6670,30 @@ final class CleanupViewModel: ObservableObject {
           }
         let uniqueMatches = Array(Set(matches)).sorted()
         let localSummaries = CSAiEMLocalCodebaseSummary.scan(paths: uniqueMatches)
+        let localWorkflows = CSAiEMLocalWorkflowSummary.scan(paths: uniqueMatches)
+        let remoteWorkflowsResult = Self.runCommand(
+          executable: ghPath,
+          arguments: ["workflow", "list", "--all", "--json", "id,name,path,state", "-R", repo],
+          environment: environment,
+          timeout: 30
+        )
+        let remoteWorkflows = remoteWorkflowsResult.status == 0 ? (Self.decodeJSONArray([WorkflowCatalogEntry].self, from: remoteWorkflowsResult.output) ?? []) : []
+        let vulnerabilityResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/vulnerability-alerts", "--silent"], environment: environment, timeout: 30)
+        let secretScanningResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/secret-scanning/alerts?per_page=1", "--silent"], environment: environment, timeout: 30)
+        let codeScanningResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/code-scanning/alerts?per_page=1", "--silent"], environment: environment, timeout: 30)
+        let security = CSAiEMResearchSecuritySummary(
+          vulnerabilityAlerts: Self.researchAvailabilityLabel(vulnerabilityResult),
+          secretScanningAlerts: Self.researchAvailabilityLabel(secretScanningResult),
+          codeScanningAlerts: Self.researchAvailabilityLabel(codeScanningResult),
+          workflowCount: remoteWorkflows.count,
+          localWorkflowCount: localWorkflows.count,
+          localWorkflowWarnings: localWorkflows.reduce(0) { $0 + $1.warnings.count },
+          readBoundary: "Read-only metadata and bounded local workflow text; no secret values, workflow writes, alert dismissal, or administrative changes.",
+          warnings: [
+            remoteWorkflowsResult.status == 0 ? nil : "Remote workflow inventory unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(remoteWorkflowsResult.status), output: remoteWorkflowsResult.output).title + "].",
+            localWorkflows.count >= 40 ? "Local workflow inventory capped at 40 files." : nil
+          ].compactMap { $0 }
+        )
         let releaseResult = Self.runCommand(
           executable: ghPath,
           arguments: ["release", "list", "--repo", repo, "--limit", "20", "--json", "tagName,name,publishedAt,isDraft,isPrerelease,url"],
@@ -6678,7 +6702,7 @@ final class CleanupViewModel: ObservableObject {
         )
         let releases = releaseResult.status == 0 ? (Self.decodeJSONArray([CSAiEMResearchReleaseEntry].self, from: releaseResult.output) ?? []) : []
         let localChangelogs = CSAiEMLocalChangelogSummary.scan(paths: uniqueMatches)
-        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs)
+        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs, localWorkflows: localWorkflows, security: security)
         let releaseNote = releaseResult.status == 0 ? "" : " Release history was unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(releaseResult.status), output: releaseResult.output).title + "]; local evidence remains available."
         self.researchStatus = "Read-only intelligence snapshot ready for " + repo + ". Review evidence before any import, merge, backup, or cleanup action." + releaseNote
         self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
@@ -8526,6 +8550,18 @@ final class CleanupViewModel: ObservableObject {
       return nil
     }
     return try? JSONDecoder().decode(type, from: data)
+  }
+
+  private nonisolated static func researchAvailabilityLabel(_ result: CommandResult) -> String {
+    if result.status == 0 { return "available" }
+    let outcome = CSAiEMGitHubProviderOutcome.classify(status: Int(result.status), output: result.output)
+    switch outcome {
+    case .permissionDenied: return "permission denied"
+    case .authenticationRequired: return "authentication required"
+    case .notFound: return "not enabled or unavailable"
+    case .timeout: return "timeout"
+    case .failed: return "unavailable"
+    }
   }
 
   private nonisolated static func extractDefaultBranch(_ output: String) -> String {
@@ -17959,9 +17995,9 @@ struct ContentView: View {
           LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
             FixedValueRow(label: "Default branch", value: snapshot.defaultBranch)
             FixedValueRow(label: "Language", value: snapshot.primaryLanguage)
-            FixedValueRow(label: "Issues", value: "(snapshot.issueCount)")
-            FixedValueRow(label: "Pull requests", value: "(snapshot.pullRequestCount)")
-            FixedValueRow(label: "Stars / forks", value: "(snapshot.stars) / (snapshot.forks)")
+            FixedValueRow(label: "Issues", value: String(snapshot.issueCount))
+            FixedValueRow(label: "Pull requests", value: String(snapshot.pullRequestCount))
+            FixedValueRow(label: "Stars / forks", value: String(snapshot.stars) + " / " + String(snapshot.forks))
             FixedValueRow(label: "License", value: snapshot.license)
           }
 
@@ -18064,10 +18100,56 @@ struct ContentView: View {
             }
           }
 
+          if snapshot.localWorkflows.isEmpty == false {
+            FieldLabel(text: "Local workflow surface")
+            ForEach(snapshot.localWorkflows) { workflow in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(workflow.path)
+                  .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.text)
+                  .textSelection(.enabled)
+                Text(workflow.summary)
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                if workflow.actionReferences.isEmpty == false {
+                  Text("Actions: " + workflow.actionReferences.prefix(8).joined(separator: ", ") + (workflow.actionReferences.count > 8 ? "…" : ""))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                if workflow.warnings.isEmpty == false {
+                  Text("Review: " + workflow.warnings.joined(separator: " "))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.warning)
+                }
+              }
+              .padding(10)
+              .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
+            }
+          }
+
+          if let security = snapshot.security {
+            FieldLabel(text: "Security and permission surface")
+            VStack(alignment: .leading, spacing: 5) {
+              Text(security.summary)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.text)
+              Text(security.readBoundary)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+              ForEach(security.warnings, id: \.self) { warning in
+                Text("Review: " + warning)
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.warning)
+              }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
+          }
+
           if snapshot.riskNotes.isEmpty == false {
             FieldLabel(text: "Review flags")
             ForEach(snapshot.riskNotes, id: \.self) { note in
-              Text("• (note)")
+              Text("• " + note)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(DashboardTheme.warning)
             }
@@ -18076,7 +18158,7 @@ struct ContentView: View {
           if snapshot.relationshipNotes.isEmpty == false {
             FieldLabel(text: "Relationship evidence")
             ForEach(snapshot.relationshipNotes, id: \.self) { note in
-              Text("• (note)")
+              Text("• " + note)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(DashboardTheme.muted)
             }

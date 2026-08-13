@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Extended Phase 13.4 research with bounded GitHub Actions workflow inventory,
+  local workflow security-surface flags, and availability-only vulnerability,
+  secret-scanning, and code-scanning outcomes. The surface remains read-only
+  and never reads secret values or performs workflow/security administration.
 - Added the Phase 13.1 Deep Research Workspace slice: a read-only GitHub
   repository intelligence snapshot in the native dashboard. It combines
   bounded `gh repo view` metadata with exact local path matches, highlights
