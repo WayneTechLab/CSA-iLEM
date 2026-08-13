@@ -156,6 +156,9 @@ These areas are close, but not fully finished to the standard the app is aiming 
 - Smart Logic now computes a deterministic review-only lead rank within each
   verified identity group and labels the strongest candidate in the native
   decision panel; the operator still has to confirm the canonical source
+- The native decision panel now also explains when a group-level apply is
+  blocked by shadow, broken-metadata, unknown-owner, same-name, or fatal
+  identity evidence instead of showing lower-risk rows as independently safe.
 - the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `CODEX ~ GPT PORTAL` and `Local Files` now have safer previews, moves, exports, snapshots, and recovery flows, but need more polished cross-platform validation

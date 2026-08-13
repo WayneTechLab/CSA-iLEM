@@ -357,6 +357,9 @@ The current branch has direct evidence for each local milestone gate:
   main state, clean worktree state, branch, and linked/active editor evidence;
   the strongest candidate is labeled in the native decision review without
   bypassing operator confirmation or fail-closed apply gates.
+- group-level review banners now explain why a verified identity group remains
+  blocked when any same-group source has unresolved shadow, metadata, owner,
+  same-name, or fatal identity evidence.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the

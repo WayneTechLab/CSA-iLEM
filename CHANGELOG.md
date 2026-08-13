@@ -15,6 +15,9 @@
   synchronized, linked candidate as the recommended lead and shows lower-ranked
   sources as review candidates; no automatic merge, move, or deletion is
   authorized by the recommendation.
+- Added group-level review banners so a same-identity collision with an
+  unresolved shadow, broken-metadata, unknown-owner, same-name, or fatal
+  identity source explains why automatic apply remains blocked.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.

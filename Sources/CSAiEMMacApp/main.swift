@@ -14231,6 +14231,23 @@ private struct CodexDecisionReviewPanel: View {
   let canonicalSourceByGroup: [String: String]
   let onChooseCanonical: (CodexSmartDecision) -> Void
 
+  private var groupBlockerSummaries: [String] {
+    Dictionary(grouping: decisions, by: \ .groupKey).compactMap { groupKey, groupDecisions in
+      let blockers = groupDecisions.filter { decision in
+        switch decision.classification {
+        case .shadowCopy, .brokenMetadataReview, .unknownOwnerReview, .fatalIdentityConflict, .sameNameReview:
+          return true
+        case .canonical, .mergeCandidate, .unrelated:
+          return false
+        }
+      }
+      guard !blockers.isEmpty, groupDecisions.count > 1 else { return nil }
+      let names = blockers.map { $0.evidence.name }.joined(separator: ", ")
+      return "Group \(groupKey): automatic apply remains blocked by review source(s): \(names). Confirm one lead and resolve or explicitly exclude the remaining source(s)."
+    }
+    .sorted()
+  }
+
   var body: some View {
     PanelCard(
       title: "Smart Logic Decision Review",
@@ -14247,6 +14264,14 @@ private struct CodexDecisionReviewPanel: View {
               .font(.system(size: 10, weight: .medium, design: .monospaced))
               .foregroundStyle(DashboardTheme.muted)
           }
+        }
+
+        ForEach(groupBlockerSummaries, id: \.self) { summary in
+          BannerCard(
+            title: "Identity group requires review",
+            detail: summary,
+            kind: .warning
+          )
         }
 
         if decisions.isEmpty {
