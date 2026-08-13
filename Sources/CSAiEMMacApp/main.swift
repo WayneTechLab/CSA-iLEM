@@ -10968,52 +10968,64 @@ final class CleanupViewModel: ObservableObject {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination appeared during transfer: \(destination)"])
       }
       try fm.moveItem(atPath: stagedProject, toPath: destination)
-      _ = try preserveCodexSourceRecovery(
-        source: project.path,
-        destination: destination,
-        safeName: safeName,
-        stamp: stamp,
-        environment: environment
-      )
+      var parkedSourcePath: String?
+      do {
+        _ = try preserveCodexSourceRecovery(
+          source: project.path,
+          destination: destination,
+          safeName: safeName,
+          stamp: stamp,
+          environment: environment
+        )
 
-      if rearmGitMain {
-        guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
-          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
+        if environment["CSA_IEM_TEST_FAIL_AFTER_DESTINATION_PROMOTION"] == "1" {
+          throw NSError(domain: appTitle, code: 99, userInfo: [NSLocalizedDescriptionKey: "Injected post-promotion failure for rollback verification."])
         }
-        try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
-      }
 
-      var finalVerifyArguments = ["-rcln", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
-      finalVerifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
-      finalVerifyArguments.append(destination + "/")
-      let finalVerify = runCodexRsync(arguments: finalVerifyArguments, environment: copyEnvironment)
-      let finalVerifyOutput = finalVerify.output
-        .split(whereSeparator: \.isNewline)
-        .map(String.init)
-        .filter {
-          !$0.hasSuffix("Transfer_Note.MD") &&
-            !$0.hasSuffix("Prompt_Inject.MD") &&
-            !$0.hasPrefix("skipping non-regular file ")
-        }
-        .joined(separator: "\n")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      guard finalVerify.status == 0, finalVerifyOutput.isEmpty else {
-        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Final verification failed for \(project.name). The source was not removed."])
-      }
-
-      if mode.removesSource {
-        let parkedSource = project.path + ".csa-iem-source-\(stamp)"
-        try fm.moveItem(atPath: project.path, toPath: parkedSource)
-        currentSourcePath = parkedSource
-        if createCompatibilityLink {
-          do {
-            try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
-          } catch {
-            try? fm.moveItem(atPath: parkedSource, toPath: project.path)
-            throw error
+        if rearmGitMain {
+          guard let remoteURL = project.remoteURL, !remoteURL.isEmpty else {
+            throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Git main re-arm requires a detected remote for \(project.name)."])
           }
+          try rearmGitMainAtDestination(destination: destination, remoteURL: remoteURL, environment: environment)
         }
-        warnings.append("The verified source is parked at \(parkedSource) pending receipt-linked Stage 3 cleanup.")
+
+        var finalVerifyArguments = ["-rcln", "--no-owner", "--no-group", "--no-perms", "--timeout=120", "--rsync-path=/usr/bin/rsync", "--delete"] + exclusions
+        finalVerifyArguments.append(project.path.hasSuffix("/") ? project.path : project.path + "/")
+        finalVerifyArguments.append(destination + "/")
+        let finalVerify = runCodexRsync(arguments: finalVerifyArguments, environment: copyEnvironment)
+        let finalVerifyOutput = finalVerify.output
+          .split(whereSeparator: \.isNewline)
+          .map(String.init)
+          .filter {
+            !$0.hasSuffix("Transfer_Note.MD") &&
+              !$0.hasSuffix("Prompt_Inject.MD") &&
+              !$0.hasPrefix("skipping non-regular file ")
+          }
+          .joined(separator: "\n")
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard finalVerify.status == 0, finalVerifyOutput.isEmpty else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Final verification failed for \(project.name). The source was not removed."])
+        }
+
+        if mode.removesSource {
+          let parkedSource = project.path + ".csa-iem-source-\(stamp)"
+          try fm.moveItem(atPath: project.path, toPath: parkedSource)
+          parkedSourcePath = parkedSource
+          currentSourcePath = parkedSource
+          if createCompatibilityLink {
+            do {
+              try fm.createSymbolicLink(atPath: project.path, withDestinationPath: destination)
+            } catch {
+              try? fm.moveItem(atPath: parkedSource, toPath: project.path)
+              parkedSourcePath = nil
+              throw error
+            }
+          }
+          warnings.append("The verified source is parked at \(parkedSource) pending receipt-linked Stage 3 cleanup.")
+        }
+      } catch {
+        try? rollbackCodexPromotion(destination: destination, originalSource: project.path, parkedSource: parkedSourcePath)
+        throw error
       }
     }
 
@@ -11030,6 +11042,22 @@ final class CleanupViewModel: ObservableObject {
       reconciledFileCount: transferPlan.plannedPaths.count,
       conflictCount: 0
     )
+  }
+
+  /// Rolls back a newly promoted destination when a later verification or
+  /// source-retirement step fails. The destination is known to be new in this
+  /// transaction; a parked source is restored before the failure is surfaced.
+  nonisolated static func rollbackCodexPromotion(destination: String, originalSource: String, parkedSource: String?) throws {
+    let fm = FileManager.default
+    if let parkedSource, fm.fileExists(atPath: parkedSource) {
+      if fm.fileExists(atPath: originalSource) || (try? fm.destinationOfSymbolicLink(atPath: originalSource)) != nil {
+        try fm.removeItem(atPath: originalSource)
+      }
+      try fm.moveItem(atPath: parkedSource, toPath: originalSource)
+    }
+    if fm.fileExists(atPath: destination) || (try? fm.destinationOfSymbolicLink(atPath: destination)) != nil {
+      try fm.removeItem(atPath: destination)
+    }
   }
 
   private nonisolated static func performCodexBidirectionalSync(

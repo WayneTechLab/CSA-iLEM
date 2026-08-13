@@ -153,6 +153,30 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(row.contains(record.sourceIndexDigest))
   }
 
+  func testPostPromotionRollbackRestoresParkedSourceAndRemovesNewDestination() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-rollback-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = root.appendingPathComponent("source")
+    let parked = root.appendingPathComponent("source.csa-iem-source-test")
+    let destination = root.appendingPathComponent("destination")
+    try FileManager.default.createDirectory(at: parked, withIntermediateDirectories: true)
+    try Data("source bytes".utf8).write(to: parked.appendingPathComponent("README.md"))
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    try Data("promoted bytes".utf8).write(to: destination.appendingPathComponent("README.md"))
+    try FileManager.default.createSymbolicLink(atPath: original.path, withDestinationPath: destination.path)
+
+    try CleanupViewModel.rollbackCodexPromotion(
+      destination: destination.path,
+      originalSource: original.path,
+      parkedSource: parked.path
+    )
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: original.appendingPathComponent("README.md").path))
+    XCTAssertEqual(try String(contentsOf: original.appendingPathComponent("README.md")), "source bytes")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: parked.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+  }
+
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")

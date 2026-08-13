@@ -71,6 +71,9 @@ These major product areas are built into the app now:
   trees and writes only an isolated preflight report with no apply mutation
 - local GitHub identity-scope smoke now exercises two owner/login bindings and
   a mismatched token response without contacting GitHub or changing gh auth
+- post-promotion transfer rollback now removes a newly promoted destination and
+  restores a parked source if recovery capture, Git re-arm, or final proof
+  fails; a regression fixture covers the parked-source/symlink case
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
@@ -155,7 +158,8 @@ These are the next production-hardening tasks with the best return:
 - replace more Terminal fallback flows with fully native GUI actions
 - add deeper Windows smoke coverage for runner install/service behavior and Docker/devcontainer lifecycle on real Windows 11 hardware
 - add signed release artifacts or an independently distributed checksum to the public installer/update path
-- add a rollback/recovery layer for move/export operations when later steps fail
+- extend rollback/recovery coverage to injected failures across every move,
+  export, restore, and cross-device operation boundary
 - add an end-to-end production smoke suite for:
   - install
   - remote install

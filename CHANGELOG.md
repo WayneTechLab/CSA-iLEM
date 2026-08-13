@@ -22,6 +22,9 @@
 - Added durable SQLite transfer-index records containing source/destination
   artifact digests, option sets, counts, and paths; saved changed-only cache
   reuse now requires a matching catalog record and current artifact digests.
+- Added post-promotion rollback for native project transfers so failures during
+  recovery capture, Git re-arm, or final verification remove the new destination
+  and restore a parked source; added a symlink/parked-source regression test.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.
