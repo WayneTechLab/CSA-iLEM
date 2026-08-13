@@ -17245,10 +17245,13 @@ struct ContentView: View {
 
   @ViewBuilder
   private func codexRouteReceiptBaselineAuditView() -> some View {
-    if !model.codexRouteReceiptBaselineAudit.isEmpty {
-      DisclosureGroup("Baseline decision audit · " + String(model.codexRouteReceiptBaselineAudit.count)) {
+    let auditEvents = Array(model.codexRouteReceiptBaselineAudit.prefix(10))
+    let auditCount = model.codexRouteReceiptBaselineAudit.count
+    let auditTitle = "Baseline decision audit · " + String(auditCount)
+    if auditCount > 0 {
+      DisclosureGroup(auditTitle) {
         VStack(alignment: .leading, spacing: 4) {
-          ForEach(Array(model.codexRouteReceiptBaselineAudit.prefix(10))) { event in
+          ForEach(auditEvents) { event in
             codexRouteReceiptBaselineAuditRow(event)
           }
           if let selected = model.codexSelectedRouteReceiptBaselineAudit {
