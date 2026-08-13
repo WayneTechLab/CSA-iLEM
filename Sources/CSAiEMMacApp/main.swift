@@ -1726,6 +1726,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var issueMutationLabels = ""
   @Published var issueMutationStatus = "Select a loaded issue before preparing a remote update."
   @Published var issueMutationArmed = false
+  private var issueMutationRetryCommands: [String: CSAiEMGitHubIssueCommand] = [:]
   @Published var selectedJobID: String?
   @Published var savedContexts: [SavedGitHubContext] = []
   @Published var favoriteProjects: Set<String> = []
@@ -6427,21 +6428,24 @@ final class CleanupViewModel: ObservableObject {
 
     let arguments = command.arguments + ["--repo", repo]
     let jobID = createJob(kind: "GitHub", title: "Update GitHub issue", target: "\(repo)#\(command.issueNumber)", detail: "Applying a reviewed \(command.mutation.title.lowercased()) action…", initialState: .running)
+    issueMutationRetryCommands[jobID] = command
     issueMutationStatus = "Applying the reviewed \(command.mutation.title.lowercased()) action to \(repo)#\(command.issueNumber)…"
     let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
-      let result = Self.runCommand(executable: ghPath, arguments: arguments, environment: environment)
+      let result = Self.runCommand(executable: ghPath, arguments: arguments, environment: environment, timeout: 60)
       DispatchQueue.main.async {
         self.issueMutationArmed = false
         if result.status == 0 {
           self.issueMutationStatus = "Remote action accepted. Verifying provider state…"
           let verificationArguments = CSAiEMGitHubIssueVerifier.arguments(for: command.issueNumber) + ["--repo", repo]
           DispatchQueue.global(qos: .userInitiated).async {
-            let verification = Self.runCommand(executable: ghPath, arguments: verificationArguments, environment: environment)
+            let verification = Self.runCommand(executable: ghPath, arguments: verificationArguments, environment: environment, timeout: 60)
             DispatchQueue.main.async {
               guard verification.status == 0 else {
-                let detail = "Remote action was accepted, but provider read-back failed: \(redactSensitiveText(verification.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+                let prefix = verification.status == 124 ? "Remote action was accepted, but provider read-back timed out" : "Remote action was accepted, but provider read-back failed"
+                let output = redactSensitiveText(verification.output).trimmingCharacters(in: .whitespacesAndNewlines)
+                let detail = "\(prefix): \(output)"
                 self.issueMutationStatus = detail
                 self.finishJob(id: jobID, state: .failed, detail: detail)
                 self.loadGitHubIssues()
@@ -6467,7 +6471,8 @@ final class CleanupViewModel: ObservableObject {
             }
           }
         } else {
-          self.issueMutationStatus = "GitHub issue action failed: \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+          let prefix = result.status == 124 ? "GitHub issue action timed out" : "GitHub issue action failed"
+          self.issueMutationStatus = "\(prefix): \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
           self.finishJob(id: jobID, state: .failed, detail: self.issueMutationStatus)
         }
       }
@@ -7628,6 +7633,17 @@ final class CleanupViewModel: ObservableObject {
       loadCodespaces()
     case ("GitHub", "Secrets and variables"):
       loadSecretsAndVariables()
+    case ("GitHub", "Update GitHub issue"):
+      guard let command = issueMutationRetryCommands[job.id] else {
+        jobCenterStatus = "This GitHub issue retry has no retained reviewed payload. Prepare the action again from the Issues page."
+        return
+      }
+      selectedIssueNumber = command.issueNumber
+      selectedIssueMutation = command.mutation
+      issueMutationBody = command.body
+      issueMutationLabels = command.labels.joined(separator: ",")
+      issueMutationArmed = false
+      issueMutationStatus = "Retry prepared for issue #\(command.issueNumber). Review the retained payload and arm the remote action again."
     case ("GitHub", "Rules and protection"):
       loadBranchProtectionAndRulesets()
     case ("Local", "Storage insights"):

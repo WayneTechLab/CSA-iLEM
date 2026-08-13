@@ -411,6 +411,14 @@ Current Phase 12.6 slice:
   failed job/incident instead of a false success, while the issue list is
   refreshed for operator review.
 
+Current Phase 12.7 slice:
+- GitHub issue mutations use a bounded 60-second command window and classify
+  timeout exit status separately from ordinary provider rejection;
+- Jobs Center retry retains the exact failed issue mutation payload, restores
+  it into the Issues page, and requires a fresh review and arm before replay;
+- an allowlisted, never-delete provider smoke harness exercises the three
+  retained temporary test repositories without entering the release preflight.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

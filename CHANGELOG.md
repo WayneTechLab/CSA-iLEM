@@ -23,6 +23,10 @@
   back the exact issue through `gh issue view` and verify state, labels, or
   comment presence before marking the job successful; rejected, malformed, or
   mismatched provider responses become visible failed jobs/incidents.
+- Added Phase 12.7 controlled retry and retention coverage. GitHub issue
+  commands now have a 60-second timeout boundary, failed mutation payloads can
+  be restored for review and re-arming from Jobs Center, and an allowlisted
+  never-delete smoke harness covers the three retained temporary test repos.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately

@@ -113,6 +113,7 @@ final class SmartLogicTests: XCTestCase {
     {"state":"OPEN","labels":[],"comments":[{"body":"checkpoint verified"}]}
     """.utf8))
     XCTAssertEqual(try CSAiEMGitHubIssueVerifier.verify(commentedPayload, command: comment).get(), "Comment presence verified.")
+    XCTAssertEqual(CSAiEMGitHubIssueVerifier.arguments(for: 42), ["issue", "view", "42", "--json", "state,labels,comments"])
   }
 
   func testGitHubIssueVerifierFailsWhenProviderStateDoesNotMatch() throws {
@@ -602,7 +603,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
-    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.3" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {
