@@ -6,6 +6,10 @@
   grouping, broken-metadata and shadow-copy classification, deterministic
   advisory boundaries, SQLite session/checkpoint/export persistence, module
   matrix contracts, review semantics, and backup-medium policy labels.
+- Added a bounded native project-tree disclosure to the Local Project Library;
+  Code and Runtime roots now expose an expandable, hidden/build-artifact-aware
+  snapshot on demand without replacing the indexed scan path or requiring
+  Terminal/editor assistance.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.

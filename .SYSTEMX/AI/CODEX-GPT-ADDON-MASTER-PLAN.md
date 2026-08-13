@@ -349,6 +349,9 @@ The current branch has direct evidence for each local milestone gate:
 - live UI: Home, Import, Projects, CODEX ~ GPT PORTAL, and Project Backups
   expose the matrix, status rail, source/output flow, Smart Logic, and index
   state;
+- native project tree: the Local Project Library exposes on-demand expandable
+  Code and Runtime root snapshots with bounded entries and generated-tree
+  exclusions, preserving the fast indexed browse path for normal use.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the

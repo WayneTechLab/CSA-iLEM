@@ -156,7 +156,7 @@ These areas are close, but not fully finished to the standard the app is aiming 
 - the public 3-root workspace model is now the primary path, but broader end-to-end smoke coverage is still needed before calling the migration layer fully hardened
 - `GitHub Account` is now a real admin page, but editing flows are still lighter than the read/inspect surfaces
 - `CODEX ~ GPT PORTAL` and `Local Files` now have safer previews, moves, exports, snapshots, and recovery flows, but need more polished cross-platform validation
-- `Projects` has strong browsing and local operations, but still needs deeper native import and one-by-one management flows
+- `Projects` has strong browsing and local operations, including a bounded native project tree disclosure for Code and Runtime roots; deeper native import and one-by-one management flows remain
 - `Jobs` exists, but not every long-running background action is routed through it yet
 - `Settings` is present, but onboarding and preference explanations can still be cleaner for public users
 
@@ -192,6 +192,9 @@ These are the next production-hardening tasks with the best return:
   metadata, editor shadow copies, multi-account ownership, and Dark Labs
   recovery evidence
 - reduce advanced/legacy wrapper visibility in the public-facing UX
+- extend the native project tree from bounded top-level inspection to indexed
+  file-level evidence only when a user expands a path; avoid full-directory
+  rescans during normal project browsing
 - expand first-run onboarding so a new user can understand `Code`, `Import`, and `Runtime` without knowing the older internal models
 
 ## Future Things

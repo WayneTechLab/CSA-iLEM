@@ -13419,6 +13419,22 @@ struct LocalProjectRow: View {
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
       }
+
+      DisclosureGroup {
+        VStack(alignment: .leading, spacing: 10) {
+          if let codePath = project.codePath {
+            LocalProjectTreeView(title: "Code", path: codePath)
+          }
+          if let runtimePath = project.runtimePath, runtimePath != project.codePath {
+            LocalProjectTreeView(title: "Runtime", path: runtimePath)
+          }
+        }
+        .padding(.top, 4)
+      } label: {
+        Label("Show project tree", systemImage: "list.bullet.indent")
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(DashboardTheme.link)
+      }
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 14)
@@ -13431,6 +13447,111 @@ struct LocalProjectRow: View {
             .stroke(isTargeted ? DashboardTheme.success.opacity(0.55) : DashboardTheme.border, lineWidth: 1)
         )
     )
+  }
+}
+
+private struct LocalProjectTreeView: View {
+  let title: String
+  let path: String
+  @State private var entries: [LocalProjectTreeEntry] = []
+  @State private var isLoading = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        Image(systemName: "folder.fill")
+          .foregroundStyle(DashboardTheme.warning)
+        Text(title)
+          .font(.system(size: 12, weight: .bold, design: .rounded))
+          .foregroundStyle(DashboardTheme.text)
+        Text(path)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.subtle)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
+
+      if isLoading {
+        ProgressView()
+          .controlSize(.small)
+      } else if entries.isEmpty {
+        Text("No readable top-level entries.")
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.subtle)
+      } else {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(entries) { entry in
+            if entry.isDirectory {
+              DisclosureGroup {
+                LocalProjectTreeView(title: entry.name, path: entry.path)
+                  .padding(.leading, 12)
+              } label: {
+                treeEntryLabel(entry)
+              }
+            } else {
+              treeEntryLabel(entry)
+            }
+          }
+        }
+      }
+    }
+    .padding(10)
+    .background(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .fill(DashboardTheme.field.opacity(0.72))
+    )
+    .task(id: path) {
+      await loadEntries()
+    }
+  }
+
+  @ViewBuilder
+  private func treeEntryLabel(_ entry: LocalProjectTreeEntry) -> some View {
+    Label(entry.name, systemImage: entry.isDirectory ? "folder" : "doc")
+      .font(.system(size: 11, weight: .medium, design: .rounded))
+      .foregroundStyle(entry.isDirectory ? DashboardTheme.text : DashboardTheme.muted)
+      .lineLimit(1)
+      .truncationMode(.middle)
+  }
+
+  private func loadEntries() async {
+    guard entries.isEmpty else { return }
+    isLoading = true
+    let loaded = await Task.detached(priority: .utility) {
+      LocalProjectTreeEntry.load(path: path)
+    }.value
+    entries = loaded
+    isLoading = false
+  }
+}
+
+private struct LocalProjectTreeEntry: Identifiable, Hashable, Sendable {
+  let path: String
+  let name: String
+  let isDirectory: Bool
+
+  var id: String { path }
+
+  static func load(path: String) -> [LocalProjectTreeEntry] {
+    let excludedNames: Set<String> = [".git", ".DS_Store", "node_modules", ".build", "dist", "build", "coverage"]
+    let fileManager = FileManager.default
+    guard let names = try? fileManager.contentsOfDirectory(atPath: path) else { return [] }
+    return names
+      .filter { !$0.hasPrefix(".") && !excludedNames.contains($0) }
+      .sorted { lhs, rhs in
+        let lhsURL = URL(fileURLWithPath: path).appendingPathComponent(lhs)
+        let rhsURL = URL(fileURLWithPath: path).appendingPathComponent(rhs)
+        let lhsDirectory = (try? lhsURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        let rhsDirectory = (try? rhsURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        if lhsDirectory != rhsDirectory { return lhsDirectory && !rhsDirectory }
+        return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+      }
+      .prefix(32)
+      .map { name in
+        let childPath = URL(fileURLWithPath: path).appendingPathComponent(name).path
+        let isDirectory = (try? URL(fileURLWithPath: childPath).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        return LocalProjectTreeEntry(path: childPath, name: name, isDirectory: isDirectory)
+      }
   }
 }
 
