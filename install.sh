@@ -32,6 +32,8 @@ FILES=(
   "STATUS.md"
   "SECURITY.md"
   "PROJECT-INFO.md"
+  "Prompt_Inject.MD"
+  "Transfer_Note.MD"
   "SHA256SUMS"
   "Package.swift"
   "install-remote.sh"
@@ -68,9 +70,11 @@ FILES=(
 
 DIRS=(
   ".SYSTEMX"
+  ".devcontainer"
   ".github"
   ".vscode"
   "Sources"
+  "Tests"
   "assets"
   "docs"
 )

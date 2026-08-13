@@ -29,6 +29,9 @@
   lifecycle actions remain fail-closed outside Windows.
 - Promoted the Windows CLI inspection and non-Windows mutation checks into the
   repeatable PowerShell release smoke instead of relying only on manual checks.
+- Fixed remote macOS installs so the installed GUI builder retains all
+  manifest-covered tracked payload roots and can pass its own source checksum
+  verification after installation.
 
 ## 0.8.0
 
