@@ -333,6 +333,12 @@ Current Phase 13.37 slice:
 - never merge imported events into live audit history or use them to activate a
   baseline or authorize an operation.
 
+Current Phase 13.38 slice:
+- retain a bounded local history of imported baseline-audit bundles;
+- provide inspect, remove, and clear controls after app restart;
+- keep history operations isolated from live audit history, SQLite authority,
+  baseline activation, and all transfer or cleanup paths.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

@@ -82,6 +82,7 @@ private let codexSourceFingerprintsFile = (appSupportDir as NSString).appendingP
 private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathComponent("codex-smart-decisions.json")
 private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
 private let codexImportedRouteReceiptHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-route-receipt-history.json")
+private let codexImportedBaselineAuditHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-baseline-audit-history.json")
 private let codexRouteReceiptBaselineDecisionFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-decision.json")
 private let codexRouteReceiptBaselineAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-route-receipt-baseline-audit.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
@@ -1772,6 +1773,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexRouteReceiptBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = []
   @Published var codexSelectedRouteReceiptBaselineAuditID: String?
   @Published var codexImportedBaselineAuditEvents: [CodexRouteReceiptBaselineAuditEvent] = []
+  @Published var codexImportedBaselineAuditHistory: [CodexImportedBaselineAuditRecord] = []
   @Published var codexImportedBaselineAuditStatus = "No external baseline-audit bundle loaded."
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
@@ -2949,6 +2951,11 @@ final class CleanupViewModel: ObservableObject {
       let data = try Data(contentsOf: url)
       let bundle = try JSONDecoder().decode(CodexRouteReceiptBaselineAuditExportBundle.self, from: data)
       codexImportedBaselineAuditEvents = bundle.events
+      let record = CodexImportedBaselineAuditRecord(id: UUID().uuidString, sourceName: url.lastPathComponent, importedAt: Date(), events: bundle.events)
+      codexImportedBaselineAuditHistory.removeAll { $0.sourceName == record.sourceName && $0.events == record.events }
+      codexImportedBaselineAuditHistory.insert(record, at: 0)
+      codexImportedBaselineAuditHistory = Array(codexImportedBaselineAuditHistory.prefix(20))
+      persistCodexImportedBaselineAuditHistory()
       codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s). Live audit history and baseline authority unchanged."
       appendLog("[codex] Read-only baseline audit bundle loaded from " + url.path + "\n")
     } catch {
@@ -2956,6 +2963,27 @@ final class CleanupViewModel: ObservableObject {
       codexImportedBaselineAuditStatus = "Baseline audit import rejected: " + error.localizedDescription
       appendLog("[codex] Baseline audit bundle rejected: " + error.localizedDescription + "\n")
     }
+  }
+
+  func inspectCodexImportedBaselineAuditRecord(_ record: CodexImportedBaselineAuditRecord) {
+    codexImportedBaselineAuditEvents = record.events
+    codexImportedBaselineAuditStatus = "Read-only baseline audit history entry: " + record.sourceName + " · " + String(record.events.count) + " event(s). Live audit history and baseline authority unchanged."
+  }
+
+  func removeCodexImportedBaselineAuditRecord(_ record: CodexImportedBaselineAuditRecord) {
+    codexImportedBaselineAuditHistory.removeAll { $0.id == record.id }
+    persistCodexImportedBaselineAuditHistory()
+    if codexImportedBaselineAuditEvents == record.events {
+      codexImportedBaselineAuditEvents = []
+      codexImportedBaselineAuditStatus = "Imported baseline-audit history entry removed; live audit history was not changed."
+    }
+  }
+
+  func clearCodexImportedBaselineAuditHistory() {
+    codexImportedBaselineAuditHistory = []
+    codexImportedBaselineAuditEvents = []
+    persistCodexImportedBaselineAuditHistory()
+    codexImportedBaselineAuditStatus = "Imported baseline-audit history cleared; live audit history was not changed."
   }
 
   func chooseCodexRouteReceiptBundle() {
@@ -3430,6 +3458,9 @@ final class CleanupViewModel: ObservableObject {
     if let savedRouteReceiptEvidence: [CodexImportedRouteReceiptRecord] = readJSON([CodexImportedRouteReceiptRecord].self, from: codexImportedRouteReceiptHistoryFile) {
       codexImportedRouteReceiptHistory = Array(savedRouteReceiptEvidence.prefix(10))
     }
+    if let savedBaselineAuditEvidence: [CodexImportedBaselineAuditRecord] = readJSON([CodexImportedBaselineAuditRecord].self, from: codexImportedBaselineAuditHistoryFile) {
+      codexImportedBaselineAuditHistory = Array(savedBaselineAuditEvidence.prefix(20))
+    }
     codexRouteReceiptBaselineDecision = readJSON(CodexRouteReceiptBaselineDecision.self, from: codexRouteReceiptBaselineDecisionFile)
     if let savedBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = readJSON([CodexRouteReceiptBaselineAuditEvent].self, from: codexRouteReceiptBaselineAuditFile) {
       codexRouteReceiptBaselineAudit = Array(savedBaselineAudit.prefix(50))
@@ -3570,6 +3601,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexImportedRouteReceiptHistory() {
     writeJSON(Array(codexImportedRouteReceiptHistory.prefix(10)), to: codexImportedRouteReceiptHistoryFile)
+  }
+
+  private func persistCodexImportedBaselineAuditHistory() {
+    writeJSON(Array(codexImportedBaselineAuditHistory.prefix(20)), to: codexImportedBaselineAuditHistoryFile)
   }
 
   private func persistCodexRouteReceiptBaselineDecision() {
@@ -17340,6 +17375,34 @@ struct ContentView: View {
         DisclosureGroup("Imported read-only audit · " + String(importedEvents.count) + " event(s)") {
           ForEach(Array(importedEvents.prefix(20))) { event in
             codexImportedBaselineAuditRow(event)
+          }
+        }
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      }
+      if !model.codexImportedBaselineAuditHistory.isEmpty {
+        DisclosureGroup("Imported audit history · " + String(model.codexImportedBaselineAuditHistory.count)) {
+          VStack(alignment: .leading, spacing: 5) {
+            ForEach(model.codexImportedBaselineAuditHistory) { record in
+              HStack(spacing: 8) {
+                Button(record.sourceName + " · " + String(record.events.count) + " event(s)") {
+                  model.inspectCodexImportedBaselineAuditRecord(record)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(DashboardTheme.text)
+                Spacer()
+                Button("Remove") {
+                  model.removeCodexImportedBaselineAuditRecord(record)
+                }
+                .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+                .controlSize(.mini)
+              }
+            }
+            Button("Clear imported audit history") {
+              model.clearCodexImportedBaselineAuditHistory()
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            .controlSize(.small)
           }
         }
         .font(.system(size: 10, weight: .semibold, design: .rounded))

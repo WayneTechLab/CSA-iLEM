@@ -608,6 +608,13 @@ struct CodexRouteReceiptBaselineAuditExportBundle: Codable, Hashable, Sendable {
   let events: [CodexRouteReceiptBaselineAuditEvent]
 }
 
+struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let sourceName: String
+  let importedAt: Date
+  let events: [CodexRouteReceiptBaselineAuditEvent]
+}
+
 extension CodexSmartLogicEngine {
   static func compareRouteReceipts(
     live: [CodexScanRouteReceipt],

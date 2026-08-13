@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.37 read-only baseline-audit handoff inspection is in progress. The native app now
+Next phase: Phase 13.38 persisted baseline-audit handoff history is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -160,6 +160,10 @@ Phase 13.37 adds a native file-picker path to inspect exported baseline-audit
 JSON bundles. Imported events remain visibly separate from live history and
 cannot replace the current audit, reactivate a baseline, or authorize any
 operation.
+
+Phase 13.38 adds a bounded local history for imported baseline-audit bundles.
+Entries can be inspected, removed, or cleared after restart; these actions only
+change the local handoff cache and never change live audit history or authority.
 not discard available local research evidence.
 
 Long-range product roadmap:

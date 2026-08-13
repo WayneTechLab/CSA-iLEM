@@ -385,6 +385,14 @@ written into the local catalog or live audit history, cannot replace or activate
 the current comparison baseline, and cannot authorize transfer, cleanup,
 deletion, or remote mutation.
 
+## Phase 13.38 imported baseline-audit history
+
+Imported audit bundles are retained in a bounded local history under the CSA-iEM
+Application Support directory. The dashboard provides inspect, remove, and
+clear controls. This history is only a handoff cache: it does not write to the
+live SQLite catalog, merge events into live history, activate a baseline, or
+authorize any operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid
