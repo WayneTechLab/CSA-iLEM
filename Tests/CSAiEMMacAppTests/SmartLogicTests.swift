@@ -483,6 +483,42 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(restored.first?.detail.contains("revoked") == true)
   }
 
+  func testRouteReceiptBaselineAuditExportIsDeterministicAndReadOnly() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-baseline-audit-export-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let newer = CodexRouteReceiptBaselineAuditEvent(
+      id: "event-new",
+      action: .revoked,
+      liveSessionID: "live",
+      importedSessionID: "imported",
+      importedSourceName: "bundle.json",
+      occurredAt: observedDate.addingTimeInterval(10),
+      detail: "revoked, retained as read-only"
+    )
+    let older = CodexRouteReceiptBaselineAuditEvent(
+      id: "event-old",
+      action: .accepted,
+      liveSessionID: "live",
+      importedSessionID: "imported",
+      importedSourceName: "bundle.json",
+      occurredAt: observedDate,
+      detail: "accepted comparison only"
+    )
+    let store = CodexCatalogStore(rootPath: root.path)
+    let paths = try store.exportRouteReceiptBaselineAudit(events: [older, newer])
+    XCTAssertEqual(paths.map { URL(fileURLWithPath: $0).pathExtension }, ["json", "csv"])
+    let bundle = try JSONDecoder().decode(
+      CodexRouteReceiptBaselineAuditExportBundle.self,
+      from: Data(contentsOf: URL(fileURLWithPath: paths[0]))
+    )
+    XCTAssertEqual(bundle.auditVersion, "baseline-audit-v1")
+    XCTAssertEqual(bundle.events.map(\.id), ["event-new", "event-old"])
+    let csv = try String(contentsOfFile: paths[1], encoding: .utf8)
+    XCTAssertTrue(csv.hasPrefix("id,action,live_session_id"))
+    XCTAssertTrue(csv.contains("\"revoked, retained as read-only\""))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: (root.path as NSString).appendingPathComponent(".SYSTEMX/Index/catalog.sqlite")))
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -996,7 +1032,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.8" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.9" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

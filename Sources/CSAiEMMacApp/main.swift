@@ -1764,6 +1764,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonExportStatus = ""
   @Published var codexRouteReceiptExportStatus = ""
+  @Published var codexRouteReceiptBaselineAuditExportStatus = ""
   @Published var codexImportedRouteReceiptBundle: CodexRouteReceiptExportBundle?
   @Published var codexImportedRouteReceiptHistory: [CodexImportedRouteReceiptRecord] = []
   @Published var codexImportedRouteReceiptStatus = "No external route receipt bundle loaded."
@@ -2914,6 +2915,22 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexRouteReceiptExportStatus = "Route receipt export failed: " + error.localizedDescription
       appendLog("[codex] Route receipt export failed: " + error.localizedDescription + "\n")
+    }
+  }
+
+  func exportCodexRouteReceiptBaselineAudit() {
+    guard let store = codexCatalogStore else {
+      codexRouteReceiptBaselineAuditExportStatus = "The local catalog is not available for baseline-audit export."
+      return
+    }
+    do {
+      let paths = try store.exportRouteReceiptBaselineAudit(events: codexRouteReceiptBaselineAudit)
+      let names = paths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
+      codexRouteReceiptBaselineAuditExportStatus = "Baseline audit exported locally: " + names + ". Read-only evidence only; no baseline was activated."
+      codexCatalogStatus = "Catalog saved · baseline audit JSON/CSV evidence ready"
+    } catch {
+      codexRouteReceiptBaselineAuditExportStatus = "Baseline audit export failed: " + error.localizedDescription
+      appendLog("[codex] Baseline audit export failed: " + error.localizedDescription + "\n")
     }
   }
 
@@ -17260,6 +17277,22 @@ struct ContentView: View {
     VStack(alignment: .leading, spacing: 4) {
       ForEach(events) { event in
         codexRouteReceiptBaselineAuditRow(event)
+      }
+      HStack(spacing: 8) {
+        Button("Export audit history") {
+          model.exportCodexRouteReceiptBaselineAudit()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .controlSize(.small)
+        Text("Writes read-only JSON and CSV; it never reactivates a baseline.")
+          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+      if !model.codexRouteReceiptBaselineAuditExportStatus.isEmpty {
+        Text(model.codexRouteReceiptBaselineAuditExportStatus)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.muted)
+          .textSelection(.enabled)
       }
       codexRouteReceiptBaselineAuditSelectionView()
     }

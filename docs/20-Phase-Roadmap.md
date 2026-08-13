@@ -320,6 +320,13 @@ Current Phase 13.35 slice:
 - expose selected event session/source context without reactivating a baseline;
 - make the non-reactivation and execution-authority boundary explicit in the UI.
 
+Current Phase 13.36 slice:
+- export the bounded baseline decision audit as deterministic local JSON and CSV;
+- preserve accepted/revoked events, session IDs, source names, timestamps, and
+  operator detail for handoff without copying project files;
+- keep the export outside baseline activation, SQLite authority, receipt resume,
+  transfer, cleanup, and remote-write paths.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

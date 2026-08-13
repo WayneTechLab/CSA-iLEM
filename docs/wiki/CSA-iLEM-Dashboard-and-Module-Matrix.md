@@ -366,6 +366,16 @@ accepted or revoked event displays its session context and source metadata, but
 does not reactivate it, replace the current baseline, or alter the live catalog.
 The dashboard states this non-reactivation boundary next to the selected event.
 
+## Phase 13.36 baseline-audit export
+
+The baseline decision audit now has an **Export audit history** action. It writes
+`route-receipt-baseline-audit.json` and `.csv` under the local catalog `Exports`
+directory with deterministic newest-first event ordering, accepted/revoked
+actions, live/imported session IDs, source names, timestamps, and operator
+detail. This is portable handoff evidence only: the export does not reactivate
+a baseline, change SQLite authority, affect pending-route selection, copy
+project files, or authorize transfer, cleanup, or remote mutation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

@@ -602,6 +602,12 @@ struct CodexRouteReceiptExportBundle: Codable, Hashable, Sendable {
   let receipts: [CodexScanRouteReceipt]
 }
 
+struct CodexRouteReceiptBaselineAuditExportBundle: Codable, Hashable, Sendable {
+  let exportedAt: Date
+  let auditVersion: String
+  let events: [CodexRouteReceiptBaselineAuditEvent]
+}
+
 extension CodexSmartLogicEngine {
   static func compareRouteReceipts(
     live: [CodexScanRouteReceipt],
@@ -1668,6 +1674,43 @@ final class CodexCatalogStore: @unchecked Sendable {
         String(receipt.attemptCount),
         dateFormatter.string(from: receipt.updatedAt),
         receipt.detail
+      ].map(CodexSmartLogicEngine.csvEscape).joined(separator: ",")
+      csv += row + "\n"
+    }
+    try csv.write(toFile: csvPath, atomically: true, encoding: .utf8)
+    return [jsonPath, csvPath]
+  }
+
+  func exportRouteReceiptBaselineAudit(
+    events: [CodexRouteReceiptBaselineAuditEvent]
+  ) throws -> [String] {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true, attributes: nil)
+    let orderedEvents = events.sorted { lhs, rhs in
+      if lhs.occurredAt != rhs.occurredAt { return lhs.occurredAt > rhs.occurredAt }
+      return lhs.id < rhs.id
+    }
+    let bundle = CodexRouteReceiptBaselineAuditExportBundle(
+      exportedAt: Date(),
+      auditVersion: "baseline-audit-v1",
+      events: orderedEvents
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let jsonPath = (exportDirectory as NSString).appendingPathComponent("route-receipt-baseline-audit.json")
+    let csvPath = (exportDirectory as NSString).appendingPathComponent("route-receipt-baseline-audit.csv")
+    try encoder.encode(bundle).write(to: URL(fileURLWithPath: jsonPath), options: .atomic)
+    let dateFormatter = ISO8601DateFormatter()
+    var csv = "id,action,live_session_id,imported_session_id,imported_source_name,occurred_at,detail\n"
+    for event in orderedEvents {
+      let row = [
+        event.id,
+        event.action.rawValue,
+        event.liveSessionID,
+        event.importedSessionID,
+        event.importedSourceName,
+        dateFormatter.string(from: event.occurredAt),
+        event.detail
       ].map(CodexSmartLogicEngine.csvEscape).joined(separator: ",")
       csv += row + "\n"
     }

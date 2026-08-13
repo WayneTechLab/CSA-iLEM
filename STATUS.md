@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.35 read-only baseline-history inspection is in progress. The native app now
+Next phase: Phase 13.36 portable baseline-audit evidence is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -150,6 +150,11 @@ Routes. It lists matching source paths, route type, current receipt state,
 attempt count, and bounded last detail, with failed routes ordered first. The
 preview uses the same predicate as the action so what the operator sees is what
 the resume operation will select.
+
+Phase 13.36 adds portable baseline-audit JSON/CSV export from the local catalog.
+The export preserves accepted/revoked events, session identifiers, source names,
+timestamps, and bounded operator detail as read-only handoff evidence. It never
+reactivates a baseline, changes the live catalog, or exports project files.
 not discard available local research evidence.
 
 Long-range product roadmap:
