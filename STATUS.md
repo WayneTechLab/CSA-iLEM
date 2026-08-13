@@ -11,11 +11,11 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 12.2 Incident correlation is in progress. Incident records
-now link the originating job to a lifecycle stage, source, destination,
-receipt/checkpoint hints, and a deterministic next action while remaining
-backward-compatible with Phase 12.1 records. GitHub issue creation and
-broader cross-job correlation remain later Phase 12 work.
+Next phase: Phase 12.3 GitHub Issues handoff is in progress. The native app now
+loads issues through the existing `gh` bridge, provides local incident/bug/
+recovery templates, and requires an explicit arm toggle before a reviewed
+draft can invoke `gh issue create`. Provider-side write execution remains an
+operator action; broader cross-job correlation remains later Phase 12 work.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)

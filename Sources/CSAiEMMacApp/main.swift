@@ -60,6 +60,7 @@ private let appSupportDir = NSString(string: "~/Library/Application Support/CSA-
 private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent("last-session.env")
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
 private let incidentsFile = (appSupportDir as NSString).appendingPathComponent("incidents.json")
+private let issueTemplatesFile = (appSupportDir as NSString).appendingPathComponent("issue-templates.json")
 private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
 private let administratorTerminalModeKey = "com.waynetechlab.csa-iem.administrator-terminal-mode"
 private let codexOutputRootKey = "com.waynetechlab.csa-iem.codex-output-root"
@@ -933,6 +934,25 @@ struct SecretRecord: Identifiable, Hashable, Decodable {
   var id: String { name }
 }
 
+struct GitHubIssueEntry: Identifiable, Hashable, Decodable {
+  let number: Int
+  let title: String
+  let state: String
+  let createdAt: String?
+  let updatedAt: String?
+  let url: String?
+
+  var id: Int { number }
+}
+
+struct GitHubIssueTemplate: Identifiable, Hashable, Codable {
+  let id: String
+  var name: String
+  var titlePrefix: String
+  var body: String
+  var labels: String
+}
+
 struct VariableRecord: Identifiable, Hashable, Decodable {
   let name: String
   let updatedAt: String?
@@ -1188,6 +1208,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   case home
   case jobs
   case incidents
+  case issues
   case githubAccount
   case githubBilling
   case imports
@@ -1213,6 +1234,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "Home"
     case .jobs: return "Jobs"
     case .incidents: return "Incidents"
+    case .issues: return "GitHub Issues"
     case .githubAccount: return "GitHub Account"
     case .githubBilling: return "GitHub Billing Reports"
     case .imports: return "Import"
@@ -1241,6 +1263,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Track background operations, progress, status, retries, and logs without opening Terminal."
     case .incidents:
       return "Turn recoverable warnings and fatal blockers into local recovery records and reviewable issue drafts."
+    case .issues:
+      return "Read GitHub issues, compose local templates, and create a reviewed issue only after an explicit arm step."
     case .githubAccount:
       return "Manage the connected GitHub host, account, organizations, and repository inventory from the app."
     case .githubBilling:
@@ -1283,6 +1307,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return "house"
     case .jobs: return "list.bullet.rectangle.portrait"
     case .incidents: return "exclamationmark.bubble"
+    case .issues: return "checklist"
     case .githubAccount: return "person.crop.circle"
     case .githubBilling: return "chart.bar.xaxis"
     case .imports: return "square.and.arrow.down.on.square"
@@ -1308,6 +1333,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .home: return DashboardTheme.accent
     case .jobs: return DashboardTheme.warning
     case .incidents: return DashboardTheme.danger
+    case .issues: return DashboardTheme.warning
     case .githubAccount: return DashboardTheme.link
     case .githubBilling: return DashboardTheme.warning
     case .imports: return DashboardTheme.success
@@ -1336,7 +1362,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .incidents, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .incidents, .issues, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -1352,7 +1378,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .incidents, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .incidents, .issues, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -1669,6 +1695,16 @@ final class CleanupViewModel: ObservableObject {
   @Published var backgroundJobs: [BackgroundJobEntry] = []
   @Published var incidents: [CSAiEMIncident] = []
   @Published var selectedIncidentID: String?
+  @Published var githubIssues: [GitHubIssueEntry] = []
+  @Published var selectedIssueNumber: Int?
+  @Published var issueTemplates: [GitHubIssueTemplate] = []
+  @Published var selectedIssueTemplateID: String?
+  @Published var issueDraftTitle = ""
+  @Published var issueDraftBody = ""
+  @Published var issueDraftLabels = ""
+  @Published var issueStatus = "Load issues for the selected repository."
+  @Published var isLoadingIssues = false
+  @Published var issueWriteArmed = false
   @Published var selectedJobID: String?
   @Published var savedContexts: [SavedGitHubContext] = []
   @Published var favoriteProjects: Set<String> = []
@@ -1773,6 +1809,12 @@ final class CleanupViewModel: ObservableObject {
   init() {
     bootstrap()
   }
+
+  private static let defaultIssueTemplates: [GitHubIssueTemplate] = [
+    GitHubIssueTemplate(id: "incident", name: "Automation incident", titlePrefix: "[CSA-iEM] ", body: "## What happened\n\n## Correlated evidence\n\n## Recovery attempted\n\n## Expected next action\n", labels: "csa-iem,incident"),
+    GitHubIssueTemplate(id: "bug", name: "Bug report", titlePrefix: "Bug: ", body: "## Summary\n\n## Steps to reproduce\n\n## Expected behavior\n\n## Actual behavior\n\n## Environment\n", labels: "bug"),
+    GitHubIssueTemplate(id: "recovery", name: "Recovery task", titlePrefix: "Recovery: ", body: "## Affected project\n\n## Last confirmed checkpoint\n\n## Safe recovery plan\n\n## Validation required\n", labels: "recovery,csa-iem")
+  ]
 
   private var cliRootPath: String? {
     let fm = FileManager.default
@@ -2687,6 +2729,11 @@ final class CleanupViewModel: ObservableObject {
       savedProjectViews = loadedViews
     }
     incidents = CSAiEMIncidentStore.load(from: incidentsFile)
+    if let loadedIssueTemplates: [GitHubIssueTemplate] = readJSON([GitHubIssueTemplate].self, from: issueTemplatesFile), !loadedIssueTemplates.isEmpty {
+      issueTemplates = loadedIssueTemplates
+    } else {
+      issueTemplates = Self.defaultIssueTemplates
+    }
 
     loadSnapshots()
     if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -6266,6 +6313,123 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  var selectedIssue: GitHubIssueEntry? {
+    guard let selectedIssueNumber else { return githubIssues.first }
+    return githubIssues.first(where: { $0.number == selectedIssueNumber }) ?? githubIssues.first
+  }
+
+  var selectedIssueTemplate: GitHubIssueTemplate? {
+    guard let selectedIssueTemplateID else { return issueTemplates.first }
+    return issueTemplates.first(where: { $0.id == selectedIssueTemplateID }) ?? issueTemplates.first
+  }
+
+  func loadGitHubIssues() {
+    guard let ghPath else {
+      issueStatus = "GitHub CLI was not found."
+      return
+    }
+    guard isAuthenticated else {
+      issueStatus = "Log into GitHub CLI first, then load issues."
+      return
+    }
+    guard let repo = primaryRepoSlug, !repo.isEmpty else {
+      issueStatus = "Select or enter a repository before loading issues."
+      return
+    }
+
+    isLoadingIssues = true
+    issueStatus = "Loading issues for \(repo)…"
+    let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(
+        executable: ghPath,
+        arguments: ["issue", "list", "--repo", repo, "--limit", "100", "--state", "all", "--json", "number,title,state,createdAt,updatedAt,url"],
+        environment: environment
+      )
+      DispatchQueue.main.async {
+        self.isLoadingIssues = false
+        guard result.status == 0 else {
+          self.githubIssues = []
+          self.issueStatus = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+          return
+        }
+        do {
+          self.githubIssues = try JSONDecoder().decode([GitHubIssueEntry].self, from: Data(result.output.utf8))
+          self.selectedIssueNumber = self.githubIssues.first?.number
+          self.issueStatus = "Loaded \(self.githubIssues.count) issue(s) for \(repo)."
+        } catch {
+          self.githubIssues = []
+          self.issueStatus = "Could not decode the GitHub issue list: \(error.localizedDescription)"
+        }
+      }
+    }
+  }
+
+  func applySelectedIssueTemplate() {
+    guard let template = selectedIssueTemplate else { return }
+    issueDraftTitle = template.titlePrefix
+    issueDraftBody = template.body
+    issueDraftLabels = template.labels
+    issueWriteArmed = false
+    issueStatus = "Template loaded locally. Review the title and body before arming a remote create."
+  }
+
+  func prepareIssueDraft(for incident: CSAiEMIncident) {
+    selectedIssueTemplateID = "incident"
+    issueDraftTitle = "[CSA-iEM] \(incident.title)"
+    issueDraftBody = CSAiEMIncidentClassifier.redactedIssueDraft(for: incident)
+    issueDraftLabels = "csa-iem,incident"
+    issueWriteArmed = false
+    issueStatus = "Incident draft prepared locally. No GitHub write has occurred."
+  }
+
+  func createGitHubIssueFromDraft() {
+    guard issueWriteArmed else {
+      issueStatus = "Arm the reviewed issue draft before creating a remote issue."
+      return
+    }
+    guard let ghPath, let repo = primaryRepoSlug else {
+      issueStatus = "Select a repository and confirm GitHub CLI availability first."
+      return
+    }
+    guard isAuthenticated else {
+      issueStatus = "GitHub CLI login is required before a remote issue can be created."
+      return
+    }
+    let title = issueDraftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    let body = issueDraftBody.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty, !body.isEmpty else {
+      issueStatus = "Issue title and body are required."
+      return
+    }
+
+    let arguments: [String] = {
+      var values = ["issue", "create", "--repo", repo, "--title", title, "--body", body]
+      if !issueDraftLabels.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        values.append(contentsOf: ["--label", issueDraftLabels])
+      }
+      return values
+    }()
+    let jobID = createJob(kind: "GitHub", title: "Create GitHub issue", target: repo, detail: "Creating a reviewed issue…", initialState: .running)
+    issueStatus = "Creating the reviewed issue for \(repo)…"
+    let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(executable: ghPath, arguments: arguments, environment: environment)
+      DispatchQueue.main.async {
+        if result.status == 0 {
+          self.issueWriteArmed = false
+          self.issueStatus = "Issue created. Review the returned GitHub URL before continuing."
+          self.updateJob(id: jobID, state: .succeeded, detail: redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+          self.issueStatus = "Issue creation failed: \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+          self.finishJob(id: jobID, state: .failed, detail: self.issueStatus)
+        }
+      }
+    }
+  }
+
   func loadRepoHealthForSelectedRepos() {
     let targets = selectedRepos.isEmpty ? (primaryRepoSlug.map { [$0] } ?? []) : Array(selectedRepos).sorted()
     loadRepoHealth(for: targets, label: "selected")
@@ -7971,6 +8135,10 @@ final class CleanupViewModel: ObservableObject {
 
   func copyIncidentDraft(_ incident: CSAiEMIncident) {
     copyToClipboard(CSAiEMIncidentClassifier.redactedIssueDraft(for: incident), label: "incident issue draft")
+  }
+
+  func copyIssueDraft() {
+    copyToClipboard(issueDraftBody, label: "GitHub issue draft")
   }
 
   private func openTerminalCommand(_ command: String) {
@@ -14671,6 +14839,8 @@ struct ContentView: View {
           jobsPage(for: width, usesSidebar: usesSidebar)
         case .incidents:
           incidentsPage(for: width, usesSidebar: usesSidebar)
+        case .issues:
+          issuesPage(for: width, usesSidebar: usesSidebar)
         case .githubAccount:
           githubAccountPage(for: width, usesSidebar: usesSidebar)
         case .githubBilling:
@@ -14793,6 +14963,129 @@ struct ContentView: View {
           incidentDetailPanel
         }
       }
+    }
+  }
+
+  private func issuesPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
+      WorkspaceToolbarStrip(destination: .issues, menuVisible: isMenuVisible, usesSidebar: usesSidebar) {
+        isMenuVisible.toggle()
+      }
+
+      VStack(alignment: .leading, spacing: 18) {
+        PanelCard(title: "GitHub Issues", subtitle: "Read first. Draft locally. Create remotely only after reviewing and arming the exact title, body, repository, and labels.") {
+          BannerCard(title: model.issueStatus, detail: "Remote issue creation is disabled until the reviewed draft is explicitly armed.", kind: model.issueWriteArmed ? .warning : .ready)
+          HStack(spacing: 10) {
+            Button("Load Issues") { model.loadGitHubIssues() }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+              .disabled(model.isLoadingIssues)
+            Button("Open Issues in GitHub") { model.openRepoIssuesPage() }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.link, bordered: true))
+            Button("Copy Draft") { model.copyIssueDraft() }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+              .disabled(model.issueDraftBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          }
+        }
+
+        if width >= 1200 {
+          HStack(alignment: .top, spacing: 18) {
+            issuesListPanel.frame(maxWidth: 520, alignment: .topLeading)
+            issueComposerPanel.frame(maxWidth: .infinity, alignment: .topLeading)
+          }
+        } else {
+          issuesListPanel
+          issueComposerPanel
+        }
+      }
+    }
+  }
+
+  private var issuesListPanel: some View {
+    PanelCard(title: "Remote issue list", subtitle: "Read-only `gh issue list` results for the selected repository.") {
+      if model.githubIssues.isEmpty {
+        Text("No issue results loaded yet.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 10) {
+            ForEach(model.githubIssues) { issue in
+              Button { model.selectedIssueNumber = issue.number } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                  HStack {
+                    Text("#\(issue.number) \(issue.title)")
+                      .font(.system(size: 14, weight: .bold, design: .rounded))
+                      .foregroundStyle(DashboardTheme.text)
+                      .lineLimit(2)
+                    Spacer(minLength: 6)
+                    PillBadge(text: issue.state, tint: issue.state.lowercased() == "open" ? DashboardTheme.success : DashboardTheme.muted)
+                  }
+                  Text([issue.createdAt, issue.updatedAt].compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(model.selectedIssueNumber == issue.number ? DashboardTheme.field : DashboardTheme.panelStrong))
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+        .frame(minHeight: 220, idealHeight: 360, maxHeight: 520)
+      }
+    }
+  }
+
+  private var issueComposerPanel: some View {
+    PanelCard(title: "Local issue composer", subtitle: "Templates and incident drafts stay local until you deliberately arm the remote operation.") {
+      HStack(spacing: 10) {
+        Picker("Template", selection: Binding(get: { model.selectedIssueTemplateID ?? model.issueTemplates.first?.id ?? "" }, set: { model.selectedIssueTemplateID = $0 })) {
+          ForEach(model.issueTemplates) { template in
+            Text(template.name).tag(template.id)
+          }
+        }
+        .pickerStyle(.menu)
+        Button("Load Template") { model.applySelectedIssueTemplate() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        Button("Use Selected Incident") {
+          if let incident = model.selectedIncident { model.prepareIssueDraft(for: incident) }
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+        .disabled(model.selectedIncident == nil)
+      }
+
+      FieldLabel(text: "Title")
+      TextField("Issue title", text: $model.issueDraftTitle)
+        .textFieldStyle(.plain)
+        .foregroundStyle(DashboardTheme.text)
+        .dashboardFieldStyle()
+        .onChange(of: model.issueDraftTitle) { _ in model.issueWriteArmed = false }
+
+      FieldLabel(text: "Labels (comma-separated)")
+      TextField("csa-iem,incident", text: $model.issueDraftLabels)
+        .textFieldStyle(.plain)
+        .foregroundStyle(DashboardTheme.text)
+        .dashboardFieldStyle()
+        .onChange(of: model.issueDraftLabels) { _ in model.issueWriteArmed = false }
+
+      FieldLabel(text: "Body")
+      TextEditor(text: $model.issueDraftBody)
+        .font(.system(size: 12, design: .monospaced))
+        .foregroundStyle(DashboardTheme.text)
+        .frame(minHeight: 280)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(DashboardTheme.field))
+        .onChange(of: model.issueDraftBody) { _ in model.issueWriteArmed = false }
+
+      Toggle("I reviewed the exact repository, title, body, and labels; arm remote create", isOn: $model.issueWriteArmed)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+
+      Button("Create GitHub Issue") { model.createGitHubIssueFromDraft() }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
+        .disabled(!model.issueWriteArmed)
     }
   }
 

@@ -377,6 +377,13 @@ Current Phase 12.2 slice:
 - the dashboard and redacted issue draft expose the correlated evidence while
   keeping credentials and raw prompts outside the ledger.
 
+Current Phase 12.3 slice:
+- native read-only GitHub issue list through the existing `gh` bridge;
+- local incident, bug, and recovery templates;
+- reviewed local title/body/label composer with clipboard handoff;
+- remote `gh issue create` available only after an explicit arm toggle,
+  authenticated context, selected repository, and non-empty reviewed draft.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

@@ -9,6 +9,9 @@
 - Extended the Incident Hub for Phase 12.2 with structured lifecycle-stage,
   source, destination, receipt, checkpoint, and next-action evidence; older
   incident records migrate safely with an unknown-stage fallback.
+- Added the Phase 12.3 native GitHub Issues surface with read-only issue
+  listing, local incident/bug/recovery templates, reviewed clipboard drafts,
+  and an explicit arm/authentication/repository gate before `gh issue create`.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately

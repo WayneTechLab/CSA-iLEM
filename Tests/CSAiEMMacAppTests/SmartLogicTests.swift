@@ -63,6 +63,16 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(evidence.nextAction.contains("checkpoint"))
   }
 
+  func testGitHubIssueEntryDecodesReadOnlyListShape() throws {
+    let issue = try JSONDecoder().decode(GitHubIssueEntry.self, from: Data("""
+    {"number":42,"title":"Broken import","state":"OPEN","createdAt":"2026-08-13T00:00:00Z","updatedAt":"2026-08-13T01:00:00Z","url":"https://github.com/example/repo/issues/42"}
+    """.utf8))
+    XCTAssertEqual(issue.number, 42)
+    XCTAssertEqual(issue.title, "Broken import")
+    XCTAssertEqual(issue.state, "OPEN")
+    XCTAssertEqual(issue.url, "https://github.com/example/repo/issues/42")
+  }
+
   func testVerifiedRemoteVariantsGroupAsMergeCandidates() {
     let first = project(
       path: "/tmp/flowers-main",
