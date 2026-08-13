@@ -415,6 +415,28 @@ enum CodexToolEvidence: String, Codable, CaseIterable, Hashable, Sendable {
   case lmStudio = "LM Studio"
 }
 
+enum CodexToolEvidenceDetector {
+  static func detect(projectPath: String, codexState: CodexIDEProjectState) -> [CodexToolEvidence] {
+    let fileManager = FileManager.default
+    var evidence: Set<CodexToolEvidence> = []
+    if codexState == .active || codexState == .linked {
+      evidence.insert(.codex)
+    }
+
+    let markers: [(CodexToolEvidence, [String])] = [
+      (.visualStudioCode, [".vscode"]),
+      (.claude, [".claude", "CLAUDE.md"]),
+      (.lmStudio, [".lmstudio", "lmstudio.json"])
+    ]
+    for (tool, names) in markers where names.contains(where: { name in
+      fileManager.fileExists(atPath: (projectPath as NSString).appendingPathComponent(name))
+    }) {
+      evidence.insert(tool)
+    }
+    return CodexToolEvidence.allCases.filter { evidence.contains($0) }
+  }
+}
+
 enum CodexGitMainState: Hashable, Sendable {
   case synchronized
   case ahead(Int)
@@ -9551,23 +9573,7 @@ final class CleanupViewModel: ObservableObject {
     projectPath: String,
     codexState: CodexIDEProjectState
   ) -> [CodexToolEvidence] {
-    let fileManager = FileManager.default
-    var evidence: Set<CodexToolEvidence> = []
-    if codexState == .active || codexState == .linked {
-      evidence.insert(.codex)
-    }
-
-    let markers: [(CodexToolEvidence, [String])] = [
-      (.visualStudioCode, [".vscode"]),
-      (.claude, [".claude", "CLAUDE.md"]),
-      (.lmStudio, [".lmstudio", "lmstudio.json"])
-    ]
-    for (tool, names) in markers where names.contains(where: { name in
-      fileManager.fileExists(atPath: (projectPath as NSString).appendingPathComponent(name))
-    }) {
-      evidence.insert(tool)
-    }
-    return CodexToolEvidence.allCases.filter { evidence.contains($0) }
+    CodexToolEvidenceDetector.detect(projectPath: projectPath, codexState: codexState)
   }
 
   private nonisolated static func readCodexDesktopProjectRegistry(

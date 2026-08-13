@@ -412,6 +412,23 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(decision.reasons.contains { $0.contains("do not establish repository identity or write authority") })
   }
 
+  func testToolEvidenceDetectorReadsOnlyBoundedProjectMarkers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-tool-evidence-(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root.appendingPathComponent(".vscode"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: root.appendingPathComponent("lmstudio.json"))
+
+    XCTAssertEqual(
+      CodexToolEvidenceDetector.detect(projectPath: root.path, codexState: .linked),
+      [.codex, .visualStudioCode, .claude, .lmStudio]
+    )
+    XCTAssertEqual(
+      CodexToolEvidenceDetector.detect(projectPath: root.path, codexState: .unavailable),
+      [.visualStudioCode, .claude, .lmStudio]
+    )
+  }
+
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {
     XCTAssertEqual(CodexBackupMedium.rawDirectory.label, "Raw directory snapshot")
     XCTAssertTrue(CodexBackupMedium.rawDirectory.subtitle.contains("without repackaging"))
