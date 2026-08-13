@@ -163,6 +163,49 @@ struct CodexScanSession: Codable, Hashable, Identifiable, Sendable {
   let decisionCount: Int
 }
 
+struct CodexScanTimingEvidence: Codable, Hashable, Sendable {
+  let sessionID: String
+  let discoveryMilliseconds: Int
+  let decisionMilliseconds: Int
+  let totalMilliseconds: Int
+  let discoveredSourceCount: Int
+  let evaluatedSourceCount: Int
+  let reusedSourceCount: Int
+  let changedSourceCount: Int
+  let affectedGroupCount: Int
+}
+
+struct CodexCatalogSessionSummary: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let profile: String
+  let sourceRoots: [String]
+  let createdAt: Date
+  let ruleVersion: String
+  let decisionCount: Int
+
+  var shortID: String { String(id.prefix(8)) }
+}
+
+struct CodexSessionDiffSummary: Codable, Hashable, Sendable {
+  let currentSessionID: String
+  let previousSessionID: String?
+  let addedCount: Int
+  let changedCount: Int
+  let unchangedCount: Int
+  let removedCount: Int
+  let affectedGroupCount: Int
+  let evaluatedSourceCount: Int
+  let reusedSourceCount: Int
+  let timing: CodexScanTimingEvidence
+
+  var headline: String {
+    if previousSessionID == nil {
+      return "Baseline session · evaluated (evaluatedSourceCount) source row(s)"
+    }
+    return "Compared with session (String(previousSessionID!.prefix(8))) · (changedCount + addedCount + removedCount) changed/removed row(s) · (reusedSourceCount) reused"
+  }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -370,7 +413,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.6"
+  static let ruleVersion = "smart-logic-v2.7"
 
   static func sourceFingerprint(_ project: CodexProjectEntry) -> String {
     let latestModification = project.snapshot.latestModification.map { ISO8601DateFormatter().string(from: $0) } ?? ""
@@ -668,7 +711,13 @@ final class CodexCatalogStore: @unchecked Sendable {
   }
 
   @discardableResult
-  func save(session: CodexScanSession, decisions: [CodexSmartDecision], checkpoints: [CodexSessionCheckpoint] = []) throws -> String {
+  func save(
+    session: CodexScanSession,
+    decisions: [CodexSmartDecision],
+    checkpoints: [CodexSessionCheckpoint] = [],
+    deltas: [CodexSourceDelta] = [],
+    timing: CodexScanTimingEvidence? = nil
+  ) throws -> String {
     let fm = FileManager.default
     try fm.createDirectory(atPath: catalogDirectory, withIntermediateDirectories: true, attributes: nil)
     try fm.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true, attributes: nil)
@@ -683,6 +732,12 @@ final class CodexCatalogStore: @unchecked Sendable {
     }
     for checkpoint in checkpoints {
       statements.append("INSERT OR REPLACE INTO session_checkpoints (session_id, source_path, stage, state, updated_at, detail) VALUES (\(quote(checkpoint.sessionID)), \(quote(checkpoint.sourcePath)), \(quote(checkpoint.stage)), \(quote(checkpoint.state)), \(quote(iso(checkpoint.updatedAt))), \(quote(checkpoint.detail))); ")
+    }
+    for delta in deltas {
+      statements.append("INSERT OR REPLACE INTO session_source_deltas (session_id, source_path, kind, previous_fingerprint, current_fingerprint) VALUES (\(quote(session.id)), \(quote(delta.sourcePath)), \(quote(delta.kind.rawValue)), \(quote(delta.previousFingerprint ?? "")), \(quote(delta.currentFingerprint ?? ""))); ")
+    }
+    if let timing {
+      statements.append("INSERT OR REPLACE INTO session_timing (session_id, discovery_ms, decision_ms, total_ms, discovered_count, evaluated_count, reused_count, changed_count, affected_group_count) VALUES (\(quote(timing.sessionID)), \(timing.discoveryMilliseconds), \(timing.decisionMilliseconds), \(timing.totalMilliseconds), \(timing.discoveredSourceCount), \(timing.evaluatedSourceCount), \(timing.reusedSourceCount), \(timing.changedSourceCount), \(timing.affectedGroupCount));")
     }
     statements.append("COMMIT;")
     try runSQL(statements.joined(separator: "\n"))
@@ -743,6 +798,37 @@ final class CodexCatalogStore: @unchecked Sendable {
     let fields = row.split(separator: "|", maxSplits: 2).map(String.init)
     guard fields.count == 3 else { return nil }
     return "\(fields[0])=\(fields[1]) at \(fields[2])"
+  }
+
+  func recentSessions(limit: Int = 5) -> [CodexCatalogSessionSummary] {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return [] }
+    let safeLimit = max(1, min(limit, 20))
+    let sql = "SELECT id || char(9) || profile || char(9) || replace(source_roots, char(10), '␤') || char(9) || created_at || char(9) || rule_version || char(9) || decision_count FROM scan_sessions ORDER BY created_at DESC LIMIT \(safeLimit);"
+    guard let output = runQuery(sql) else { return [] }
+    let formatter = ISO8601DateFormatter()
+    return output.split(whereSeparator: \.isNewline).compactMap { row in
+      let fields = row.split(separator: "\t", maxSplits: 5).map(String.init)
+      guard fields.count == 6,
+            let date = formatter.date(from: fields[3]),
+            let decisionCount = Int(fields[5]) else { return nil }
+      return CodexCatalogSessionSummary(
+        id: fields[0],
+        profile: fields[1],
+        sourceRoots: fields[2].split(separator: "␤").map(String.init),
+        createdAt: date,
+        ruleVersion: fields[4],
+        decisionCount: decisionCount
+      )
+    }
+  }
+
+  func timing(for sessionID: String) -> CodexScanTimingEvidence? {
+    guard FileManager.default.fileExists(atPath: databasePath) else { return nil }
+    let sql = "SELECT discovery_ms || char(9) || decision_ms || char(9) || total_ms || char(9) || discovered_count || char(9) || evaluated_count || char(9) || reused_count || char(9) || changed_count || char(9) || affected_group_count FROM session_timing WHERE session_id=\(quote(sessionID));"
+    guard let row = runQuery(sql)?.split(whereSeparator: \.isNewline).first else { return nil }
+    let fields = row.split(separator: "\t").compactMap { Int($0) }
+    guard fields.count == 8 else { return nil }
+    return CodexScanTimingEvidence(sessionID: sessionID, discoveryMilliseconds: fields[0], decisionMilliseconds: fields[1], totalMilliseconds: fields[2], discoveredSourceCount: fields[3], evaluatedSourceCount: fields[4], reusedSourceCount: fields[5], changedSourceCount: fields[6], affectedGroupCount: fields[7])
   }
 
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {
@@ -832,9 +918,12 @@ final class CodexCatalogStore: @unchecked Sendable {
     CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_path TEXT NOT NULL, group_key TEXT NOT NULL, classification TEXT NOT NULL, confidence REAL NOT NULL, evidence_json TEXT NOT NULL, reasons_json TEXT NOT NULL, destination_path TEXT NOT NULL, rule_version TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS session_checkpoints (session_id TEXT NOT NULL, source_path TEXT NOT NULL, stage TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, detail TEXT NOT NULL, PRIMARY KEY (session_id, source_path, stage));
     CREATE TABLE IF NOT EXISTS scan_index_records (source_path TEXT NOT NULL, destination_path TEXT NOT NULL, source_index_path TEXT NOT NULL, destination_index_path TEXT NOT NULL, options_key TEXT NOT NULL, source_index_digest TEXT NOT NULL, destination_index_digest TEXT NOT NULL, source_file_count INTEGER NOT NULL, source_byte_count INTEGER NOT NULL, captured_at TEXT NOT NULL, PRIMARY KEY (source_path, destination_path, options_key));
+    CREATE TABLE IF NOT EXISTS session_source_deltas (session_id TEXT NOT NULL, source_path TEXT NOT NULL, kind TEXT NOT NULL, previous_fingerprint TEXT NOT NULL, current_fingerprint TEXT NOT NULL, PRIMARY KEY (session_id, source_path));
+    CREATE TABLE IF NOT EXISTS session_timing (session_id TEXT PRIMARY KEY, discovery_ms INTEGER NOT NULL, decision_ms INTEGER NOT NULL, total_ms INTEGER NOT NULL, discovered_count INTEGER NOT NULL, evaluated_count INTEGER NOT NULL, reused_count INTEGER NOT NULL, changed_count INTEGER NOT NULL, affected_group_count INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS decisions_session_idx ON decisions(session_id);
     CREATE INDEX IF NOT EXISTS decisions_group_idx ON decisions(group_key);
     CREATE INDEX IF NOT EXISTS scan_index_records_digest_idx ON scan_index_records(source_index_digest);
+    CREATE INDEX IF NOT EXISTS session_source_deltas_session_idx ON session_source_deltas(session_id);
     """
   }
 }

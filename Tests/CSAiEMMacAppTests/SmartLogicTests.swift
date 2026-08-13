@@ -376,6 +376,24 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.csv").path))
   }
 
+  func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = project(path: "/tmp/session-diff-source", name: "Session Diff", remoteURL: nil, branch: nil, ideState: .unavailable, hasLocalChanges: false, mainState: .noOriginMain)
+    let decision = CodexSmartLogicEngine.evaluate([source]).first!
+    let session = CodexScanSession(id: "session-diff", profile: "fast-index", sourceRoots: ["/tmp/root-a", "/tmp/root-b"], createdAt: observedDate, ruleVersion: CodexSmartLogicEngine.ruleVersion, decisionCount: 1)
+    let delta = CodexSourceDelta(sourcePath: source.path, kind: .unchanged, previousFingerprint: "old", currentFingerprint: "new")
+    let timing = CodexScanTimingEvidence(sessionID: session.id, discoveryMilliseconds: 12, decisionMilliseconds: 4, totalMilliseconds: 16, discoveredSourceCount: 1, evaluatedSourceCount: 0, reusedSourceCount: 1, changedSourceCount: 0, affectedGroupCount: 0)
+
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.save(session: session, decisions: [decision], deltas: [delta], timing: timing)
+    let reopened = CodexCatalogStore(rootPath: root.path)
+
+    XCTAssertEqual(reopened.recentSessions(limit: 1).first?.id, session.id)
+    XCTAssertEqual(reopened.recentSessions(limit: 1).first?.sourceRoots, session.sourceRoots)
+    XCTAssertEqual(reopened.timing(for: session.id), timing)
+  }
+
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -686,7 +704,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.6" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.7" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

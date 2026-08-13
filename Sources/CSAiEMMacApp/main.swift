@@ -1750,6 +1750,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexCanonicalSourceByGroup: [String: String] = [:]
   @Published var codexCatalogStatus = "SQLite catalog will be created on the first decision scan."
   @Published var codexActiveSessionID = ""
+  @Published var codexSessionDiffSummary: CodexSessionDiffSummary?
+  @Published var codexRecentSessions: [CodexCatalogSessionSummary] = []
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
@@ -2585,7 +2587,13 @@ final class CleanupViewModel: ObservableObject {
     codexCatalogStatus = codexCatalogStore?.status ?? "SQLite catalog unavailable"
   }
 
-  private func recordCodexSmartDecisions(_ projects: [CodexProjectEntry], sourceRoots: [String], profile: CodexSmartScanMode) {
+  private func recordCodexSmartDecisions(
+    _ projects: [CodexProjectEntry],
+    sourceRoots: [String],
+    profile: CodexSmartScanMode,
+    discoveryMilliseconds: Int = 0
+  ) {
+    let decisionStartedAt = Date()
     refreshCodexCatalogStore()
     let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
     let previousFingerprints: [String: String] = readJSON([String: String].self, from: codexSourceFingerprintsFile) ?? [:]
@@ -2651,8 +2659,37 @@ final class CleanupViewModel: ObservableObject {
       decisionCount: decisions.count
     )
     codexActiveSessionID = session.id
+    let decisionMilliseconds = max(0, Int(Date().timeIntervalSince(decisionStartedAt) * 1_000))
+    let changedCount = deltas.filter { $0.kind == .changed || $0.kind == .added || $0.kind == .removed }.count
+    let reusedCount = deltas.filter { $0.kind == .unchanged }.count
+    let timing = CodexScanTimingEvidence(
+      sessionID: session.id,
+      discoveryMilliseconds: max(0, discoveryMilliseconds),
+      decisionMilliseconds: decisionMilliseconds,
+      totalMilliseconds: max(0, discoveryMilliseconds) + decisionMilliseconds,
+      discoveredSourceCount: projects.count,
+      evaluatedSourceCount: projectsToEvaluate.count,
+      reusedSourceCount: reusedCount,
+      changedSourceCount: changedCount,
+      affectedGroupCount: changedGroupKeys.count
+    )
     do {
-      _ = try codexCatalogStore?.save(session: session, decisions: decisions)
+      _ = try codexCatalogStore?.save(session: session, decisions: decisions, deltas: deltas, timing: timing)
+      let sessions = codexCatalogStore?.recentSessions(limit: 6) ?? []
+      codexRecentSessions = sessions
+      let previousSessionID = sessions.dropFirst().first?.id
+      codexSessionDiffSummary = CodexSessionDiffSummary(
+        currentSessionID: session.id,
+        previousSessionID: previousSessionID,
+        addedCount: deltas.filter { $0.kind == .added }.count,
+        changedCount: deltas.filter { $0.kind == .changed }.count,
+        unchangedCount: deltas.filter { $0.kind == .unchanged }.count,
+        removedCount: deltas.filter { $0.kind == .removed }.count,
+        affectedGroupCount: changedGroupKeys.count,
+        evaluatedSourceCount: projectsToEvaluate.count,
+        reusedSourceCount: reusedCount,
+        timing: timing
+      )
       codexCatalogStatus = "Catalog saved · session \(session.id.prefix(8)) · JSON/CSV exports ready"
     } catch {
       codexCatalogStatus = "Catalog warning: \(error.localizedDescription)"
@@ -5143,6 +5180,7 @@ final class CleanupViewModel: ObservableObject {
     codexPortalStatus = "Project discovery is running. Selected folders are scanned first and do not depend on a linked Codex project record."
     let environment = baseEnvironment()
     let smartProfile = codexSmartScanMode
+    let scanStartedAt = Date()
 
     processQueue.async { [weak self] in
       var projects = Self.discoverCodexProjects(scanRoots: roots, environment: environment)
@@ -5154,10 +5192,16 @@ final class CleanupViewModel: ObservableObject {
           projects = Self.discoverCodexProjects(scanRoots: fallbackRoots, environment: environment)
         }
       }
+      let discoveryMilliseconds = max(0, Int(Date().timeIntervalSince(scanStartedAt) * 1_000))
       DispatchQueue.main.async {
         guard let self else { return }
         self.codexProjects = projects
-        self.recordCodexSmartDecisions(projects, sourceRoots: roots, profile: smartProfile)
+        self.recordCodexSmartDecisions(
+          projects,
+          sourceRoots: roots,
+          profile: smartProfile,
+          discoveryMilliseconds: discoveryMilliseconds
+        )
         self.selectedCodexProjectPaths = self.selectedCodexProjectPaths.intersection(Set(projects.map(\.path)))
         self.codexTransferPlans.removeAll()
         self.isScanningCodexProjects = false
@@ -16183,6 +16227,37 @@ struct ContentView: View {
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
         .controlSize(.small)
         .disabled(!model.codexReviewAudit.contains { $0.action == "disposition-changed" })
+      }
+
+      if let sessionDiff = model.codexSessionDiffSummary {
+        PanelCard(
+          title: "Indexed session diff",
+          subtitle: "SQLite-backed evidence for what this scan evaluated and what it safely reused."
+        ) {
+          VStack(alignment: .leading, spacing: 7) {
+            Text(sessionDiff.headline)
+              .font(.system(size: 12, weight: .bold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            Text("Added \(sessionDiff.addedCount) · changed \(sessionDiff.changedCount) · unchanged \(sessionDiff.unchangedCount) · removed \(sessionDiff.removedCount) · affected groups \(sessionDiff.affectedGroupCount)")
+              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+            Text("Evaluated \(sessionDiff.evaluatedSourceCount) source row(s) · reused \(sessionDiff.reusedSourceCount) · discovery \(sessionDiff.timing.discoveryMilliseconds) ms · decision \(sessionDiff.timing.decisionMilliseconds) ms · total \(sessionDiff.timing.totalMilliseconds) ms")
+              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+            if !model.codexRecentSessions.isEmpty {
+              DisclosureGroup("Recent catalog sessions · \(model.codexRecentSessions.count)") {
+                ForEach(model.codexRecentSessions) { session in
+                  Text("\(session.shortID) · \(session.profile) · \(session.decisionCount) decisions · \(ISO8601DateFormatter().string(from: session.createdAt))")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DashboardTheme.muted)
+                    .textSelection(.enabled)
+                }
+              }
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            }
+          }
+        }
       }
 
       if !model.codexReviewAudit.isEmpty {

@@ -539,6 +539,16 @@ Current Phase 13.9 slice:
 - the delta path remains advisory and fail-closed: it does not authorize a
   merge, transfer, deletion, or remote write without downstream gates.
 
+Current Phase 13.10 slice:
+- persist source delta classifications and scan timing beside the existing
+  SQLite session and decision rows;
+- show the current-versus-previous session counts, evaluated and reused rows,
+  affected groups, and discovery/decision durations in the dashboard;
+- retain recent session history so a restart can recover the evidence instead
+  of presenting an in-memory-only performance claim;
+- keep timing and session comparison informational; canonical selection,
+  verification, transfer, cleanup, and remote write gates remain unchanged.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

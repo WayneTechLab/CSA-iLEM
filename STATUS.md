@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.9 indexed review recovery is in progress. The native app now
+Next phase: Phase 13.10 session-diff observability is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -64,6 +64,11 @@ actions, plus a persisted source-fingerprint baseline. Subsequent scans report
 added, changed, unchanged, and removed source rows and re-evaluate only the
 affected identity groups while retaining unchanged decision evidence. A delta
 scan never authorizes a transfer, merge, deletion, or remote write by itself.
+Phase 13.10 persists session delta rows and discovery/decision timing in the
+SQLite catalog, compares the current scan with the previous catalog session,
+and exposes evaluated-versus-reused counts and recent session history in the
+dashboard. Timing is evidence of the local scan path, not permission to bypass
+verification or write gates.
 not discard available local research evidence.
 
 Long-range product roadmap:

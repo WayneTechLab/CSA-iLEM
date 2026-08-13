@@ -139,6 +139,16 @@ groups are evaluated again; unchanged decision rows remain retained for the
 current session. This optimization does not bypass canonical selection, Stage
 2 preflight, transfer verification, or any remote write gate.
 
+## Phase 13.10 session-diff observability boundary
+
+The SQLite catalog now retains each scan's source delta rows and timing
+evidence. The dashboard compares the current session with the prior saved
+session and shows added, changed, unchanged, and removed rows, affected groups,
+evaluated-versus-reused sources, and discovery/decision durations. Recent
+session history remains available after restart. These measurements describe
+work avoided by the index; they never authorize a merge, transfer, cleanup,
+deletion, or provider mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
