@@ -2283,6 +2283,12 @@ final class CleanupViewModel: ObservableObject {
     return CodexSmartLogicEngine.scanRouteSummary(codexVisibleEvidenceProvenanceRows)
   }
 
+  var codexEvidenceProfileAssessment: CodexEvidenceProfileAssessment? {
+    guard let routeSummary = codexEvidenceScanRouteSummary,
+          let profile = CodexEvidenceScanProfile(rawValue: codexSmartScanMode.rawValue) else { return nil }
+    return CodexSmartLogicEngine.profileAssessment(profile: profile, routeSummary: routeSummary)
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -16578,6 +16584,10 @@ struct ContentView: View {
                   if let routeSummary = model.codexEvidenceScanRouteSummary {
                     Text("Routing summary · " + routeSummary.headline)
                     Text("Fast path avoids " + String(routeSummary.deepScanAvoidedCount) + " deep scan(s); targeted verification remains operator-controlled.")
+                    if let assessment = model.codexEvidenceProfileAssessment {
+                      Text("Selected profile · " + model.codexSmartScanMode.label + " · " + assessment.headline)
+                        .foregroundStyle(assessment.strongerProfileRecommended ? DashboardTheme.warning : DashboardTheme.muted)
+                    }
                   }
                   ForEach(Array(model.codexVisibleEvidenceProvenanceRows.prefix(12))) { row in
                     let liveKind = row.liveKind?.rawValue.uppercased() ?? "—"

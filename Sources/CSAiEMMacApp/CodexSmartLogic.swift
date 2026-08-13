@@ -393,6 +393,32 @@ struct CodexEvidenceScanRouteSummary: Codable, Hashable, Sendable {
   }
 }
 
+enum CodexEvidenceScanProfile: String, Codable, CaseIterable, Sendable {
+  case fastIndex
+  case verified
+  case yolo
+}
+
+struct CodexEvidenceProfileAssessment: Codable, Hashable, Sendable {
+  let profile: CodexEvidenceScanProfile
+  let targetedRouteCount: Int
+  let strongerProfileRecommended: Bool
+
+  var headline: String {
+    if strongerProfileRecommended {
+      return "Full Verification recommended for (targetedRouteCount) targeted route(s)."
+    }
+    switch profile {
+    case .fastIndex:
+      return "Fast Index is sufficient for the current route summary."
+    case .verified:
+      return "Full Verification matches the current route summary."
+    case .yolo:
+      return "YOLO remains limited to the existing non-destructive safety boundary."
+    }
+  }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -927,6 +953,17 @@ enum CodexSmartLogicEngine {
       metadataTriageCount: rows.filter { $0.scanRoute == .metadataTriage }.count,
       targetedVerificationCount: rows.filter { $0.scanRoute == .targetedVerification }.count,
       noDeepScanCount: rows.filter { $0.scanRoute == .noDeepScan }.count
+    )
+  }
+
+  static func profileAssessment(
+    profile: CodexEvidenceScanProfile,
+    routeSummary: CodexEvidenceScanRouteSummary
+  ) -> CodexEvidenceProfileAssessment {
+    CodexEvidenceProfileAssessment(
+      profile: profile,
+      targetedRouteCount: routeSummary.targetedVerificationCount,
+      strongerProfileRecommended: routeSummary.targetedVerificationCount > 0 && profile != .verified
     )
   }
 

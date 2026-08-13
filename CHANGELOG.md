@@ -13,6 +13,7 @@
 - Added Phase 13.18 actionability labels that distinguish live review, live comparison, and imported-context-only evidence without granting imported rows operation authority.
 - Added Phase 13.19 bounded scan-route guidance: metadata triage, targeted verification, or no deep scan, derived from evidence provenance and transition state without scheduling work automatically.
 - Added Phase 13.20 route summaries showing metadata-triage, targeted-verification, and deep-scan-avoided counts before execution.
+- Added Phase 13.21 scan-profile suitability guidance so Fast Index and YOLO visibly recommend Full Verification when targeted routes remain, without changing the selected profile automatically.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are

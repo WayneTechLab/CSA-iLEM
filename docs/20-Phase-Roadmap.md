@@ -217,6 +217,14 @@ Current Phase 13.20 slice:
 - preserve operator control and the existing merge, transfer, cleanup,
   deletion, and remote-write gates.
 
+Current Phase 13.21 slice:
+- compare the selected Fast Index, Full Verification, or YOLO profile with
+  the route summary;
+- recommend Full Verification when targeted routes remain, while leaving the
+  selected profile and operator decision unchanged;
+- keep the recommendation explanatory and subordinate to existing preflight,
+  final-verification, cleanup, deletion, and remote-write gates.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

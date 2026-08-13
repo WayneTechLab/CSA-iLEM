@@ -491,6 +491,12 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(routeSummary.targetedVerificationCount, 2)
     XCTAssertEqual(routeSummary.noDeepScanCount, 1)
     XCTAssertEqual(routeSummary.deepScanAvoidedCount, 1)
+    let fastAssessment = CodexSmartLogicEngine.profileAssessment(profile: .fastIndex, routeSummary: routeSummary)
+    let verifiedAssessment = CodexSmartLogicEngine.profileAssessment(profile: .verified, routeSummary: routeSummary)
+    let yoloAssessment = CodexSmartLogicEngine.profileAssessment(profile: .yolo, routeSummary: routeSummary)
+    XCTAssertTrue(fastAssessment.strongerProfileRecommended)
+    XCTAssertFalse(verifiedAssessment.strongerProfileRecommended)
+    XCTAssertTrue(yoloAssessment.strongerProfileRecommended)
   }
 
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
@@ -803,13 +809,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.6" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.6" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

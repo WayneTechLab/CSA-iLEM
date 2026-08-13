@@ -231,6 +231,13 @@ fast path measurable without scheduling work. The summary remains evidence
 only and does not grant permission for merge, transfer, cleanup, deletion, or
 remote mutation.
 
+## Phase 13.21 scan-profile suitability
+
+The authority panel compares the selected Fast Index, Full Verification, or
+YOLO profile with the route summary. If targeted routes remain, Fast Index and
+YOLO display a recommendation for Full Verification. The recommendation does
+not switch profiles, schedule work, or override the existing safety gates.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

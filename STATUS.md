@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.20 route summaries are in progress. The native app now
+Next phase: Phase 13.21 scan-profile suitability is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -107,6 +107,10 @@ verification, and no deep scan. This is guidance only; the app does not
 schedule a scan or authorize any mutation from the route label.
 Phase 13.20 summarizes those routes before execution, including the number of
 deep scans avoided. The summary is informational and does not dispatch work.
+Phase 13.21 compares the selected Fast Index, Full Verification, or YOLO
+profile with the route summary and recommends Full Verification when targeted
+routes remain. The recommendation does not change the profile or override
+existing safety gates.
 not discard available local research evidence.
 
 Long-range product roadmap:
