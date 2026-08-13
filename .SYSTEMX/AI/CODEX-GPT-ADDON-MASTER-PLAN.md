@@ -1,6 +1,6 @@
 # CODEX ~ GPT Add-on Master Plan
 
-Status: 0.8.0 local macOS milestone evidence complete on the hardening branch; merge/release approval and future phases remain separately tracked
+Status: 0.8.0 local macOS milestone closed on `main`; future phases remain separately tracked
 Product: CSA-iLEM / CSA-iEM native macOS operator application
 Repository scope: this CSA-iLEM checkout only
 Current baseline: 0.8.0
@@ -463,6 +463,6 @@ The current branch has direct evidence for each local milestone gate:
 - cross-root workspace relocation now has injected later-failure coverage that
   restores existing destinations and keeps all source roots intact.
 
-When these checks are run on the merged `main` commit, the 0.8.0 local
-milestone is closed. Any remaining items belong to the explicitly deferred
-roadmap phases above.
+These checks were rerun on the merged `main` commit and the hosted `main`
+workflow passed for the exact same SHA. The 0.8.0 local milestone is closed.
+Any remaining items belong to the explicitly deferred roadmap phases above.

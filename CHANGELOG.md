@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
+  rerunning the full local release preflight and the hosted native macOS gate
+  against the exact merged commit; deferred roadmap phases remain separately
+  tracked.
 - Repeated Smart Logic identity-group blocker explanations on the native Stage 2 apply surface beside the write-arm control, and normalized the decision-review grouping key path.
 - Disabled native Stage 2 write arming and apply execution while grouped Smart Logic blockers remain unresolved; diagnostic preflight remains available.
 - Added read-only tool-context evidence for linked Codex and project-local VS Code/Copilot, Claude, and LM Studio markers to Smart Logic decisions and the native review panel.

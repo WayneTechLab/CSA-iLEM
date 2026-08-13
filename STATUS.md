@@ -5,13 +5,11 @@ Updated: `2026-08-13`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
-Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone has
-complete local and hosted acceptance evidence on branch
-`agent/csa-iem-0.8-dashboard-hardening`; merge/release approval remains an
-explicit operator decision. Its acceptance evidence is recorded in
-`.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The remaining production gaps
-listed below are post-milestone work, not evidence that the implemented local
-dashboard slice is incomplete.
+Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone is
+closed on `main`. The merged commit has complete local and hosted acceptance
+evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
+remaining production gaps listed below are post-milestone work, not evidence
+that the implemented local dashboard slice is incomplete.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
