@@ -20,7 +20,7 @@ concurrency:
 jobs:
   native-preflight:
     name: Native macOS release gates
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Check out CSA-iLEM
