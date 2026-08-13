@@ -135,8 +135,8 @@ These are the known production gaps or weak spots still open:
 
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
-- the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source
-- destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures
+- the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source; the local manifest contract now has deterministic tamper-rejection coverage
+- destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures; the currently exercised post-promotion, export, snapshot-restore, and cross-root relocation boundaries are covered
 - GitHub admin features have local multi-account binding and mismatch fixtures,
   but have not yet been fully smoke-tested against multiple live organizations
   and intentionally limited token scopes
@@ -169,6 +169,8 @@ These are the next production-hardening tasks with the best return:
 - extend rollback/recovery coverage to injected failures across every move,
   export, restore, and cross-device operation boundary; the native snapshot
   restore and cross-root relocation boundaries are now covered
+- keep the release manifest smoke in the hosted gate and add a separately
+  published trust anchor before calling public distribution signed
 - add an end-to-end production smoke suite for:
   - install
   - remote install

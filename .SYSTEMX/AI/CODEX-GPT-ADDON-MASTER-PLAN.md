@@ -354,6 +354,10 @@ The current branch has direct evidence for each local milestone gate:
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the
   native checks locally and `.github/workflows/csa-ilem-preflight.yml` runs the
   same non-destructive gate on macOS for pushes and pull requests.
+- release-manifest smoke: `.SYSTEMX/scripts/release-manifest-smoke.sh` checks
+  the semantic version and installer payload checksums, then deliberately
+  tampers with a staged installer and proves verification fails closed; this
+  is a local/hosted integrity gate, not a signing or notarization claim.
 - isolated lifecycle smoke: `.SYSTEMX/scripts/install-lifecycle-smoke.sh`
   exercises CLI install, same-version replacement/update, wrapper identity,
   GUI bundle build and signature verification, uninstall, and sentinel

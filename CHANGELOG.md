@@ -9,6 +9,10 @@
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.
+- Added a deterministic release-manifest smoke test that validates the
+  installer payload contract and proves a tampered installer is rejected;
+  signing, notarization, and an independently distributed trust anchor remain
+  explicit follow-up work.
 - Hardened CODEX transfer progress callbacks for the Swift 6 concurrency model
   by making main-actor UI hops explicit instead of relying on legacy dispatch
   inference.
