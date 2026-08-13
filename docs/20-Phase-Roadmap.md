@@ -559,6 +559,16 @@ Current Phase 13.12 slice:
 - keep comparison strictly read-only and independent of canonical selection,
   transfer, cleanup, deletion, and remote mutation gates.
 
+Current Phase 13.13 slice:
+- export the selected current and baseline session comparison as local JSON
+  and CSV evidence files under the catalog's `Exports` directory;
+- retain session IDs, rule-version provenance, fingerprints, classifications,
+  identity groups, and operator-readable transition explanations;
+- make export available directly from the dashboard after a comparison is
+  selected, without opening a terminal or copying project source files;
+- keep the export read-only and independent of canonical selection, transfer,
+  cleanup, deletion, and remote mutation gates.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

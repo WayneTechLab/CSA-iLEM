@@ -254,6 +254,15 @@ struct CodexDecisionComparisonRow: Codable, Hashable, Identifiable, Sendable {
   }
 }
 
+struct CodexComparisonEvidenceBundle: Codable, Hashable, Sendable {
+  let exportedAt: Date
+  let currentSessionID: String
+  let baselineSessionID: String?
+  let currentRuleVersion: String?
+  let baselineRuleVersion: String?
+  let rows: [CodexDecisionComparisonRow]
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -717,6 +726,29 @@ enum CodexSmartLogicEngine {
     }
   }
 
+  static func comparisonCSV(_ rows: [CodexDecisionComparisonRow]) -> String {
+    var output = "source_path,kind,previous_group,current_group,previous_classification,current_classification,previous_fingerprint,current_fingerprint,explanation\n"
+    for row in rows {
+      let values = [
+        row.sourcePath,
+        row.kind.rawValue,
+        row.previousGroupKey ?? "",
+        row.currentGroupKey ?? "",
+        row.previousClassification?.rawValue ?? "",
+        row.currentClassification?.rawValue ?? "",
+        row.previousFingerprint ?? "",
+        row.currentFingerprint ?? "",
+        row.explanation
+      ].map(csvEscape).joined(separator: ",")
+      output += values + "\n"
+    }
+    return output
+  }
+
+  private static func csvEscape(_ value: String) -> String {
+    "\"" + value.replacingOccurrences(of: "\"", with: "\"\"").replacingOccurrences(of: "\n", with: " ") + "\""
+  }
+
   private static func leadScore(_ project: CodexProjectEntry) -> Int {
     var score = 0
     if project.hasGit { score += 100 }
@@ -960,6 +992,35 @@ final class CodexCatalogStore: @unchecked Sendable {
       fingerprints[path] = fields[1]
     }
     return fingerprints
+  }
+
+  func exportComparison(
+    currentSessionID: String,
+    baselineSessionID: String?,
+    rows: [CodexDecisionComparisonRow]
+  ) throws -> [String] {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true, attributes: nil)
+    let sessions = recentSessions(limit: 20)
+    let currentRuleVersion = sessions.first(where: { $0.id == currentSessionID })?.ruleVersion
+    let baselineRuleVersion = baselineSessionID.flatMap { id in sessions.first(where: { $0.id == id })?.ruleVersion }
+    let bundle = CodexComparisonEvidenceBundle(
+      exportedAt: Date(),
+      currentSessionID: currentSessionID,
+      baselineSessionID: baselineSessionID,
+      currentRuleVersion: currentRuleVersion,
+      baselineRuleVersion: baselineRuleVersion,
+      rows: rows
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let baselineStem = baselineSessionID ?? "baseline"
+    let stem = "comparison-\(currentSessionID)-\(baselineStem)"
+    let jsonPath = (exportDirectory as NSString).appendingPathComponent("\(stem).json")
+    let csvPath = (exportDirectory as NSString).appendingPathComponent("\(stem).csv")
+    try encoder.encode(bundle).write(to: URL(fileURLWithPath: jsonPath), options: .atomic)
+    try CodexSmartLogicEngine.comparisonCSV(rows).write(toFile: csvPath, atomically: true, encoding: .utf8)
+    return [jsonPath, csvPath]
   }
 
   private func writeExports(session: CodexScanSession, decisions: [CodexSmartDecision]) throws {

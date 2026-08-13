@@ -1757,6 +1757,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonDeltas: [CodexSourceDelta] = []
   @Published var codexDecisionComparisonRows: [CodexDecisionComparisonRow] = []
   @Published var codexComparisonBaselineSessionID = ""
+  @Published var codexComparisonExportStatus = ""
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
   @Published var activeContainers: [LiveContainerEntry] = []
@@ -2772,6 +2773,25 @@ final class CleanupViewModel: ObservableObject {
     codexComparisonStatus = baselineSessionID.isEmpty
       ? "Compared session \(String(currentSessionID.prefix(8))) with no baseline; all rows are treated as added evidence."
       : "Compared session \(String(currentSessionID.prefix(8))) with baseline \(String(baselineSessionID.prefix(8))) across \(codexDecisionComparisonRows.count) source row(s)."
+  }
+
+  func exportCodexComparisonEvidence() {
+    guard let store = codexCatalogStore, !codexComparisonSessionID.isEmpty else {
+      codexComparisonExportStatus = "Select a saved session before exporting comparison evidence."
+      return
+    }
+    do {
+      let paths = try store.exportComparison(
+        currentSessionID: codexComparisonSessionID,
+        baselineSessionID: codexComparisonBaselineSessionID.isEmpty ? nil : codexComparisonBaselineSessionID,
+        rows: codexVisibleDecisionComparisonRows
+      )
+      codexComparisonExportStatus = "Evidence exported locally: \(paths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", "))"
+      codexCatalogStatus = "Catalog saved · comparison JSON/CSV evidence ready"
+    } catch {
+      codexComparisonExportStatus = "Comparison export failed: \(error.localizedDescription)"
+      appendLog("[codex] Comparison evidence export failed: \(error.localizedDescription)\n")
+    }
   }
 
   func setCodexComparisonGroup(_ groupKey: String) {
@@ -16397,6 +16417,23 @@ struct ContentView: View {
             Text(model.codexComparisonStatus)
               .font(.system(size: 10, weight: .medium, design: .rounded))
               .foregroundStyle(DashboardTheme.muted)
+            HStack(spacing: 8) {
+              Button("Export comparison evidence") {
+                model.exportCodexComparisonEvidence()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+              .controlSize(.small)
+              .disabled(model.codexComparisonSessionID.isEmpty || model.codexVisibleDecisionComparisonRows.isEmpty)
+              Text("Writes read-only JSON and CSV to the local catalog Exports folder.")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+            }
+            if !model.codexComparisonExportStatus.isEmpty {
+              Text(model.codexComparisonExportStatus)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.muted)
+                .textSelection(.enabled)
+            }
             if !model.codexVisibleComparisonDeltas.isEmpty {
               LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(model.codexVisibleComparisonDeltas.prefix(12))) { delta in

@@ -395,6 +395,32 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(reopened.sourceDeltas(for: session.id), [delta])
   }
 
+  func testCatalogStoreExportsPortableComparisonEvidenceWithoutSourceFiles() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-comparison-export-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let row = CodexDecisionComparisonRow(
+      sourcePath: "/tmp/export-source",
+      kind: .changed,
+      previousGroupKey: "name:old",
+      currentGroupKey: "name:new",
+      previousClassification: .shadowCopy,
+      currentClassification: .mergeCandidate,
+      previousFingerprint: "old",
+      currentFingerprint: "new"
+    )
+
+    let store = CodexCatalogStore(rootPath: root.path)
+    let paths = try store.exportComparison(currentSessionID: "current", baselineSessionID: "baseline", rows: [row])
+    XCTAssertEqual(paths.count, 2)
+    XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    let bundle = try JSONDecoder().decode(CodexComparisonEvidenceBundle.self, from: Data(contentsOf: URL(fileURLWithPath: paths[0])))
+    XCTAssertEqual(bundle.currentSessionID, "current")
+    XCTAssertEqual(bundle.baselineSessionID, "baseline")
+    XCTAssertEqual(bundle.rows, [row])
+    XCTAssertTrue(try String(contentsOfFile: paths[1]).contains("/tmp/export-source"))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/export-source"))
+  }
+
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -705,13 +731,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.7" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.8" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.7" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.8" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
@@ -967,6 +993,25 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(rows.first(where: { $0.sourcePath == "/tmp/shadow" })?.kind, .changed)
     XCTAssertTrue(rows.first(where: { $0.sourcePath == "/tmp/shadow" })?.explanation.contains("classification changed") == true)
     XCTAssertTrue(rows.first(where: { $0.sourcePath == "/tmp/lead" })?.explanation.contains("identity group changed") == true)
+  }
+
+  func testDecisionComparisonCSVIsStableAndEscapesEvidenceFields() {
+    let row = CodexDecisionComparisonRow(
+      sourcePath: "/tmp/Flowers, copy",
+      kind: .changed,
+      previousGroupKey: "name:flowers",
+      currentGroupKey: "remote:github.com/example/flowers",
+      previousClassification: .shadowCopy,
+      currentClassification: .mergeCandidate,
+      previousFingerprint: "old",
+      currentFingerprint: "new"
+    )
+
+    let csv = CodexSmartLogicEngine.comparisonCSV([row])
+    XCTAssertTrue(csv.hasPrefix("source_path,kind,previous_group"))
+    XCTAssertTrue(csv.contains("\"/tmp/Flowers, copy\""))
+    XCTAssertTrue(csv.contains("classification changed from Shadow-copy review to Merge candidate"))
+    XCTAssertEqual(csv.split(separator: "\n").count, 2)
   }
 
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {

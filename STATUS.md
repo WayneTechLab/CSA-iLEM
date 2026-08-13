@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.12 cross-session evidence comparison is in progress. The native app now
+Next phase: Phase 13.13 portable session evidence export is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -74,6 +74,12 @@ added, removed, changed, and unchanged sources, identity-group transitions,
 classification transitions, and fingerprint changes with explanations. The
 comparison is read-only evidence and does not alter either session or grant
 write authority.
+Phase 13.13 adds local JSON and CSV evidence exports for the selected current
+and baseline sessions. Exports retain the compared session IDs, Smart Logic
+rule-version provenance, source-level transition rows, fingerprints, and
+operator-readable explanations. Export is read-only and does not copy source
+files, alter catalog sessions, or authorize transfer, cleanup, deletion, or
+remote mutation.
 not discard available local research evidence.
 
 Long-range product roadmap:

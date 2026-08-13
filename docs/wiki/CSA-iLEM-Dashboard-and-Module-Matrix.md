@@ -159,6 +159,16 @@ fingerprint changes. The comparison reads the local SQLite catalog only; it
 does not rewrite sessions, choose a canonical source, or authorize any
 transfer, cleanup, deletion, or remote provider mutation.
 
+## Phase 13.13 portable session evidence boundary
+
+The dashboard can export the selected current and baseline comparison as a
+local JSON and CSV pair under `.SYSTEMX/Index/Exports`. The JSON bundle keeps
+the session IDs, rule-version provenance, and complete transition rows; the
+CSV is convenient for review or handoff. The export contains evidence and
+metadata only: it does not copy project files, rewrite SQLite sessions, select
+a canonical source, or authorize transfer, cleanup, deletion, or remote
+provider mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
