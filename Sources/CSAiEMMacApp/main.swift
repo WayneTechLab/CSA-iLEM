@@ -16909,23 +16909,15 @@ struct ContentView: View {
 
   @ViewBuilder
   private func codexPendingReceiptAuditView() -> some View {
-    if !model.codexPendingRouteReceipts.isEmpty {
-      DisclosureGroup("Resume audit · " + String(model.codexPendingRouteReceipts.count) + " matching source(s)") {
+    let pendingReceipts = model.codexPendingRouteReceipts
+    let pendingCount = pendingReceipts.count
+    if pendingCount > 0 {
+      DisclosureGroup("Resume audit · " + String(pendingCount) + " matching source(s)") {
         VStack(alignment: .leading, spacing: 5) {
-          ForEach(Array(model.codexPendingRouteReceipts.prefix(12))) { receipt in
-            VStack(alignment: .leading, spacing: 2) {
-              Text(receipt.sourcePath)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .textSelection(.enabled)
-              Text(receipt.route.label + " · " + receipt.state.rawValue + " · attempt " + String(receipt.attemptCount))
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(receipt.state == .failed ? DashboardTheme.warning : DashboardTheme.muted)
-              Text(receipt.detail)
-                .font(.system(size: 10, weight: .regular, design: .rounded))
-                .foregroundStyle(DashboardTheme.muted)
-            }
+          ForEach(Array(pendingReceipts.prefix(12))) { receipt in
+            codexPendingReceiptRow(receipt)
           }
-          if model.codexPendingRouteReceipts.count > 12 {
+          if pendingCount > 12 {
             Text("Showing the first 12 pending receipts; the resume action includes all matching pending sources.")
               .font(.system(size: 10, weight: .medium, design: .rounded))
               .foregroundStyle(DashboardTheme.muted)
@@ -16935,6 +16927,20 @@ struct ContentView: View {
       }
       .font(.system(size: 10, weight: .semibold, design: .rounded))
       .foregroundStyle(DashboardTheme.text)
+    }
+  }
+
+  private func codexPendingReceiptRow(_ receipt: CodexScanRouteReceipt) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(receipt.sourcePath)
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .textSelection(.enabled)
+      Text(receipt.route.label + " · " + receipt.state.rawValue + " · attempt " + String(receipt.attemptCount))
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(receipt.state == .failed ? DashboardTheme.warning : DashboardTheme.muted)
+      Text(receipt.detail)
+        .font(.system(size: 10, weight: .regular, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
     }
   }
 
