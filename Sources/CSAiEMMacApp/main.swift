@@ -1766,6 +1766,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexImportedEvidenceStatus = "No external comparison evidence loaded."
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
+  private var codexResumeOriginalSelection: Set<String>?
   @Published var activeContainers: [LiveContainerEntry] = []
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
@@ -2308,6 +2309,16 @@ final class CleanupViewModel: ObservableObject {
     let receipts = codexRouteReceipts
     guard !receipts.isEmpty else { return nil }
     return CodexSmartLogicEngine.routeReceiptSummary(receipts)
+  }
+
+  var codexPendingRoutePaths: Set<String> {
+    Set(codexRouteReceipts.filter { receipt in
+      receipt.state == .planned || receipt.state == .interrupted || receipt.state == .failed
+    }.map(\.sourcePath))
+  }
+
+  var codexPendingRouteCount: Int {
+    codexPendingRoutePaths.intersection(Set(codexProjects.map(\.path))).count
   }
 
   var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
@@ -5618,6 +5629,29 @@ final class CleanupViewModel: ObservableObject {
     runCodexTransfer(runLifecycle: false)
   }
 
+  func resumeCodexPendingRoutes() {
+    guard !isCodexPortalBusy else {
+      codexPortalStatus = "Wait for the current Codex operation to finish before resuming pending routes."
+      return
+    }
+    let availablePaths = Set(codexProjects.map(\.path))
+    let pendingPaths = codexPendingRoutePaths.intersection(availablePaths)
+    guard !pendingPaths.isEmpty else {
+      codexPortalStatus = "No pending route receipts match the currently indexed projects. Run Scan Sources to refresh the local index."
+      return
+    }
+    codexResumeOriginalSelection = selectedCodexProjectPaths
+    selectedCodexProjectPaths = pendingPaths
+    codexPortalStatus = "Resuming (pendingPaths.count) pending route(s) from the persisted receipt set. Completed and skipped routes remain untouched."
+    runCodexTransfer(runLifecycle: false)
+  }
+
+  private func restoreCodexResumeSelection() {
+    guard let original = codexResumeOriginalSelection else { return }
+    selectedCodexProjectPaths = original.intersection(Set(codexProjects.map(\.path)))
+    codexResumeOriginalSelection = nil
+  }
+
   private func prepareCodexLifecycleSelection() -> Bool {
     if codexLifecycleScope == .all {
       guard !codexProjects.isEmpty else {
@@ -5706,6 +5740,7 @@ final class CleanupViewModel: ObservableObject {
       )
     } catch {
       codexPortalStatus = "Preflight failed: \(error.localizedDescription)"
+      restoreCodexResumeSelection()
       return
     }
 
@@ -5945,6 +5980,7 @@ final class CleanupViewModel: ObservableObject {
           self.updateJob(id: jobID, state: .succeeded, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
         }
+        self.restoreCodexResumeSelection()
       }
     }
   }
@@ -16494,6 +16530,19 @@ struct ContentView: View {
           Text("Route receipt · " + receiptSummary.headline + " · persisted in the local SQLite catalog")
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(receiptSummary.pendingCount > 0 ? DashboardTheme.warning : DashboardTheme.muted)
+          if model.codexPendingRouteCount > 0 {
+            Button {
+              model.resumeCodexPendingRoutes()
+            } label: {
+              Label("Resume \(model.codexPendingRouteCount) pending route(s)", systemImage: "arrow.clockwise.circle")
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            .controlSize(.small)
+            .disabled(model.isCodexPortalBusy)
+            Text("Completed and skipped routes remain outside this resume run; the prior project selection is restored afterward.")
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
         }
 
         FieldLabel(text: "Backup Medium")

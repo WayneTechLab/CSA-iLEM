@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.27 persisted Smart Logic route receipts are in progress. The native app now
+Next phase: Phase 13.28 selective resume from route receipts is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -138,6 +138,12 @@ SQLite catalog. Receipts retain planned, skipped, completed, interrupted, and
 failed state plus attempt count and detail. Transfer completion and safe-stop
 paths update the receipts, allowing a restarted session to see pending work
 without treating transient UI state as recovery evidence.
+
+Phase 13.28 adds an explicit Resume Pending Routes action. It selects only
+planned, interrupted, and failed receipts that still match indexed local
+projects, reuses the existing transfer path without starting Full Auto, and
+restores the prior operator selection when the run ends. Completed and skipped
+routes remain outside the resumed operation.
 not discard available local research evidence.
 
 Long-range product roadmap:

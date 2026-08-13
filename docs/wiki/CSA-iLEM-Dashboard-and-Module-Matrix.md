@@ -299,6 +299,15 @@ safe-stop transfer paths update the receipt state. Reopening the catalog restore
 the receipt state and pending count, so the operator can resume from known route
 evidence without treating an interrupted UI session as a completed operation.
 
+## Phase 13.28 selective resume
+
+When pending route receipts exist, the Smart Scan Profile panel exposes **Resume
+pending routes**. The action includes only `planned`, `interrupted`, and `failed`
+receipts that still match currently indexed local projects. Completed and skipped
+receipts are not included. The previous project selection is restored after the
+resume run, and the action uses the ordinary transfer path rather than Full Auto
+or any cleanup-capable lifecycle shortcut.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

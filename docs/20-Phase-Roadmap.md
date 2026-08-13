@@ -270,6 +270,14 @@ Current Phase 13.27 slice:
 - restore route state after catalog restart and expose pending counts without
   relying on transient UI state or forcing a full source rescan.
 
+Current Phase 13.28 slice:
+- provide an explicit Resume Pending Routes action from the persisted receipt
+  summary;
+- select only planned, interrupted, and failed receipts that still match local
+  indexed sources;
+- reuse the existing non-lifecycle transfer path and restore the operator's
+  previous selection after the run.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
