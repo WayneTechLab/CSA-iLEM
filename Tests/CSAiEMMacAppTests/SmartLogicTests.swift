@@ -158,6 +158,43 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(row.contains(record.sourceIndexDigest))
   }
 
+  func testCodexIndexIsDeterministicAndSkipsGeneratedTrees() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-corpus-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(at: root.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: root.appendingPathComponent("node_modules/generated"), withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: root.appendingPathComponent(".build/generated"), withIntermediateDirectories: true)
+
+    for index in 0..<250 {
+      let file = root.appendingPathComponent("Sources/file-\(String(format: "%03d", index)).txt")
+      try Data("fixture-\(index)".utf8).write(to: file)
+    }
+    try Data("must-be-excluded".utf8).write(to: root.appendingPathComponent("node_modules/generated/package.js"))
+    try Data("must-be-excluded".utf8).write(to: root.appendingPathComponent(".build/generated/object.o"))
+
+    let first = try CleanupViewModel.buildCodexFileIndex(
+      root: root.path,
+      includeGit: false,
+      includeFinderMetadata: false,
+      includeDependencies: false
+    )
+    let second = try CleanupViewModel.buildCodexFileIndex(
+      root: root.path,
+      includeGit: false,
+      includeFinderMetadata: false,
+      includeDependencies: false
+    )
+
+    let firstFiles = first.entries.filter { $0.kind == .file }
+    let secondFiles = second.entries.filter { $0.kind == .file }
+    XCTAssertEqual(firstFiles.count, 250)
+    XCTAssertEqual(first.byteCount, second.byteCount)
+    XCTAssertEqual(firstFiles.map(\.relativePath), secondFiles.map(\.relativePath))
+    XCTAssertFalse(first.entries.contains { $0.relativePath.hasPrefix("node_modules/") })
+    XCTAssertFalse(first.entries.contains { $0.relativePath.hasPrefix(".build/") })
+  }
+
   func testPostPromotionRollbackRestoresParkedSourceAndRemovesNewDestination() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-rollback-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }

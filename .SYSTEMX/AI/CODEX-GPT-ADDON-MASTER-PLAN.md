@@ -360,6 +360,9 @@ The current branch has direct evidence for each local milestone gate:
 - group-level review banners now explain why a verified identity group remains
   blocked when any same-group source has unresolved shadow, metadata, owner,
   same-name, or fatal identity evidence.
+- index corpus evidence: the native regression suite scans a 250-file fixture
+  twice, confirms deterministic entries and byte totals, and verifies common
+  generated dependency/build trees are omitted from the indexed evidence.
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the

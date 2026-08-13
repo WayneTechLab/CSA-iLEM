@@ -194,6 +194,10 @@ These are the next production-hardening tasks with the best return:
 - extend changed-only resume coverage with timing and mutation fixtures across
   large multi-source projects; durable catalog-backed cache reuse is now in the
   runtime path but still needs broader performance evidence
+- the native index regression suite now exercises a 250-file corpus twice and
+  proves generated dependency/build trees are skipped and the repeated result
+  is deterministic; large real-world timing and external-volume evidence is
+  still open
 - extend deterministic identity grouping from lead ranking to a grouped
   apply-block explanation when one candidate remains unresolved; current
   collision fixtures correctly fail closed but still need the group-level UI

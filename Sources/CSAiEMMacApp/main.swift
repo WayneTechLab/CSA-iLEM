@@ -10227,7 +10227,7 @@ final class CleanupViewModel: ObservableObject {
     return try? decoder.decode(type, from: data)
   }
 
-  private nonisolated static func buildCodexFileIndex(
+  nonisolated static func buildCodexFileIndex(
     root: String,
     includeGit: Bool,
     includeFinderMetadata: Bool,

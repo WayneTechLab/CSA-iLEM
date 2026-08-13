@@ -18,6 +18,9 @@
 - Added group-level review banners so a same-identity collision with an
   unresolved shadow, broken-metadata, unknown-owner, same-name, or fatal
   identity source explains why automatic apply remains blocked.
+- Added a 250-file native index regression corpus that runs twice, verifies
+  stable file and byte counts, and proves generated dependency/build trees are
+  excluded from the fast index path.
 - Added a non-destructive local/GitHub native release preflight covering tests,
   release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
   repository-boundary checks.
