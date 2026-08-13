@@ -579,6 +579,16 @@ Current Phase 13.14 slice:
 - reject malformed bundles visibly and preserve the authority boundary around
   canonical selection, transfer, cleanup, deletion, and remote mutation.
 
+Current Phase 13.15 slice:
+- retain up to ten imported comparison bundles in the local app profile for
+  restart-safe review and handoff continuity;
+- allow an operator to reopen a retained entry, remove one entry, or clear
+  the entire imported-evidence history;
+- keep the history bounded and separate from the live SQLite catalog,
+  decisions, source files, and all mutation gates;
+- make clear/remove status explicit so operators know exactly what local
+  evidence was removed and what was not affected.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

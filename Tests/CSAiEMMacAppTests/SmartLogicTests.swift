@@ -421,6 +421,21 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/export-source"))
   }
 
+  func testImportedEvidenceRecordRoundTripsForLocalHistory() throws {
+    let bundle = CodexComparisonEvidenceBundle(
+      exportedAt: observedDate,
+      currentSessionID: "current-history",
+      baselineSessionID: "baseline-history",
+      currentRuleVersion: "smart-logic-v2.9",
+      baselineRuleVersion: "smart-logic-v2.8",
+      rows: []
+    )
+    let record = CodexImportedEvidenceRecord(id: "history-1", sourceName: "comparison.json", importedAt: observedDate, bundle: bundle)
+    let restored = try JSONDecoder().decode(CodexImportedEvidenceRecord.self, from: JSONEncoder().encode(record))
+    XCTAssertEqual(restored, record)
+    XCTAssertEqual(restored.bundle.currentSessionID, "current-history")
+  }
+
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -731,13 +746,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.9" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.0" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.9" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.0" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

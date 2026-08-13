@@ -263,6 +263,13 @@ struct CodexComparisonEvidenceBundle: Codable, Hashable, Sendable {
   let rows: [CodexDecisionComparisonRow]
 }
 
+struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let sourceName: String
+  let importedAt: Date
+  let bundle: CodexComparisonEvidenceBundle
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String

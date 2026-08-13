@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.14 read-only evidence inspection is in progress. The native app now
+Next phase: Phase 13.15 imported-evidence history is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -85,6 +85,11 @@ after restart or handoff. The imported bundle is held only as read-only UI
 evidence, with session IDs, rule versions, and transition rows visible. It is
 not merged into SQLite, re-evaluated as a live scan, or used to authorize any
 canonical selection, transfer, cleanup, deletion, or remote mutation.
+Phase 13.15 adds a bounded local history of imported evidence bundles under
+the app's Application Support directory. Operators can reopen a history entry,
+remove one entry, or clear the full imported-evidence history. These controls
+affect only the local evidence cache; the live SQLite catalog and project files
+remain untouched.
 not discard available local research evidence.
 
 Long-range product roadmap:

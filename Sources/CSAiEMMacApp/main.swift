@@ -80,6 +80,7 @@ private let codexReviewDispositionsFile = (appSupportDir as NSString).appendingP
 private let codexReviewAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-review-audit.json")
 private let codexSourceFingerprintsFile = (appSupportDir as NSString).appendingPathComponent("codex-source-fingerprints.json")
 private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathComponent("codex-smart-decisions.json")
+private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
 private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
 private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
@@ -1759,6 +1760,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonExportStatus = ""
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
+  @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexImportedEvidenceStatus = "No external comparison evidence loaded."
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
@@ -2809,13 +2811,38 @@ final class CleanupViewModel: ObservableObject {
       let data = try Data(contentsOf: url)
       let bundle = try JSONDecoder().decode(CodexComparisonEvidenceBundle.self, from: data)
       codexImportedEvidenceBundle = bundle
-      codexImportedEvidenceStatus = "Read-only evidence loaded: (url.lastPathComponent) · (bundle.rows.count) row(s)."
-      appendLog("[codex] Read-only comparison evidence loaded from (url.path)\n")
+      let record = CodexImportedEvidenceRecord(id: UUID().uuidString, sourceName: url.lastPathComponent, importedAt: Date(), bundle: bundle)
+      codexImportedEvidenceHistory.removeAll { $0.sourceName == record.sourceName && $0.bundle.currentSessionID == record.bundle.currentSessionID && $0.bundle.baselineSessionID == record.bundle.baselineSessionID }
+      codexImportedEvidenceHistory.insert(record, at: 0)
+      persistCodexImportedEvidenceHistory()
+      codexImportedEvidenceStatus = "Read-only evidence loaded: " + url.lastPathComponent + " · " + String(bundle.rows.count) + " row(s)."
+      appendLog("[codex] Read-only comparison evidence loaded from " + url.path + "\n")
     } catch {
       codexImportedEvidenceBundle = nil
-      codexImportedEvidenceStatus = "Evidence import rejected: (error.localizedDescription)"
-      appendLog("[codex] Read-only comparison evidence rejected: (error.localizedDescription)\n")
+      codexImportedEvidenceStatus = "Evidence import rejected: " + error.localizedDescription
+      appendLog("[codex] Read-only comparison evidence rejected: " + error.localizedDescription + "\n")
     }
+  }
+
+  func inspectCodexEvidenceRecord(_ record: CodexImportedEvidenceRecord) {
+    codexImportedEvidenceBundle = record.bundle
+    codexImportedEvidenceStatus = "Read-only history entry: " + record.sourceName + " · " + String(record.bundle.rows.count) + " row(s)."
+  }
+
+  func removeCodexEvidenceRecord(_ record: CodexImportedEvidenceRecord) {
+    codexImportedEvidenceHistory.removeAll { $0.id == record.id }
+    if codexImportedEvidenceBundle == record.bundle {
+      codexImportedEvidenceBundle = nil
+      codexImportedEvidenceStatus = "Selected imported evidence cleared; the live catalog was not changed."
+    }
+    persistCodexImportedEvidenceHistory()
+  }
+
+  func clearCodexEvidenceHistory() {
+    codexImportedEvidenceHistory.removeAll()
+    codexImportedEvidenceBundle = nil
+    codexImportedEvidenceStatus = "Imported evidence history cleared; the live catalog was not changed."
+    persistCodexImportedEvidenceHistory()
   }
 
   func setCodexComparisonGroup(_ groupKey: String) {
@@ -3074,6 +3101,9 @@ final class CleanupViewModel: ObservableObject {
     if let savedDecisions: [CodexSmartDecision] = readJSON([CodexSmartDecision].self, from: codexSmartDecisionsFile) {
       codexSmartDecisions = savedDecisions
     }
+    if let savedEvidence: [CodexImportedEvidenceRecord] = readJSON([CodexImportedEvidenceRecord].self, from: codexImportedEvidenceHistoryFile) {
+      codexImportedEvidenceHistory = Array(savedEvidence.prefix(10))
+    }
     let defaults = UserDefaults.standard
     if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
       codexOutputRootDraft = savedOutputRoot
@@ -3202,6 +3232,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexScanRoots() {
     writeJSON(parsedCodexScanRoots(), to: codexScanRootsFile)
+  }
+
+  private func persistCodexImportedEvidenceHistory() {
+    writeJSON(Array(codexImportedEvidenceHistory.prefix(10)), to: codexImportedEvidenceHistoryFile)
   }
 
   private func configureStage2DefaultsIfNeeded() {
@@ -16472,6 +16506,34 @@ struct ContentView: View {
               .font(.system(size: 10, weight: .medium, design: .monospaced))
               .foregroundStyle(DashboardTheme.muted)
               .textSelection(.enabled)
+            if !model.codexImportedEvidenceHistory.isEmpty {
+              DisclosureGroup("Imported evidence history · " + String(model.codexImportedEvidenceHistory.count)) {
+                VStack(alignment: .leading, spacing: 5) {
+                  ForEach(model.codexImportedEvidenceHistory) { record in
+                    HStack(spacing: 8) {
+                      Button(record.sourceName + " · " + String(record.bundle.rows.count) + " row(s)") {
+                        model.inspectCodexEvidenceRecord(record)
+                      }
+                      .buttonStyle(.plain)
+                      .foregroundStyle(DashboardTheme.text)
+                      Spacer()
+                      Button("Remove") {
+                        model.removeCodexEvidenceRecord(record)
+                      }
+                      .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+                      .controlSize(.mini)
+                    }
+                  }
+                  Button("Clear imported evidence history") {
+                    model.clearCodexEvidenceHistory()
+                  }
+                  .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+                  .controlSize(.small)
+                }
+              }
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            }
             if let imported = model.codexImportedEvidenceBundle {
               let importedCurrentSession = String(imported.currentSessionID.prefix(8))
               let importedBaselineSession = imported.baselineSessionID.map { String($0.prefix(8)) } ?? "none"

@@ -179,6 +179,15 @@ catalog, treated as a new scan, or used to authorize canonical selection,
 transfer, cleanup, deletion, or remote provider mutation. Malformed JSON is
 rejected and reported in the dashboard and local log.
 
+## Phase 13.15 imported-evidence history boundary
+
+Successfully decoded comparison bundles are retained in a bounded local
+history under the CSA-iEM Application Support directory. The dashboard can
+reopen an entry, remove one entry, or clear the history. This cache stores
+evidence for operator review only; it does not populate SQLite, become a live
+scan baseline, alter project files, or authorize canonical selection, transfer,
+cleanup, deletion, or remote provider mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
