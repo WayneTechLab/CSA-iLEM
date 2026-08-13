@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Repeated Smart Logic identity-group blocker explanations on the native Stage 2 apply surface beside the write-arm control, and normalized the decision-review grouping key path.
+
 ## 0.8.0
 
 - Added the native Swift regression target covering Smart Logic identity

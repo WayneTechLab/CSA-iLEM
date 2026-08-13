@@ -1991,6 +1991,24 @@ final class CleanupViewModel: ObservableObject {
     return "\(discoveredCount) Stage 1 project(s) found · \(stage2SelectedProjects.count) selected · managed root \(normalizeWorkspacePath(stage2ManagedRootDraft))"
   }
 
+  var codexStage2GroupBlockerSummaries: [String] {
+    Dictionary(grouping: codexSmartDecisions, by: \.groupKey).compactMap { groupKey, groupDecisions in
+      let blockers = groupDecisions.filter { decision in
+        switch decision.classification {
+        case .shadowCopy, .brokenMetadataReview, .unknownOwnerReview, .fatalIdentityConflict, .sameNameReview:
+          return true
+        case .canonical, .mergeCandidate, .unrelated:
+          return false
+        }
+      }
+      guard !blockers.isEmpty, groupDecisions.count > 1 else { return nil }
+      let names = blockers.map { $0.evidence.name }.sorted().joined(separator: ", ")
+      let selectedLead = codexCanonicalSourceByGroup[groupKey].map { " Canonical source selected: \($0)." } ?? " No canonical source has been selected."
+      return "Group \(groupKey) is blocked for Stage 2 apply by review source(s): \(names).\(selectedLead) Resolve or explicitly exclude every unresolved source before arming workspace writes."
+    }
+    .sorted()
+  }
+
   var areAllVisibleCodexProjectsSelected: Bool {
     !filteredCodexProjects.isEmpty && filteredCodexProjects.allSatisfy { selectedCodexProjectPaths.contains($0.path) }
   }
@@ -14236,7 +14254,7 @@ private struct CodexDecisionReviewPanel: View {
   let onChooseCanonical: (CodexSmartDecision) -> Void
 
   private var groupBlockerSummaries: [String] {
-    Dictionary(grouping: decisions, by: \ .groupKey).compactMap { groupKey, groupDecisions in
+    Dictionary(grouping: decisions, by: \.groupKey).compactMap { groupKey, groupDecisions in
       let blockers = groupDecisions.filter { decision in
         switch decision.classification {
         case .shadowCopy, .brokenMetadataReview, .unknownOwnerReview, .fatalIdentityConflict, .sameNameReview:
@@ -15534,6 +15552,14 @@ struct ContentView: View {
         detail: model.stage2Status,
         kind: model.stage2SafetyArmed ? .warning : .ready
       )
+
+      ForEach(model.codexStage2GroupBlockerSummaries, id: \.self) { summary in
+        BannerCard(
+          title: "Stage 2 apply blocked: identity group requires review",
+          detail: summary,
+          kind: .warning
+        )
+      }
 
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
         Button {

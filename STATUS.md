@@ -206,9 +206,10 @@ These are the next production-hardening tasks with the best return:
   reopen, and the native Smart Index status reports that checkpoint so an
   interrupted or resumed session is visible without rebuilding its index
 - extend deterministic identity grouping from lead ranking to a grouped
-  apply-block explanation when one candidate remains unresolved; current
-  collision fixtures correctly fail closed but still need the group-level UI
-  explanation wired through every Stage 2 surface
+  apply-block explanation when one candidate remains unresolved; the native
+  decision-review card and Stage 2 apply surface now repeat the same
+  fail-closed explanation, while legacy shell/report surfaces remain to be
+  audited for equivalent wording
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - extend the native project tree from bounded top-level inspection to indexed
   file-level evidence only when a user expands a path; avoid full-directory
