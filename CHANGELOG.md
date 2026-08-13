@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added the Phase 13.1 Deep Research Workspace slice: a read-only GitHub
+  repository intelligence snapshot in the native dashboard. It combines
+  bounded `gh repo view` metadata with exact local path matches, highlights
+  archived/forked/duplicate-looking evidence, records the operation in Jobs,
+  and never promotes a source or authorizes a write.
 - Started Phase 12.1 Incident Hub with a local persisted ledger, automatic
   failed/cancelled-job records, fatal-versus-recoverable classification,
   redacted issue drafts, retry-originating-job, resolve, and retention

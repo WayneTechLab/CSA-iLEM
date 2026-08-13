@@ -144,6 +144,39 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(decoded.summary.contains("2 attempts"))
   }
 
+  func testResearchSnapshotBuildsConservativeMetadataAndRelationshipNotes() throws {
+    let metadata = try JSONDecoder().decode(CSAiEMResearchRepositoryMetadata.self, from: Data("""
+    {
+      "nameWithOwner":"WayneTechLab/Flowers-Field-Guide",
+      "description":"A retained test guide",
+      "defaultBranchRef":{"name":"main"},
+      "isArchived":false,
+      "isFork":true,
+      "homepageUrl":null,
+      "licenseInfo":{"key":"mit","name":"MIT License"},
+      "primaryLanguage":{"name":"JavaScript"},
+      "repositoryTopics":["flowers","test"],
+      "pushedAt":"2026-08-11T07:57:53Z",
+      "updatedAt":"2026-08-11T07:58:10Z",
+      "createdAt":"2026-08-11T07:54:02Z",
+      "stargazerCount":0,
+      "forkCount":1,
+      "issues":{"totalCount":1},
+      "pullRequests":{"totalCount":2}
+    }
+    """.utf8))
+
+    let snapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: ["/tmp/flowers-main", "/tmp/flowers-copy"], capturedAt: observedDate)
+    XCTAssertEqual(snapshot.repository, "WayneTechLab/Flowers-Field-Guide")
+    XCTAssertEqual(snapshot.defaultBranch, "main")
+    XCTAssertEqual(snapshot.primaryLanguage, "JavaScript")
+    XCTAssertEqual(snapshot.topics, ["flowers", "test"])
+    XCTAssertEqual(snapshot.localMatches.count, 2)
+    XCTAssertTrue(snapshot.riskNotes.contains { $0.contains("Multiple local paths") })
+    XCTAssertTrue(snapshot.relationshipNotes.contains { $0.contains("does not select a canonical") })
+    XCTAssertTrue(snapshot.summary.contains("2 local path matches"))
+  }
+
   func testIncidentClustersGroupSameSourceStageAndDestination() {
     let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
     let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
@@ -612,7 +645,7 @@ final class SmartLogicTests: XCTestCase {
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")
-    XCTAssertEqual(catalog.count, 17)
+    XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" })
@@ -621,6 +654,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.0" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

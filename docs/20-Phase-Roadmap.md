@@ -429,6 +429,16 @@ Current Phase 12.8 slice:
   denied, not-found, timeout, or generic failure so operators can choose the
   correct recovery path without changing active credentials.
 
+Current Phase 13.1 slice:
+- the GitHub account dashboard provides a read-only Repository Intelligence
+  Snapshot for one selected repository using bounded `gh repo view` metadata;
+- the snapshot combines provider metadata with exact local project path
+  matches, and reports conservative risk and relationship notes for archived,
+  forked, incomplete, or duplicate-looking evidence;
+- the snapshot never chooses a canonical source, authorizes a merge, or
+  triggers a backup, cleanup, or remote write, and its result is recorded in
+  the Jobs Center for retry and audit context.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

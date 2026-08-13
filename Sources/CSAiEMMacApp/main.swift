@@ -1736,6 +1736,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var taskTemplates: [ProjectTaskTemplate] = []
   @Published var snapshots: [SnapshotEntry] = []
   @Published var repoHealthEntries: [RepoHealthEntry] = []
+  @Published var researchSnapshot: CSAiEMResearchSnapshot?
   @Published var workflows: [WorkflowCatalogEntry] = []
   @Published var workflowRuns: [WorkflowRunEntry] = []
   @Published var codespaces: [CodespaceInventoryEntry] = []
@@ -1776,6 +1777,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var settingsStatus = "Use the settings page to control onboarding, saved contexts, and advanced GUI defaults."
   @Published var jobCenterStatus = "Background jobs will appear here as the app runs local and GitHub operations."
   @Published var repoHealthStatus = "Load repository health to inspect workflow state, local runner coverage, run activity, and cost risk."
+  @Published var researchStatus = "Select one repository to build a read-only intelligence snapshot."
   @Published var workflowStatus = "Select a repository target to inspect workflows, runs, and GitHub Actions administration details."
   @Published var codespacesStatus = "Load Codespaces after selecting a repository target."
   @Published var secretsStatus = "Load secrets and variables for the selected repository or owner."
@@ -1804,6 +1806,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var isLoadingGitHubAccountDetails = false
   @Published var isRunningLocalFileOperation = false
   @Published var isLoadingRepoHealth = false
+  @Published var isLoadingResearchSnapshot = false
   @Published var isLoadingWorkflowData = false
   @Published var isLoadingCodespaces = false
   @Published var isLoadingSecretsData = false
@@ -6621,6 +6624,57 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func loadResearchSnapshot() {
+    guard let ghPath else {
+      researchStatus = "GitHub CLI was not found."
+      return
+    }
+    guard let repo = primaryRepoSlug, !repo.isEmpty else {
+      researchStatus = "Select one repository before building an intelligence snapshot."
+      return
+    }
+
+    isLoadingResearchSnapshot = true
+    researchStatus = "Building a read-only metadata snapshot for (repo)…"
+    let localProjects = self.localProjects
+    let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
+    let jobID = createJob(kind: "Research", title: "Repository intelligence snapshot", target: repo, detail: "Reading repository metadata…", initialState: .running)
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(
+        executable: ghPath,
+        arguments: [
+          "repo", "view", repo, "--json",
+          "nameWithOwner,description,defaultBranchRef,isArchived,isFork,homepageUrl,licenseInfo,primaryLanguage,repositoryTopics,pushedAt,updatedAt,createdAt,stargazerCount,forkCount,issues,pullRequests"
+        ],
+        environment: environment,
+        timeout: 30
+      )
+
+      DispatchQueue.main.async {
+        self.isLoadingResearchSnapshot = false
+        guard result.status == 0,
+              let metadata = Self.decodeJSONArray(CSAiEMResearchRepositoryMetadata.self, from: result.output) else {
+          let outcome = CSAiEMGitHubProviderOutcome.classify(status: Int(result.status), output: result.output)
+          let detail = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+          self.researchStatus = "Snapshot failed [" + outcome.title + "]: " + (detail.isEmpty ? "GitHub returned no detail." : detail)
+          self.finishJob(id: jobID, state: .failed, detail: self.researchStatus)
+          return
+        }
+
+        let matches = localProjects
+          .filter { $0.slug.caseInsensitiveCompare(repo) == .orderedSame }
+          .flatMap { project in
+            [project.codePath, project.runtimePath].compactMap { $0 }
+          }
+        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: Array(Set(matches)))
+        self.researchStatus = "Read-only intelligence snapshot ready for (repo). Review evidence before any import, merge, backup, or cleanup action."
+        self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
+      }
+    }
+  }
+
   func loadWorkflowCatalog() {
     guard let ghPath else {
       workflowStatus = "GitHub CLI was not found."
@@ -7672,6 +7726,8 @@ final class CleanupViewModel: ObservableObject {
       } else {
         loadRepoHealthForSelectedRepos()
       }
+    case ("Research", "Repository intelligence snapshot"):
+      loadResearchSnapshot()
     case ("GitHub", "Workflow catalog"):
       loadWorkflowCatalog()
     case ("GitHub", "Workflow runs"):
@@ -8306,6 +8362,11 @@ final class CleanupViewModel: ObservableObject {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(value, forType: .string)
     appendLog("[gui] Copied \(label) to clipboard.\n")
+  }
+
+  func copyResearchSnapshotSummary() {
+    guard let snapshot = researchSnapshot else { return }
+    copyToClipboard(snapshot.summary, label: "research snapshot summary")
   }
 
   func copyIncidentDraft(_ incident: CSAiEMIncident) {
@@ -16666,6 +16727,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 18) {
               githubAccountInsightsPanel
               repositoryPanel
+              researchSnapshotPanel
               repoHealthPanel
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -16675,6 +16737,7 @@ struct ContentView: View {
           contextsPanel
           githubAccountInsightsPanel
           repositoryPanel
+          researchSnapshotPanel
           repoHealthPanel
         }
 
@@ -17840,6 +17903,95 @@ struct ContentView: View {
         }
       }
       .frame(minHeight: 160, idealHeight: 240, maxHeight: 320)
+    }
+  }
+
+  private var researchSnapshotPanel: some View {
+    PanelCard(title: "Repository Intelligence Snapshot", subtitle: "Read-only metadata-first research for one selected repository. It provides evidence and review prompts; it never selects a canonical source or authorizes a write.") {
+      HStack(spacing: 10) {
+        Button(model.isLoadingResearchSnapshot ? "Scanning…" : "Build Snapshot") {
+          model.loadResearchSnapshot()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: false))
+        .disabled(model.isLoadingResearchSnapshot || !model.isAuthenticated)
+
+        if model.researchSnapshot != nil {
+          Button("Copy Summary") {
+            model.copyResearchSnapshotSummary()
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        }
+      }
+
+      BannerCard(
+        title: model.researchSnapshot == nil ? "Snapshot not loaded" : "Snapshot ready",
+        detail: model.researchStatus,
+        kind: model.researchSnapshot == nil ? .warning : .ready
+      )
+
+      if let snapshot = model.researchSnapshot {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack {
+            Text(snapshot.repository)
+              .font(.system(size: 15, weight: .bold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            Spacer(minLength: 8)
+            if snapshot.isArchived { PillBadge(text: "ARCHIVED", tint: DashboardTheme.warning) }
+            if snapshot.isFork { PillBadge(text: "FORK", tint: DashboardTheme.deepBlue) }
+          }
+
+          Text(snapshot.description.isEmpty ? "No repository description." : snapshot.description)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(DashboardTheme.muted)
+            .lineLimit(3)
+
+          LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            FixedValueRow(label: "Default branch", value: snapshot.defaultBranch)
+            FixedValueRow(label: "Language", value: snapshot.primaryLanguage)
+            FixedValueRow(label: "Issues", value: "(snapshot.issueCount)")
+            FixedValueRow(label: "Pull requests", value: "(snapshot.pullRequestCount)")
+            FixedValueRow(label: "Stars / forks", value: "(snapshot.stars) / (snapshot.forks)")
+            FixedValueRow(label: "License", value: snapshot.license)
+          }
+
+          if snapshot.topics.isEmpty == false {
+            FieldLabel(text: "Topics")
+            Text(snapshot.topics.joined(separator: " · "))
+              .font(.system(size: 12, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+
+          if snapshot.localMatches.isEmpty == false {
+            FieldLabel(text: "Local path evidence")
+            ForEach(snapshot.localMatches, id: \.self) { path in
+              Text(path)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.muted)
+                .textSelection(.enabled)
+            }
+          }
+
+          if snapshot.riskNotes.isEmpty == false {
+            FieldLabel(text: "Review flags")
+            ForEach(snapshot.riskNotes, id: \.self) { note in
+              Text("• (note)")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.warning)
+            }
+          }
+
+          if snapshot.relationshipNotes.isEmpty == false {
+            FieldLabel(text: "Relationship evidence")
+            ForEach(snapshot.relationshipNotes, id: \.self) { note in
+              Text("• (note)")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+            }
+          }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(DashboardTheme.panelStrong))
+      }
     }
   }
 

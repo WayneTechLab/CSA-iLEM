@@ -76,6 +76,21 @@ the exact action again, but the operator must review and re-arm it. Provider
 errors are categorized as authentication-required, permission-denied,
 not-found, timeout, or generic failure.
 
+## Repository intelligence snapshot
+
+The GitHub account dashboard includes a read-only Repository Intelligence
+Snapshot for one selected repository. It uses a bounded `gh repo view` call to
+collect provider metadata, then compares the repository slug with exact local
+project identities already present in the workspace model. The result shows
+branch, language, license, activity, issue/PR counts, local path evidence, and
+conservative review flags for archived, forked, incomplete, or duplicate-looking
+evidence.
+
+The snapshot is evidence only. It does not choose a canonical source, merge
+folders, start a backup, perform cleanup, or authorize a GitHub write. The
+operation is recorded in Jobs so a failed read can be retried without silently
+expanding scope.
+
 ## Install and update invariant
 
 The installer reads `VERSION`, builds one `CSA-iEM.app`, replaces the target
