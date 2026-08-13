@@ -28,6 +28,9 @@
 - Added a 250-file native index regression corpus that runs twice, verifies
   stable file and byte counts, and proves generated dependency/build trees are
   excluded from the fast index path.
+- Added a 60-project / 720-file aggregate index corpus proving project-level
+  coverage and generated-tree exclusion without claiming real external-volume
+  timing equivalence.
 - Refined grouped Smart Logic classification so a clean, synchronized,
   unlinked same-remote copy is explicitly treated as a shadow-copy review
   candidate, with regression coverage for the group-level apply block.

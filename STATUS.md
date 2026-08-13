@@ -200,7 +200,8 @@ These are the next production-hardening tasks with the best return:
   runtime path but still needs broader performance evidence
 - the native index regression suite now exercises a 250-file corpus twice and
   proves generated dependency/build trees are skipped and the repeated result
-  is deterministic; large real-world timing and external-volume evidence is
+  is deterministic, and a 60-project / 720-file corpus verifies aggregate
+  project coverage; large real-world timing and external-volume evidence is
   still open
 - the SQLite catalog now exposes the latest persisted session checkpoint after
   reopen, and the native Smart Index status reports that checkpoint so an

@@ -370,8 +370,9 @@ The current branch has direct evidence for each local milestone gate:
   decision and shown in the review panel; these markers never establish
   repository identity or write authority.
 - index corpus evidence: the native regression suite scans a 250-file fixture
-  twice, confirms deterministic entries and byte totals, and verifies common
-  generated dependency/build trees are omitted from the indexed evidence.
+  twice and a 60-project / 720-file fixture, confirms deterministic entries
+  and byte totals, and verifies common generated dependency/build trees are
+  omitted from the indexed evidence.
 - grouped shadow evidence: a clean, synchronized, unlinked same-remote copy
   is classified as `shadowCopy` when other sources share its identity, making
   the editor/tool shadow state visible to the group-level fail-closed review.

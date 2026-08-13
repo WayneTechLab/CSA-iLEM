@@ -249,6 +249,41 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(first.entries.contains { $0.relativePath.hasPrefix(".build/") })
   }
 
+  func testCodexIndexCoversSixtyProjectCorpusAndSkipsGeneratedTrees() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-sixty-project-corpus-(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fileManager = FileManager.default
+
+    for projectIndex in 0..<60 {
+      let projectLabel = String(format: "project-%02d", projectIndex)
+      let projectRoot = root.appendingPathComponent(projectLabel)
+      let sourceRoot = projectRoot.appendingPathComponent("Sources")
+      try fileManager.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+      for fileIndex in 0..<12 {
+        let fileName = String(format: "file-%02d.txt", fileIndex)
+        let file = sourceRoot.appendingPathComponent(fileName)
+        let contents = "project-" + String(projectIndex) + "-file-" + String(fileIndex)
+        try Data(contents.utf8).write(to: file)
+      }
+      try fileManager.createDirectory(at: projectRoot.appendingPathComponent("node_modules/generated"), withIntermediateDirectories: true)
+      try Data("generated".utf8).write(to: projectRoot.appendingPathComponent("node_modules/generated/index.js"))
+    }
+
+    let snapshot = try CleanupViewModel.buildCodexFileIndex(
+      root: root.path,
+      includeGit: false,
+      includeFinderMetadata: false,
+      includeDependencies: false
+    )
+    let files = snapshot.entries.filter { $0.kind == .file }
+
+    XCTAssertEqual(files.count, 60 * 12)
+    let expectedProjects = Set((0..<60).map { String(format: "project-%02d", $0) })
+    XCTAssertEqual(Set(files.compactMap { $0.relativePath.split(separator: "/").first.map(String.init) }), expectedProjects)
+    XCTAssertFalse(files.contains { $0.relativePath.contains("node_modules/") })
+    XCTAssertGreaterThan(snapshot.byteCount, 0)
+  }
+
   func testPostPromotionRollbackRestoresParkedSourceAndRemovesNewDestination() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-rollback-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
