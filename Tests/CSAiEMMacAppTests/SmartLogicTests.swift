@@ -39,6 +39,30 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(CSAiEMIncidentStore.load(from: path), [incident])
   }
 
+  func testIncidentEvidenceCorrelatesStageAndCheckpointHints() {
+    let job = BackgroundJobEntry(
+      id: "job-correlated",
+      kind: "Recovery",
+      title: "Stage 2 reconciliation",
+      target: "Flowers",
+      detail: "source: /Users/alice/Import/Flowers, destination: /Users/alice/Code/Flowers, receipt: receipt-42, checkpoint: session-7/index",
+      progressText: "blocked",
+      state: .failed,
+      createdAt: observedDate,
+      startedAt: observedDate,
+      finishedAt: observedDate,
+      log: ""
+    )
+
+    let evidence = CSAiEMIncidentClassifier.evidence(for: job, severity: .recoverable)
+    XCTAssertEqual(evidence.stage, "stage-2-reconciliation")
+    XCTAssertEqual(evidence.source, "/Users/alice/Import/Flowers")
+    XCTAssertEqual(evidence.destination, "/Users/alice/Code/Flowers")
+    XCTAssertEqual(evidence.receipt, "receipt-42")
+    XCTAssertEqual(evidence.checkpoint, "session-7/index")
+    XCTAssertTrue(evidence.nextAction.contains("checkpoint"))
+  }
+
   func testVerifiedRemoteVariantsGroupAsMergeCandidates() {
     let first = project(
       path: "/tmp/flowers-main",
@@ -503,7 +527,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.1" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

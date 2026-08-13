@@ -6,6 +6,9 @@
   failed/cancelled-job records, fatal-versus-recoverable classification,
   redacted issue drafts, retry-originating-job, resolve, and retention
   controls in the native dashboard.
+- Extended the Incident Hub for Phase 12.2 with structured lifecycle-stage,
+  source, destination, receipt, checkpoint, and next-action evidence; older
+  incident records migrate safely with an unknown-stage fallback.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately

@@ -28,6 +28,6 @@ struct CSAiEMModuleTag: Identifiable, Hashable, Codable {
     .init(id: "recovery", name: "Recovery and resume", area: "Engine", version: appVersion, tag: "engine.recovery", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "macos-install", name: "macOS install and update", area: "Runtime", version: appVersion, tag: "runtime.install", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "toolbar", name: "Menu-bar toolbar", area: "Runtime", version: appVersion, tag: "runtime.toolbar", state: "primary", lastUpdated: "2026-08-11"),
-    .init(id: "incident-hub", name: "Incident and recovery hub", area: "Feature", version: "incident-v1", tag: "feature.incidents", state: "phase-12.1", lastUpdated: "2026-08-13")
+    .init(id: "incident-hub", name: "Incident and recovery hub", area: "Feature", version: "incident-v1.1", tag: "feature.incidents", state: "phase-12.2", lastUpdated: "2026-08-13")
   ]
 }

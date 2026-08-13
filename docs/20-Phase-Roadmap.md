@@ -369,6 +369,14 @@ Current Phase 12.1 slice:
 - retry-originating-job, resolve, and local retention controls in the native
   Incidents dashboard page.
 
+Current Phase 12.2 slice:
+- structured incident evidence ties the originating job to a lifecycle stage,
+  source, destination, receipt hint, checkpoint hint, and next action;
+- persisted incidents remain backward-compatible with Phase 12.1 records that
+  do not yet contain structured evidence;
+- the dashboard and redacted issue draft expose the correlated evidence while
+  keeping credentials and raw prompts outside the ledger.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

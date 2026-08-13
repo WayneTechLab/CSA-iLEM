@@ -7296,6 +7296,7 @@ final class CleanupViewModel: ObservableObject {
       detail: job.detail,
       jobID: job.id,
       severity: CSAiEMIncidentClassifier.severity(for: job.detail),
+      evidence: CSAiEMIncidentClassifier.evidence(for: job, severity: CSAiEMIncidentClassifier.severity(for: job.detail)),
       state: .open,
       resolution: nil
     )
@@ -14834,8 +14835,8 @@ struct ContentView: View {
 
   private var incidentDetailPanel: some View {
     PanelCard(title: "Incident evidence and handoff", subtitle: "The issue draft is deterministic and redacted. Review it before using any external issue tracker.") {
-      if let incident = model.selectedIncident {
-        BannerCard(title: incident.title, detail: [incident.kind, incident.target, incident.detail].filter { !$0.isEmpty }.joined(separator: "\n"), kind: incident.severity == .fatal ? .error : .warning)
+        if let incident = model.selectedIncident {
+        BannerCard(title: incident.title, detail: [incident.kind, incident.target, incident.detail, incident.evidence.summaryLines.joined(separator: "\n")].filter { !$0.isEmpty }.joined(separator: "\n"), kind: incident.severity == .fatal ? .error : .warning)
         HStack(spacing: 10) {
           Button("Retry originating job") {
             if let job = model.backgroundJobs.first(where: { $0.id == incident.jobID }) { model.retryJob(job) }
