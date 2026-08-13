@@ -169,6 +169,16 @@ metadata only: it does not copy project files, rewrite SQLite sessions, select
 a canonical source, or authorize transfer, cleanup, deletion, or remote
 provider mutation.
 
+## Phase 13.14 read-only evidence inspection boundary
+
+The dashboard can open a previously exported comparison JSON through the
+native file picker. The bundle is decoded and displayed as transient evidence
+with its current and baseline session IDs, rule-version provenance, and a
+bounded list of transition rows. It is never inserted into the live SQLite
+catalog, treated as a new scan, or used to authorize canonical selection,
+transfer, cleanup, deletion, or remote provider mutation. Malformed JSON is
+rejected and reported in the dashboard and local log.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

@@ -569,6 +569,16 @@ Current Phase 13.13 slice:
 - keep the export read-only and independent of canonical selection, transfer,
   cleanup, deletion, and remote mutation gates.
 
+Current Phase 13.14 slice:
+- let operators choose a previously exported comparison JSON from the native
+  file picker after restart or handoff;
+- inspect session IDs, baseline identity, rule-version provenance, row count,
+  and bounded transition rows in the dashboard;
+- keep imported evidence transient and read-only, separate from the live
+  SQLite catalog and current scan decisions;
+- reject malformed bundles visibly and preserve the authority boundary around
+  canonical selection, transfer, cleanup, deletion, and remote mutation.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

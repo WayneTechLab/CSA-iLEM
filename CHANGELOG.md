@@ -6,6 +6,7 @@
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.
 - Added Phase 13.12 arbitrary session comparison with source-level group/classification/fingerprint transition explanations.
 - Added Phase 13.13 local JSON/CSV evidence exports for selected cross-session comparisons, including rule-version provenance and transition explanations.
+- Added Phase 13.14 read-only dashboard inspection for exported JSON comparison evidence without importing it into the live SQLite catalog.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are

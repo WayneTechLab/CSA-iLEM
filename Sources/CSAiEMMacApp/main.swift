@@ -1758,6 +1758,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexDecisionComparisonRows: [CodexDecisionComparisonRow] = []
   @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonExportStatus = ""
+  @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
+  @Published var codexImportedEvidenceStatus = "No external comparison evidence loaded."
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
   @Published var activeContainers: [LiveContainerEntry] = []
@@ -2791,6 +2793,28 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexComparisonExportStatus = "Comparison export failed: \(error.localizedDescription)"
       appendLog("[codex] Comparison evidence export failed: \(error.localizedDescription)\n")
+    }
+  }
+
+  func chooseCodexEvidenceBundle() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.json]
+    panel.prompt = "Inspect Evidence"
+    panel.message = "Choose a CSA-iLEM comparison JSON export. It will be inspected read-only and will not be added to the live catalog."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    do {
+      let data = try Data(contentsOf: url)
+      let bundle = try JSONDecoder().decode(CodexComparisonEvidenceBundle.self, from: data)
+      codexImportedEvidenceBundle = bundle
+      codexImportedEvidenceStatus = "Read-only evidence loaded: (url.lastPathComponent) · (bundle.rows.count) row(s)."
+      appendLog("[codex] Read-only comparison evidence loaded from (url.path)\n")
+    } catch {
+      codexImportedEvidenceBundle = nil
+      codexImportedEvidenceStatus = "Evidence import rejected: (error.localizedDescription)"
+      appendLog("[codex] Read-only comparison evidence rejected: (error.localizedDescription)\n")
     }
   }
 
@@ -16433,6 +16457,40 @@ struct ContentView: View {
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(DashboardTheme.muted)
                 .textSelection(.enabled)
+            }
+            HStack(spacing: 8) {
+              Button("Inspect exported JSON") {
+                model.chooseCodexEvidenceBundle()
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+              .controlSize(.small)
+              Text("Imported evidence stays outside the live SQLite catalog.")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+            }
+            Text(model.codexImportedEvidenceStatus)
+              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+              .textSelection(.enabled)
+            if let imported = model.codexImportedEvidenceBundle {
+              let importedCurrentSession = String(imported.currentSessionID.prefix(8))
+              let importedBaselineSession = imported.baselineSessionID.map { String($0.prefix(8)) } ?? "none"
+              let importedRuleVersions = (imported.currentRuleVersion ?? "unknown") + " / " + (imported.baselineRuleVersion ?? "unknown")
+              let importedRowCount = String(imported.rows.count)
+              DisclosureGroup("Inspected evidence · " + importedRowCount + " row(s)") {
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("Current " + importedCurrentSession + " · baseline " + importedBaselineSession)
+                  Text("Rule versions: " + importedRuleVersions)
+                  ForEach(Array(imported.rows.prefix(12))) { row in
+                    Text("\(row.kind.rawValue.uppercased()) · \(row.sourcePath) · \(row.explanation)")
+                      .textSelection(.enabled)
+                  }
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.muted)
+              }
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
             }
             if !model.codexVisibleComparisonDeltas.isEmpty {
               LazyVStack(alignment: .leading, spacing: 4) {

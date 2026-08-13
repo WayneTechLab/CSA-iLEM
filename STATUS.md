@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.13 portable session evidence export is in progress. The native app now
+Next phase: Phase 13.14 read-only evidence inspection is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -80,6 +80,11 @@ rule-version provenance, source-level transition rows, fingerprints, and
 operator-readable explanations. Export is read-only and does not copy source
 files, alter catalog sessions, or authorize transfer, cleanup, deletion, or
 remote mutation.
+Phase 13.14 adds a native file-picker path to inspect an exported JSON bundle
+after restart or handoff. The imported bundle is held only as read-only UI
+evidence, with session IDs, rule versions, and transition rows visible. It is
+not merged into SQLite, re-evaluated as a live scan, or used to authorize any
+canonical selection, transfer, cleanup, deletion, or remote mutation.
 not discard available local research evidence.
 
 Long-range product roadmap:
