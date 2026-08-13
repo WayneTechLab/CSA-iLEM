@@ -17243,29 +17243,37 @@ struct ContentView: View {
     .buttonStyle(.plain)
   }
 
-  @ViewBuilder
-  private func codexRouteReceiptBaselineAuditView() -> some View {
+  private func codexRouteReceiptBaselineAuditView() -> AnyView {
     let auditEvents = Array(model.codexRouteReceiptBaselineAudit.prefix(10))
     let auditCount = model.codexRouteReceiptBaselineAudit.count
+    guard auditCount > 0 else { return AnyView(EmptyView()) }
     let auditTitle = "Baseline decision audit · " + String(auditCount)
-    if auditCount > 0 {
-      DisclosureGroup(auditTitle) {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(auditEvents) { event in
-            codexRouteReceiptBaselineAuditRow(event)
-          }
-          if let selected = model.codexSelectedRouteReceiptBaselineAudit {
-            Text("Selected read-only event · " + selected.action.rawValue + " · live " + String(selected.liveSessionID.prefix(8)) + " · imported " + String(selected.importedSessionID.prefix(8)))
-              .font(.system(size: 10, weight: .semibold, design: .monospaced))
-              .foregroundStyle(DashboardTheme.text)
-            Text("History inspection never reactivates a baseline or changes live execution authority.")
-              .font(.system(size: 10, weight: .medium, design: .rounded))
-              .foregroundStyle(DashboardTheme.muted)
-          }
-        }
+    let auditDisclosure = DisclosureGroup(auditTitle) {
+      codexRouteReceiptBaselineAuditContent(auditEvents)
+    }
+    .font(.system(size: 10, weight: .semibold, design: .rounded))
+    .foregroundStyle(DashboardTheme.text)
+    return AnyView(auditDisclosure)
+  }
+
+  private func codexRouteReceiptBaselineAuditContent(_ events: [CodexRouteReceiptBaselineAuditEvent]) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ForEach(events) { event in
+        codexRouteReceiptBaselineAuditRow(event)
       }
-      .font(.system(size: 10, weight: .semibold, design: .rounded))
-      .foregroundStyle(DashboardTheme.text)
+      codexRouteReceiptBaselineAuditSelectionView()
+    }
+  }
+
+  @ViewBuilder
+  private func codexRouteReceiptBaselineAuditSelectionView() -> some View {
+    if let selected = model.codexSelectedRouteReceiptBaselineAudit {
+      Text("Selected read-only event · " + selected.action.rawValue + " · live " + String(selected.liveSessionID.prefix(8)) + " · imported " + String(selected.importedSessionID.prefix(8)))
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .foregroundStyle(DashboardTheme.text)
+      Text("History inspection never reactivates a baseline or changes live execution authority.")
+        .font(.system(size: 10, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
     }
   }
 
