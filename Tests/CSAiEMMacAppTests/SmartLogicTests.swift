@@ -410,13 +410,23 @@ final class SmartLogicTests: XCTestCase {
     )
 
     let store = CodexCatalogStore(rootPath: root.path)
-    let paths = try store.exportComparison(currentSessionID: "current", baselineSessionID: "baseline", rows: [row])
+    let routeSummary = CodexEvidenceScanRouteSummary(totalCount: 1, metadataTriageCount: 0, targetedVerificationCount: 1, noDeepScanCount: 0)
+    let assessment = CodexSmartLogicEngine.profileAssessment(profile: .fastIndex, routeSummary: routeSummary)
+    let paths = try store.exportComparison(
+      currentSessionID: "current",
+      baselineSessionID: "baseline",
+      rows: [row],
+      selectedScanProfile: .fastIndex,
+      profileAssessment: assessment
+    )
     XCTAssertEqual(paths.count, 2)
     XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
     let bundle = try JSONDecoder().decode(CodexComparisonEvidenceBundle.self, from: Data(contentsOf: URL(fileURLWithPath: paths[0])))
     XCTAssertEqual(bundle.currentSessionID, "current")
     XCTAssertEqual(bundle.baselineSessionID, "baseline")
     XCTAssertEqual(bundle.rows, [row])
+    XCTAssertEqual(bundle.selectedScanProfile, .fastIndex)
+    XCTAssertEqual(bundle.profileAssessment, assessment)
     XCTAssertTrue(try String(contentsOfFile: paths[1]).contains("/tmp/export-source"))
     XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/export-source"))
   }
@@ -428,7 +438,9 @@ final class SmartLogicTests: XCTestCase {
       baselineSessionID: "baseline-history",
       currentRuleVersion: "smart-logic-v2.9",
       baselineRuleVersion: "smart-logic-v2.8",
-      rows: []
+      rows: [],
+      selectedScanProfile: nil,
+      profileAssessment: nil
     )
     let record = CodexImportedEvidenceRecord(id: "history-1", sourceName: "comparison.json", importedAt: observedDate, bundle: bundle)
     let restored = try JSONDecoder().decode(CodexImportedEvidenceRecord.self, from: JSONEncoder().encode(record))
@@ -447,7 +459,9 @@ final class SmartLogicTests: XCTestCase {
       baselineSessionID: "baseline",
       currentRuleVersion: "smart-logic-v3.1",
       baselineRuleVersion: "smart-logic-v3.0",
-      rows: [live[0], CodexDecisionComparisonRow(sourcePath: "/tmp/imported-only", kind: .removed, previousGroupKey: "old", currentGroupKey: nil, previousClassification: .canonical, currentClassification: nil, previousFingerprint: "d", currentFingerprint: nil)]
+      rows: [live[0], CodexDecisionComparisonRow(sourcePath: "/tmp/imported-only", kind: .removed, previousGroupKey: "old", currentGroupKey: nil, previousClassification: .canonical, currentClassification: nil, previousFingerprint: "d", currentFingerprint: nil)],
+      selectedScanProfile: nil,
+      profileAssessment: nil
     )
 
     let comparison = CodexSmartLogicEngine.authorityComparison(liveSessionID: "live-session", liveRows: live, importedBundle: imported)
@@ -468,7 +482,9 @@ final class SmartLogicTests: XCTestCase {
       baselineSessionID: "baseline",
       currentRuleVersion: "smart-logic-v3.1",
       baselineRuleVersion: "smart-logic-v3.0",
-      rows: [live[0], CodexDecisionComparisonRow(sourcePath: "/tmp/imported-only", kind: .removed, previousGroupKey: "old", currentGroupKey: nil, previousClassification: .canonical, currentClassification: nil, previousFingerprint: "d", currentFingerprint: nil)]
+      rows: [live[0], CodexDecisionComparisonRow(sourcePath: "/tmp/imported-only", kind: .removed, previousGroupKey: "old", currentGroupKey: nil, previousClassification: .canonical, currentClassification: nil, previousFingerprint: "d", currentFingerprint: nil)],
+      selectedScanProfile: nil,
+      profileAssessment: nil
     )
 
     let liveOnly = CodexSmartLogicEngine.provenanceRows(liveRows: live, importedBundle: imported, filter: .liveOnly)
@@ -809,13 +825,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.6" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.7" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.6" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.7" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

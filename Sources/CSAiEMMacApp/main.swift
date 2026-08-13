@@ -2818,7 +2818,9 @@ final class CleanupViewModel: ObservableObject {
       let paths = try store.exportComparison(
         currentSessionID: codexComparisonSessionID,
         baselineSessionID: codexComparisonBaselineSessionID.isEmpty ? nil : codexComparisonBaselineSessionID,
-        rows: codexVisibleDecisionComparisonRows
+        rows: codexVisibleDecisionComparisonRows,
+        selectedScanProfile: CodexEvidenceScanProfile(rawValue: codexSmartScanMode.rawValue),
+        profileAssessment: codexEvidenceProfileAssessment
       )
       codexComparisonExportStatus = "Evidence exported locally: \(paths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", "))"
       codexCatalogStatus = "Catalog saved · comparison JSON/CSV evidence ready"
@@ -16613,6 +16615,12 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                   Text("Current " + importedCurrentSession + " · baseline " + importedBaselineSession)
                   Text("Rule versions: " + importedRuleVersions)
+                  if let importedProfile = imported.selectedScanProfile {
+                    Text("Exported scan profile: " + importedProfile.rawValue)
+                  }
+                  if let importedAssessment = imported.profileAssessment {
+                    Text("Exported profile assessment: " + importedAssessment.headline)
+                  }
                   ForEach(Array(imported.rows.prefix(12))) { row in
                     Text("\(row.kind.rawValue.uppercased()) · \(row.sourcePath) · \(row.explanation)")
                       .textSelection(.enabled)

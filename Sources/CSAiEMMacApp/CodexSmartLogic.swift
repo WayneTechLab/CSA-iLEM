@@ -261,6 +261,8 @@ struct CodexComparisonEvidenceBundle: Codable, Hashable, Sendable {
   let currentRuleVersion: String?
   let baselineRuleVersion: String?
   let rows: [CodexDecisionComparisonRow]
+  let selectedScanProfile: CodexEvidenceScanProfile?
+  let profileAssessment: CodexEvidenceProfileAssessment?
 }
 
 struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
@@ -1219,7 +1221,9 @@ final class CodexCatalogStore: @unchecked Sendable {
   func exportComparison(
     currentSessionID: String,
     baselineSessionID: String?,
-    rows: [CodexDecisionComparisonRow]
+    rows: [CodexDecisionComparisonRow],
+    selectedScanProfile: CodexEvidenceScanProfile? = nil,
+    profileAssessment: CodexEvidenceProfileAssessment? = nil
   ) throws -> [String] {
     let fm = FileManager.default
     try fm.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true, attributes: nil)
@@ -1232,7 +1236,9 @@ final class CodexCatalogStore: @unchecked Sendable {
       baselineSessionID: baselineSessionID,
       currentRuleVersion: currentRuleVersion,
       baselineRuleVersion: baselineRuleVersion,
-      rows: rows
+      rows: rows,
+      selectedScanProfile: selectedScanProfile,
+      profileAssessment: profileAssessment
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

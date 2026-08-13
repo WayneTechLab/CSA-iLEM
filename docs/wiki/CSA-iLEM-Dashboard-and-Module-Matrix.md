@@ -238,6 +238,13 @@ YOLO profile with the route summary. If targeted routes remain, Fast Index and
 YOLO display a recommendation for Full Verification. The recommendation does
 not switch profiles, schedule work, or override the existing safety gates.
 
+## Phase 13.22 profile assessment provenance
+
+Comparison JSON exports retain the selected scan profile and its suitability
+assessment. When the file is reopened as read-only evidence, CSA-iLEM displays
+that context alongside the session and rule-version metadata. The imported
+context cannot change the live profile, catalog, or operation gates.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

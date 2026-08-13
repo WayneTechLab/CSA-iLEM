@@ -225,6 +225,14 @@ Current Phase 13.21 slice:
 - keep the recommendation explanatory and subordinate to existing preflight,
   final-verification, cleanup, deletion, and remote-write gates.
 
+Current Phase 13.22 slice:
+- include the selected scan profile and profile-suitability assessment in
+  exported comparison JSON evidence;
+- show that context again when a read-only evidence bundle is inspected after
+  restart or handoff;
+- preserve the evidence-only boundary: imported profile context cannot change
+  the live catalog, profile selection, or any operation gate.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
