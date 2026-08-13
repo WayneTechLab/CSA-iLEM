@@ -270,6 +270,18 @@ struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
   let bundle: CodexComparisonEvidenceBundle
 }
 
+struct CodexEvidenceAuthorityComparison: Codable, Hashable, Sendable {
+  let liveSessionID: String
+  let importedCurrentSessionID: String
+  let liveRowCount: Int
+  let importedRowCount: Int
+  let overlappingSourceCount: Int
+  let liveOnlySourceCount: Int
+  let importedOnlySourceCount: Int
+
+  var sameCurrentSession: Bool { liveSessionID == importedCurrentSessionID }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -750,6 +762,24 @@ enum CodexSmartLogicEngine {
       output += values + "\n"
     }
     return output
+  }
+
+  static func authorityComparison(
+    liveSessionID: String,
+    liveRows: [CodexDecisionComparisonRow],
+    importedBundle: CodexComparisonEvidenceBundle
+  ) -> CodexEvidenceAuthorityComparison {
+    let liveSources = Set(liveRows.map(\.sourcePath))
+    let importedSources = Set(importedBundle.rows.map(\.sourcePath))
+    return CodexEvidenceAuthorityComparison(
+      liveSessionID: liveSessionID,
+      importedCurrentSessionID: importedBundle.currentSessionID,
+      liveRowCount: liveRows.count,
+      importedRowCount: importedBundle.rows.count,
+      overlappingSourceCount: liveSources.intersection(importedSources).count,
+      liveOnlySourceCount: liveSources.subtracting(importedSources).count,
+      importedOnlySourceCount: importedSources.subtracting(liveSources).count
+    )
   }
 
   private static func csvEscape(_ value: String) -> String {

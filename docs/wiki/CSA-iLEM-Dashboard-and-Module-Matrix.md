@@ -188,6 +188,16 @@ evidence for operator review only; it does not populate SQLite, become a live
 scan baseline, alter project files, or authorize canonical selection, transfer,
 cleanup, deletion, or remote provider mutation.
 
+## Phase 13.16 evidence authority boundary
+
+When a retained imported bundle is open beside the catalog comparison, the
+dashboard labels the live SQLite session as authoritative and the imported
+bundle as read-only. It reports current-session identity match plus overlapping,
+live-only, and imported-only source counts. This comparison is informational;
+an imported bundle cannot override catalog evidence, become a scan baseline,
+or authorize canonical selection, transfer, cleanup, deletion, or remote
+provider mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

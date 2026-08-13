@@ -589,6 +589,16 @@ Current Phase 13.15 slice:
 - make clear/remove status explicit so operators know exactly what local
   evidence was removed and what was not affected.
 
+Current Phase 13.16 slice:
+- label the live SQLite catalog as authoritative and retained imported
+  bundles as read-only evidence in the dashboard;
+- report whether the imported current session matches the selected live
+  session and show overlapping, live-only, and imported-only source counts;
+- keep the authority comparison informational, with no promotion, catalog
+  merge, canonical selection, transfer, cleanup, deletion, or remote write;
+- make provenance visible at the point where operators compare evidence from
+  different machines, sessions, or handoff files.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

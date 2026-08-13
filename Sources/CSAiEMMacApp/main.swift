@@ -2259,6 +2259,15 @@ final class CleanupViewModel: ObservableObject {
     return codexDecisionComparisonRows.filter { $0.currentGroupKey == codexComparisonGroupKey || $0.previousGroupKey == codexComparisonGroupKey }
   }
 
+  var codexImportedAuthorityComparison: CodexEvidenceAuthorityComparison? {
+    guard let imported = codexImportedEvidenceBundle, !codexComparisonSessionID.isEmpty else { return nil }
+    return CodexSmartLogicEngine.authorityComparison(
+      liveSessionID: codexComparisonSessionID,
+      liveRows: codexVisibleDecisionComparisonRows,
+      importedBundle: imported
+    )
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -16530,6 +16539,22 @@ struct ContentView: View {
                   .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
                   .controlSize(.small)
                 }
+              }
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            }
+            if let authority = model.codexImportedAuthorityComparison {
+              DisclosureGroup("Evidence authority boundary") {
+                VStack(alignment: .leading, spacing: 4) {
+                  Text("LIVE CATALOG · authoritative · session " + String(authority.liveSessionID.prefix(8)))
+                  Text("IMPORTED BUNDLE · read-only · session " + String(authority.importedCurrentSessionID.prefix(8)))
+                  Text("Current-session identity match: " + (authority.sameCurrentSession ? "yes" : "no"))
+                  Text("Rows live/imported: " + String(authority.liveRowCount) + " / " + String(authority.importedRowCount) + " · overlapping sources: " + String(authority.overlappingSourceCount))
+                  Text("Live-only sources: " + String(authority.liveOnlySourceCount) + " · imported-only sources: " + String(authority.importedOnlySourceCount))
+                  Text("Imported evidence never overrides live catalog authority.")
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(DashboardTheme.muted)
               }
               .font(.system(size: 11, weight: .semibold, design: .rounded))
               .foregroundStyle(DashboardTheme.text)

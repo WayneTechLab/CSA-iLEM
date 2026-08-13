@@ -8,6 +8,7 @@
 - Added Phase 13.13 local JSON/CSV evidence exports for selected cross-session comparisons, including rule-version provenance and transition explanations.
 - Added Phase 13.14 read-only dashboard inspection for exported JSON comparison evidence without importing it into the live SQLite catalog.
 - Added Phase 13.15 persisted local imported-evidence history with inspect, remove, and clear controls that never mutate the live catalog.
+- Added Phase 13.16 live-versus-imported evidence authority labels and source-overlap counts so read-only bundles cannot be mistaken for catalog authority.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are

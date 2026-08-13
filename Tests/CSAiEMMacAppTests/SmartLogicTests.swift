@@ -436,6 +436,27 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(restored.bundle.currentSessionID, "current-history")
   }
 
+  func testAuthorityComparisonKeepsLiveAndImportedEvidenceDistinct() {
+    let live = [
+      CodexDecisionComparisonRow(sourcePath: "/tmp/shared", kind: .changed, previousGroupKey: "old", currentGroupKey: "new", previousClassification: .shadowCopy, currentClassification: .mergeCandidate, previousFingerprint: "a", currentFingerprint: "b"),
+      CodexDecisionComparisonRow(sourcePath: "/tmp/live-only", kind: .added, previousGroupKey: nil, currentGroupKey: "live", previousClassification: nil, currentClassification: .canonical, previousFingerprint: nil, currentFingerprint: "c")
+    ]
+    let imported = CodexComparisonEvidenceBundle(
+      exportedAt: observedDate,
+      currentSessionID: "imported-session",
+      baselineSessionID: "baseline",
+      currentRuleVersion: "smart-logic-v3.1",
+      baselineRuleVersion: "smart-logic-v3.0",
+      rows: [live[0], CodexDecisionComparisonRow(sourcePath: "/tmp/imported-only", kind: .removed, previousGroupKey: "old", currentGroupKey: nil, previousClassification: .canonical, currentClassification: nil, previousFingerprint: "d", currentFingerprint: nil)]
+    )
+
+    let comparison = CodexSmartLogicEngine.authorityComparison(liveSessionID: "live-session", liveRows: live, importedBundle: imported)
+    XCTAssertFalse(comparison.sameCurrentSession)
+    XCTAssertEqual(comparison.overlappingSourceCount, 1)
+    XCTAssertEqual(comparison.liveOnlySourceCount, 1)
+    XCTAssertEqual(comparison.importedOnlySourceCount, 1)
+  }
+
   func testCatalogStorePersistsChangedOnlyIndexRecordAfterRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-index-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -746,13 +767,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v3.1" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v2.1" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.15 imported-evidence history is in progress. The native app now
+Next phase: Phase 13.16 evidence authority labeling is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -90,6 +90,11 @@ the app's Application Support directory. Operators can reopen a history entry,
 remove one entry, or clear the full imported-evidence history. These controls
 affect only the local evidence cache; the live SQLite catalog and project files
 remain untouched.
+Phase 13.16 adds an explicit authority boundary panel showing the live catalog
+session as authoritative and retained imported bundles as read-only. It reports
+current-session identity match, overlapping source paths, live-only sources,
+and imported-only sources. The panel is informational and cannot promote an
+imported bundle into the catalog or authorize any write operation.
 not discard available local research evidence.
 
 Long-range product roadmap:
