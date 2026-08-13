@@ -170,9 +170,10 @@ These areas are close, but not fully finished to the standard the app is aiming 
 
 - GUI-first product direction is established, but a few legacy CLI concepts and compatibility entry points still exist around the edges
 - Windows now has core operational parity for shell usage, but not a native desktop GUI layer yet
-- the release preflight now runs a reproducible PowerShell parser smoke when
-  `pwsh` is available; this validates script syntax only and does not replace
-  real Windows 11 runtime validation
+- the release preflight now runs a reproducible PowerShell parser and CLI
+  inspection smoke when `pwsh` is available; it exercises all three Windows
+  lifecycle `--version`/`--help` paths and the non-Windows mutation guard, but
+  does not replace real Windows 11 runtime validation
 - Windows lifecycle `--version` and `--help` commands now remain inspectable
   from macOS when `LOCALAPPDATA` is absent, while install/update/uninstall
   mutations still reject non-Windows hosts before acting

@@ -27,6 +27,8 @@
 - Hardened Windows installer, updater, and uninstaller `--version`/`--help`
   paths to tolerate a non-Windows host without `LOCALAPPDATA`; actual Windows
   lifecycle actions remain fail-closed outside Windows.
+- Promoted the Windows CLI inspection and non-Windows mutation checks into the
+  repeatable PowerShell release smoke instead of relying only on manual checks.
 
 ## 0.8.0
 

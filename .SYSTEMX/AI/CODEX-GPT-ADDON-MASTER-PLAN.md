@@ -409,7 +409,8 @@ The current branch has direct evidence for each local milestone gate:
   public distribution signing, and an independent trust anchor remain open.
 - PowerShell boundary evidence: `.SYSTEMX/scripts/powershell-parse-smoke.sh`
   validates all repository `.ps1` files with the PowerShell parser when
-  `pwsh` is available. It is syntax evidence only and does not claim Windows
+  `pwsh` is available, exercises the three Windows lifecycle inspection paths,
+  and verifies the non-Windows mutation guard. It does not claim Windows
   runtime or native GUI validation.
 - Windows CLI inspection evidence: installer, updater, and uninstaller
   `--version`/`--help` paths tolerate a non-Windows host without
