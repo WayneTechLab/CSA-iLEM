@@ -1020,12 +1020,12 @@ struct LocalOperationPreview: Hashable {
   let preparedStamp: String?
 }
 
-private struct LocalTransferOperation: Hashable {
+struct LocalTransferOperation: Hashable {
   let source: String
   let destination: String
 }
 
-private struct LocalTransferOutcome {
+struct LocalTransferOutcome {
   let warnings: [String]
 }
 
@@ -12239,7 +12239,7 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
-  private nonisolated static func performTransactionalTransfers(
+  nonisolated static func performTransactionalTransfers(
     operations: [LocalTransferOperation],
     mode: LocalFileTransferMode,
     overwrite: Bool,
@@ -12301,6 +12301,9 @@ final class CleanupViewModel: ObservableObject {
         guard let stagePath = stagePathsByDestination[operation.destination] else { continue }
         try fm.moveItem(atPath: stagePath, toPath: operation.destination)
         stagePathsByDestination.removeValue(forKey: operation.destination)
+      }
+      if environment["CSA_IEM_TEST_FAIL_AFTER_TRANSACTION_PROMOTION"] == "1" {
+        throw NSError(domain: appTitle, code: 98, userInfo: [NSLocalizedDescriptionKey: "Injected transactional promotion failure for rollback verification."])
       }
     } catch {
       for operation in normalizedOperations {

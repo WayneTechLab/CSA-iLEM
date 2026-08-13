@@ -74,6 +74,8 @@ These major product areas are built into the app now:
 - post-promotion transfer rollback now removes a newly promoted destination and
   restores a parked source if recovery capture, Git re-arm, or final proof
   fails; a regression fixture covers the parked-source/symlink case
+- local export/workspace transactions now have injected later-failure coverage
+  proving all promoted outputs roll back while every source remains available
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources

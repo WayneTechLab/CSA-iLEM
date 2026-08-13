@@ -177,6 +177,34 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
   }
 
+  func testLocalExportTransactionRollsBackAllPromotionsOnLaterFailure() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-export-rollback-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sourceA = root.appendingPathComponent("source-a")
+    let sourceB = root.appendingPathComponent("source-b")
+    let destinationA = root.appendingPathComponent("out/a")
+    let destinationB = root.appendingPathComponent("out/b")
+    try FileManager.default.createDirectory(at: sourceA, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: sourceB, withIntermediateDirectories: true)
+    try Data("A".utf8).write(to: sourceA.appendingPathComponent("data.txt"))
+    try Data("B".utf8).write(to: sourceB.appendingPathComponent("data.txt"))
+    let operations = [
+      LocalTransferOperation(source: sourceA.path, destination: destinationA.path),
+      LocalTransferOperation(source: sourceB.path, destination: destinationB.path)
+    ]
+
+    XCTAssertThrowsError(try CleanupViewModel.performTransactionalTransfers(
+      operations: operations,
+      mode: .copyBackup,
+      overwrite: false,
+      environment: ["CSA_IEM_TEST_FAIL_AFTER_TRANSACTION_PROMOTION": "1"]
+    ))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destinationA.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destinationB.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: sourceA.appendingPathComponent("data.txt").path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: sourceB.appendingPathComponent("data.txt").path))
+  }
+
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")

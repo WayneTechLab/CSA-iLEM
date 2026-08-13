@@ -372,6 +372,9 @@ The current branch has direct evidence for each local milestone gate:
 - native post-promotion transfer failure handling now rolls back the newly
   created destination and restores a parked source before surfacing a later
   recovery, Git re-arm, or final-verification failure.
+- local export/workspace transaction fixtures now inject a failure after
+  multi-output promotion and prove all new outputs are removed while sources
+  remain intact.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred
