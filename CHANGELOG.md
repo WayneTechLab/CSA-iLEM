@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Repeated Smart Logic identity-group blocker explanations on the native Stage 2 apply surface beside the write-arm control, and normalized the decision-review grouping key path.
+- Disabled native Stage 2 write arming and apply execution while grouped Smart Logic blockers remain unresolved; diagnostic preflight remains available.
 
 ## 0.8.0
 

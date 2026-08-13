@@ -210,6 +210,9 @@ These are the next production-hardening tasks with the best return:
   decision-review card and Stage 2 apply surface now repeat the same
   fail-closed explanation, while legacy shell/report surfaces remain to be
   audited for equivalent wording
+- native Stage 2 arming and apply execution now remain disabled while those
+  grouped blockers are present; non-destructive preflight remains available
+  to produce the evidence needed for resolution
 - reduce advanced/legacy wrapper visibility in the public-facing UX
 - extend the native project tree from bounded top-level inspection to indexed
   file-level evidence only when a user expands a path; avoid full-directory

@@ -2009,6 +2009,10 @@ final class CleanupViewModel: ObservableObject {
     .sorted()
   }
 
+  var codexStage2ApplyBlocked: Bool {
+    !codexStage2GroupBlockerSummaries.isEmpty
+  }
+
   var areAllVisibleCodexProjectsSelected: Bool {
     !filteredCodexProjects.isEmpty && filteredCodexProjects.allSatisfy { selectedCodexProjectPaths.contains($0.path) }
   }
@@ -4576,6 +4580,11 @@ final class CleanupViewModel: ObservableObject {
           !sourceRoot.hasPrefix(managedRoot + "/"),
           !managedRoot.hasPrefix(sourceRoot + "/") else {
       stage2Status = "Stage 1 source and the managed CSA-iEM root must be separate folders."
+      return
+    }
+    if action == "apply" && codexStage2ApplyBlocked {
+      stage2SafetyArmed = false
+      stage2Status = "Stage 2 apply is blocked by unresolved Smart Logic identity-group review. Run preflight, resolve or explicitly exclude the named sources, then rescan before arming workspace writes."
       return
     }
     if action == "apply" && !stage2SafetyArmed {
@@ -15545,7 +15554,7 @@ struct ContentView: View {
       Toggle("Arm Stage 2 workspace writes", isOn: $model.stage2SafetyArmed)
         .toggleStyle(.switch)
         .tint(DashboardTheme.success)
-        .disabled(model.isCodexPortalBusy)
+        .disabled(model.isCodexPortalBusy || model.codexStage2ApplyBlocked)
 
       BannerCard(
         title: model.stage2SelectionSummary,

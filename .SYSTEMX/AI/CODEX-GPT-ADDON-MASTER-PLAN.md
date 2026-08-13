@@ -363,6 +363,8 @@ The current branch has direct evidence for each local milestone gate:
 - the Stage 2 native apply surface repeats that grouped blocker explanation
   beside the write-arm control, so review evidence remains visible at the
   point where the operator can authorize workspace changes.
+- native Stage 2 arming and apply execution fail closed while unresolved
+  grouped review blockers remain; preflight is still available for diagnosis.
 - index corpus evidence: the native regression suite scans a 250-file fixture
   twice, confirms deterministic entries and byte totals, and verifies common
   generated dependency/build trees are omitted from the indexed evidence.
