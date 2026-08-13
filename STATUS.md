@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.25 retained-evidence compatibility labeling is in progress. The native app now
+Next phase: Phase 13.26 deterministic Smart Logic route planning is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -126,6 +126,12 @@ Phase 13.25 adds read-only compatibility labels for retained evidence imports:
 complete when both profile fields are present, partial when exactly one is
 present, and legacy when the export predates profile metadata. Partial and
 legacy evidence remain non-authoritative and require operator review.
+
+Phase 13.26 adds a deterministic route plan for the current indexed decisions.
+Unchanged safe candidates stay on metadata triage, changed or review-blocked
+sources receive targeted verification, and explicitly excluded sources avoid
+deep scans. The plan is explanatory only: it does not dispatch work, change
+the selected profile, or authorize a write or cleanup.
 not discard available local research evidence.
 
 Long-range product roadmap:

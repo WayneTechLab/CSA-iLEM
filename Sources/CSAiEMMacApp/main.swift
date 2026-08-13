@@ -2290,6 +2290,15 @@ final class CleanupViewModel: ObservableObject {
     return CodexSmartLogicEngine.profileAssessment(profile: profile, routeSummary: routeSummary)
   }
 
+  var codexSmartScanPlan: CodexSmartScanPlan? {
+    guard !codexActiveSmartDecisions.isEmpty else { return nil }
+    return CodexSmartLogicEngine.smartScanPlan(
+      decisions: codexActiveSmartDecisions,
+      deltas: codexSourceDeltas,
+      dispositions: codexReviewDispositions
+    )
+  }
+
   var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
     codexImportedEvidenceHistory.filter { codexEvidenceHistoryFilter.includes($0) }
   }
@@ -16391,6 +16400,22 @@ struct ContentView: View {
           .font(.system(size: 11, weight: .semibold, design: .rounded))
           .foregroundStyle(model.codexSmartScanMode == .yolo ? DashboardTheme.warning : DashboardTheme.text)
           .lineSpacing(2)
+
+        if let plan = model.codexSmartScanPlan {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Smart Logic route plan")
+              .font(.system(size: 11, weight: .bold, design: .rounded))
+              .foregroundStyle(DashboardTheme.text)
+            Text(plan.headline)
+              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .foregroundStyle(DashboardTheme.muted)
+            Text(plan.profileGuidance(CodexEvidenceScanProfile(rawValue: model.codexSmartScanMode.rawValue) ?? .fastIndex))
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(plan.targetedVerificationCount > 0 && model.codexSmartScanMode != .verified ? DashboardTheme.warning : DashboardTheme.muted)
+          }
+          .padding(8)
+          .background(DashboardTheme.field, in: RoundedRectangle(cornerRadius: 8))
+        }
 
         FieldLabel(text: "Backup Medium")
         Picker("Backup Medium", selection: $model.codexBackupMedium) {

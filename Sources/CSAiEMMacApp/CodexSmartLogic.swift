@@ -463,6 +463,30 @@ struct CodexEvidenceScanRouteSummary: Codable, Hashable, Sendable {
   }
 }
 
+struct CodexSmartScanPlan: Codable, Hashable, Sendable {
+  let totalCount: Int
+  let metadataTriageCount: Int
+  let targetedVerificationCount: Int
+  let noDeepScanCount: Int
+  let reviewRequiredCount: Int
+
+  var deepScanAvoidedCount: Int { metadataTriageCount + noDeepScanCount }
+
+  var headline: String {
+    "(totalCount) indexed source(s) · (metadataTriageCount) metadata triage · (targetedVerificationCount) targeted verification · (noDeepScanCount) deep scan avoided"
+  }
+
+  func profileGuidance(_ profile: CodexEvidenceScanProfile) -> String {
+    if targetedVerificationCount == 0 {
+      return "The current indexed evidence has no targeted verification route. (profile.rawValue) can remain bounded to the selected operation."
+    }
+    if profile == .verified {
+      return "Full Verification matches the (targetedVerificationCount) targeted route(s) identified by Smart Logic."
+    }
+    return "Smart Logic identified (targetedVerificationCount) targeted route(s); Full Verification remains recommended before a cleanup-capable operation."
+  }
+}
+
 enum CodexEvidenceScanProfile: String, Codable, CaseIterable, Sendable {
   case fastIndex
   case verified
@@ -1023,6 +1047,40 @@ enum CodexSmartLogicEngine {
       metadataTriageCount: rows.filter { $0.scanRoute == .metadataTriage }.count,
       targetedVerificationCount: rows.filter { $0.scanRoute == .targetedVerification }.count,
       noDeepScanCount: rows.filter { $0.scanRoute == .noDeepScan }.count
+    )
+  }
+
+  static func smartScanPlan(
+    decisions: [CodexSmartDecision],
+    deltas: [CodexSourceDelta],
+    dispositions: [String: CodexReviewDisposition]
+  ) -> CodexSmartScanPlan {
+    let deltaByPath = Dictionary(uniqueKeysWithValues: deltas.map { ($0.sourcePath, $0.kind) })
+    var metadataTriageCount = 0
+    var targetedVerificationCount = 0
+    var noDeepScanCount = 0
+    var reviewRequiredCount = 0
+
+    for decision in decisions {
+      if dispositions[decision.sourcePath] == .excluded || decision.classification == .unrelated {
+        noDeepScanCount += 1
+        continue
+      }
+      let changed = deltaByPath[decision.sourcePath] == .added || deltaByPath[decision.sourcePath] == .changed
+      if decision.classification.isReview || changed {
+        targetedVerificationCount += 1
+        if decision.classification.isReview { reviewRequiredCount += 1 }
+      } else {
+        metadataTriageCount += 1
+      }
+    }
+
+    return CodexSmartScanPlan(
+      totalCount: decisions.count,
+      metadataTriageCount: metadataTriageCount,
+      targetedVerificationCount: targetedVerificationCount,
+      noDeepScanCount: noDeepScanCount,
+      reviewRequiredCount: reviewRequiredCount
     )
   }
 

@@ -275,6 +275,19 @@ the scan profile and assessment:
 This is a triage aid only. It does not modify imported JSON, merge anything into
 the live catalog, or change the authority boundary.
 
+## Phase 13.26 deterministic route planning
+
+The Smart Scan Profile section now shows a route plan derived from current saved
+decisions, source deltas, and explicit review dispositions:
+
+- unchanged safe candidates use metadata triage;
+- changed or review-blocked sources use targeted verification;
+- explicitly excluded sources avoid deep scans.
+
+The plan reports the counts and explains whether the selected profile matches the
+evidence. It does not schedule a scan, change profile selection, promote a lead,
+or authorize transfer, cleanup, deletion, or remote writes.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

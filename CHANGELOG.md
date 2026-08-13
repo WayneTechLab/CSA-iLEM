@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added Phase 13.25 compatibility states for retained evidence imports, distinguishing complete profile metadata from partial metadata and legacy exports in the native inspection UI.
+- Added Phase 13.26 deterministic Smart Logic route plans showing metadata triage, targeted verification, and deep-scan avoidance before an operation is run.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.

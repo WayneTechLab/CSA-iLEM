@@ -481,6 +481,36 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(CodexImportedEvidenceRecord(id: "partial", sourceName: "partial.json", importedAt: observedDate, bundle: partialBundle).compatibilityState, .partial)
   }
 
+  func testSmartScanPlanRoutesChangedAndReviewSourcesWithoutDeepScanningSafeSources() {
+    let projects = [
+      project(path: "/tmp/canonical", name: "canonical", remoteURL: "https://github.com/example/canonical.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized),
+      project(path: "/tmp/changed", name: "changed", remoteURL: "https://github.com/example/changed.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized),
+      project(path: "/tmp/review", name: "review", remoteURL: nil, branch: nil, ideState: .linked, hasLocalChanges: true, mainState: .noGit, hasGit: false),
+      project(path: "/tmp/excluded", name: "excluded", remoteURL: "https://github.com/example/excluded.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized)
+    ]
+    let decisions = CodexSmartLogicEngine.evaluate(projects, destinationRoot: "/tmp/output")
+    let deltas = [
+      CodexSourceDelta(sourcePath: "/tmp/canonical", kind: .unchanged, previousFingerprint: "a", currentFingerprint: "a"),
+      CodexSourceDelta(sourcePath: "/tmp/changed", kind: .changed, previousFingerprint: "a", currentFingerprint: "b"),
+      CodexSourceDelta(sourcePath: "/tmp/review", kind: .added, previousFingerprint: nil, currentFingerprint: "c"),
+      CodexSourceDelta(sourcePath: "/tmp/excluded", kind: .unchanged, previousFingerprint: "d", currentFingerprint: "d")
+    ]
+    let reviewDecision = decisions.first { $0.sourcePath == "/tmp/review" }!
+    let plan = CodexSmartLogicEngine.smartScanPlan(
+      decisions: decisions,
+      deltas: deltas,
+      dispositions: [reviewDecision.sourcePath: .deferred, "/tmp/excluded": .excluded]
+    )
+
+    XCTAssertEqual(plan.totalCount, 4)
+    XCTAssertEqual(plan.metadataTriageCount, 1)
+    XCTAssertEqual(plan.targetedVerificationCount, 2)
+    XCTAssertEqual(plan.noDeepScanCount, 1)
+    XCTAssertEqual(plan.reviewRequiredCount, 1)
+    XCTAssertTrue(plan.profileGuidance(.fastIndex).contains("Full Verification"))
+    XCTAssertFalse(plan.profileGuidance(.verified).contains("remains recommended"))
+  }
+
   func testAuthorityComparisonKeepsLiveAndImportedEvidenceDistinct() {
     let live = [
       CodexDecisionComparisonRow(sourcePath: "/tmp/shared", kind: .changed, previousGroupKey: "old", currentGroupKey: "new", previousClassification: .shadowCopy, currentClassification: .mergeCandidate, previousFingerprint: "a", currentFingerprint: "b"),
@@ -858,13 +888,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.1" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.1" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {

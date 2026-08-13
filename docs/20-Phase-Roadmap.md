@@ -255,6 +255,14 @@ Current Phase 13.25 slice:
 - keep compatibility assessment read-only and unable to alter catalog state or
   authorize an operation.
 
+Current Phase 13.26 slice:
+- derive one deterministic route plan from indexed decisions, source deltas, and
+  explicit review dispositions;
+- route unchanged safe candidates to metadata triage, changed or review-blocked
+  sources to targeted verification, and excluded sources away from deep scans;
+- show the plan and profile guidance before execution without dispatching work or
+  changing any safety gate.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
