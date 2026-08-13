@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.7 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.8 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -54,6 +54,11 @@ review/fatal blockers, bounded snapshot coverage, latest observed change, and
 ranked lead candidate. The decision panel shows this group-level readiness
 before source details; an obvious lead does not unblock a group while another
 source remains unresolved.
+Phase 13.8 adds persisted defer/exclude dispositions for review sources,
+restore-to-review controls, and targeted group re-evaluation from existing
+indexed rows. Deferred sources continue to block readiness; explicit
+exclusions leave source data untouched and remove the source from active
+transfer selection until restored.
 not discard available local research evidence.
 
 Long-range product roadmap:

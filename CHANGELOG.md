@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Extended Phase 13.8 review handling with persisted defer/exclude
+  dispositions, restore-to-review controls, and affected-group re-evaluation
+  from existing indexed rows. Deferred sources remain blockers; exclusions are
+  removed from active transfer selection without deleting source data.
 - Extended Phase 13.7 Smart Logic with deterministic identity-group summaries
   showing source count, review/fatal blockers, bounded-snapshot coverage,
   freshness, and ranked lead candidates before source-level details. Group

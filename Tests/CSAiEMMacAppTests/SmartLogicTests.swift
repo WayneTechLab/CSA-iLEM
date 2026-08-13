@@ -686,13 +686,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.4" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.5" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.6" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.7" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
@@ -874,6 +874,19 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(summary.recommendedLeadName, "Flowers")
     XCTAssertTrue(summary.isBlocked)
     XCTAssertEqual(summary.snapshotState, "bounded snapshots complete")
+  }
+
+  func testReviewDispositionExcludesOnlyExplicitSourcesAndRoundTrips() throws {
+    let first = project(path: "/tmp/first", name: "First", remoteURL: "https://github.com/WayneTechLab/first", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized)
+    let second = project(path: "/tmp/second", name: "Second", remoteURL: "https://github.com/WayneTechLab/second", branch: "main", ideState: .unlinked, hasLocalChanges: false, mainState: .synchronized)
+    let decisions = CodexSmartLogicEngine.evaluate([first, second])
+    let dispositions = [second.path: CodexReviewDisposition.excluded]
+    let active = CodexSmartLogicEngine.activeDecisions(decisions, dispositions: dispositions)
+    XCTAssertEqual(active.map(\.sourcePath), [first.path])
+
+    let data = try JSONEncoder().encode(dispositions)
+    let restored = try JSONDecoder().decode([String: CodexReviewDisposition].self, from: data)
+    XCTAssertEqual(restored, dispositions)
   }
 
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {

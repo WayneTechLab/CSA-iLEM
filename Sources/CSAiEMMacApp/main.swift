@@ -76,6 +76,7 @@ private let codexBackupMediumKey = "com.waynetechlab.csa-iem.codex-backup-medium
 private let codexCreateCompatibilityLinkKey = "com.waynetechlab.csa-iem.codex-create-compatibility-link"
 private let codexRearmGitMainKey = "com.waynetechlab.csa-iem.codex-rearm-git-main"
 private let codexAutoResumeExistingKey = "com.waynetechlab.csa-iem.codex-auto-resume-existing"
+private let codexReviewDispositionsFile = (appSupportDir as NSString).appendingPathComponent("codex-review-dispositions.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
 private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
 private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
@@ -1735,6 +1736,8 @@ final class CleanupViewModel: ObservableObject {
   }
   @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var codexSmartDecisions: [CodexSmartDecision] = []
+  @Published var codexReviewDispositions: [String: CodexReviewDisposition] = [:]
+  @Published var codexGroupReviewStatus = "No group has been re-evaluated from the saved decision evidence."
   @Published var codexAdvisoryProviderKind: CodexAdvisoryProviderKind = .lmStudio
   @Published var codexAdvisory: CodexAIAdvisory?
   @Published var codexAdvisoryStatus = "No local advisory requested. Deterministic Smart Logic remains authoritative."
@@ -2140,7 +2143,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexStage2GroupBlockerSummaries: [String] {
-    Dictionary(grouping: codexSmartDecisions, by: \.groupKey).compactMap { groupKey, groupDecisions in
+    Dictionary(grouping: codexActiveSmartDecisions, by: \.groupKey).compactMap { groupKey, groupDecisions in
       let blockers = groupDecisions.filter { decision in
         switch decision.classification {
         case .shadowCopy, .brokenMetadataReview, .unknownOwnerReview, .fatalIdentityConflict, .sameNameReview:
@@ -2214,7 +2217,15 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexSmartGroupSummaries: [CodexSmartGroupSummary] {
-    CodexSmartLogicEngine.groupSummaries(codexSmartDecisions)
+    CodexSmartLogicEngine.groupSummaries(codexActiveSmartDecisions)
+  }
+
+  var codexActiveSmartDecisions: [CodexSmartDecision] {
+    CodexSmartLogicEngine.activeDecisions(codexSmartDecisions, dispositions: codexReviewDispositions)
+  }
+
+  var codexExcludedSmartDecisions: [CodexSmartDecision] {
+    codexSmartDecisions.filter { codexReviewDispositions[$0.sourcePath] == .excluded }
   }
 
   var codexSmartArchivePath: String {
@@ -2223,8 +2234,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexSmartReadyCount: Int {
-    if !codexSmartDecisions.isEmpty {
-      return codexSmartDecisions.filter { $0.classification == .canonical }.count
+    if !codexActiveSmartDecisions.isEmpty {
+      return codexActiveSmartDecisions.filter { $0.classification == .canonical }.count
     }
     return codexProjects.filter { project in
       project.hasGit &&
@@ -2236,8 +2247,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexSmartReviewCount: Int {
-    if !codexSmartDecisions.isEmpty {
-      return codexSmartDecisions.filter { $0.classification.isReview }.count
+    if !codexActiveSmartDecisions.isEmpty {
+      return codexActiveSmartDecisions.filter { $0.classification.isReview }.count
     }
     return codexProjects.filter { project in
       project.ideState == .unlinked ||
@@ -2252,7 +2263,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexCanonicalGroupCount: Int {
-    Set(codexSmartDecisions.map(\.groupKey)).count
+    Set(codexActiveSmartDecisions.map(\.groupKey)).count
   }
 
   var codexCanonicalSelectionSummary: String {
@@ -2262,7 +2273,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexMissingCanonicalGroupCount: Int {
-    let eligibleGroups = Set(codexSmartDecisions.filter { decision in
+    let eligibleGroups = Set(codexActiveSmartDecisions.filter { decision in
       decision.classification == .canonical || decision.classification == .mergeCandidate
     }.map(\.groupKey))
     return eligibleGroups.subtracting(codexCanonicalSourceByGroup.keys).count
@@ -2272,12 +2283,12 @@ final class CleanupViewModel: ObservableObject {
     if codexProjects.isEmpty {
       return "Start with a bounded source scan. The first pass reads folder evidence and does not copy or delete anything."
     }
-    if !codexSmartDecisions.isEmpty {
-      let grouped = Set(codexSmartDecisions.map(\.groupKey)).count
+    if !codexActiveSmartDecisions.isEmpty {
+      let grouped = Set(codexActiveSmartDecisions.map(\.groupKey)).count
       if codexSmartReviewCount == 0 {
-        return "Smart Logic grouped \(codexSmartDecisions.count) source(s) into \(grouped) verified project identity group(s). One destination can be prepared without a review blocker."
+        return "Smart Logic grouped \(codexActiveSmartDecisions.count) active source(s) into \(grouped) verified project identity group(s). One destination can be prepared without a review blocker."
       }
-      return "Smart Logic grouped \(codexSmartDecisions.count) source(s) into \(grouped) identity group(s); \(codexSmartReviewCount) source(s) remain review-only until their identity or destination is confirmed."
+      return "Smart Logic grouped \(codexActiveSmartDecisions.count) active source(s) into \(grouped) identity group(s); \(codexSmartReviewCount) source(s) remain review-only until their identity or destination is confirmed."
     }
     if codexSmartReviewCount == 0 {
       return "Smart Logic sees a clean candidate set. One destination can be prepared for the selected projects; no ambiguity is currently visible."
@@ -2573,6 +2584,10 @@ final class CleanupViewModel: ObservableObject {
     let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
     let decisions = CodexSmartLogicEngine.evaluate(projects, destinationRoot: destinationRoot)
     codexSmartDecisions = decisions
+    codexReviewDispositions = codexReviewDispositions.filter { entry in
+      decisions.contains { $0.sourcePath == entry.key }
+    }
+    persistCodexReviewDispositions()
     let validGroups = Set(decisions.map(\.groupKey))
     codexCanonicalSourceByGroup = codexCanonicalSourceByGroup.filter { entry in
       validGroups.contains(entry.key) && decisions.contains { decision in
@@ -2598,7 +2613,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func requestCodexLocalAdvisory() {
-    guard !codexSmartDecisions.isEmpty else {
+    guard !codexActiveSmartDecisions.isEmpty else {
       codexAdvisory = nil
       codexAdvisoryStatus = "Run Scan Sources before requesting a local advisory."
       return
@@ -2607,7 +2622,7 @@ final class CleanupViewModel: ObservableObject {
     let model = providerKind == .lmStudio ? "local-model" : "llama3.2"
     let input = CodexAdvisoryInput(
       ruleVersion: CodexSmartLogicEngine.ruleVersion,
-      decisions: codexSmartDecisions,
+      decisions: codexActiveSmartDecisions,
       redactionPolicy: "indexed-metadata-only; no source content, credentials, prompts, or raw conversation logs"
     )
     codexAdvisory = nil
@@ -2636,6 +2651,54 @@ final class CleanupViewModel: ObservableObject {
     stage2SafetyArmed = false
     codexLifecycleSafetyArmed = false
     codexPortalStatus = "Canonical source selected for \(decision.evidence.name). Rebuild the decision scan before any merge or move."
+  }
+
+  func setCodexReviewDisposition(_ decision: CodexSmartDecision, disposition: CodexReviewDisposition?) {
+    guard decision.classification.isReview || disposition == nil else {
+      codexPortalStatus = "Only review-classified sources can be deferred or excluded."
+      return
+    }
+    if let disposition {
+      codexReviewDispositions[decision.sourcePath] = disposition
+      if disposition == .excluded {
+        selectedCodexProjectPaths.remove(decision.sourcePath)
+      }
+      if codexCanonicalSourceByGroup[decision.groupKey] == decision.sourcePath {
+        codexCanonicalSourceByGroup.removeValue(forKey: decision.groupKey)
+      }
+      codexPortalStatus = disposition == .excluded
+        ? "Excluded \(decision.evidence.name) from active group readiness. The source remains retained in the review ledger."
+        : "Deferred \(decision.evidence.name). It remains visible as a blocker until resumed or explicitly excluded."
+    } else {
+      codexReviewDispositions.removeValue(forKey: decision.sourcePath)
+      codexPortalStatus = "Restored \(decision.evidence.name) to active group readiness review."
+    }
+    persistCodexReviewDispositions()
+    codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
+    codexLifecycleSafetyArmed = false
+  }
+
+  func reEvaluateCodexGroup(_ groupKey: String) {
+    let sourcePaths = Set(codexSmartDecisions.filter { $0.groupKey == groupKey }.map(\.sourcePath))
+    let projects = codexProjects.filter { sourcePaths.contains($0.path) }
+    guard !projects.isEmpty else {
+      codexGroupReviewStatus = "No indexed source rows are available for \(groupKey). Run Scan Sources first."
+      return
+    }
+    let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let refreshed = CodexSmartLogicEngine.evaluate(projects, destinationRoot: destinationRoot)
+    codexSmartDecisions = codexSmartDecisions.filter { $0.groupKey != groupKey } + refreshed
+    codexCanonicalSourceByGroup.removeValue(forKey: groupKey)
+    codexGroupReviewStatus = "Re-evaluated \(groupKey) from \(projects.count) saved indexed source row(s); unrelated groups were not rescanned."
+    persistCodexReviewDispositions()
+    codexTransferPlans.removeAll()
+    stage2SafetyArmed = false
+    codexLifecycleSafetyArmed = false
+  }
+
+  private func persistCodexReviewDispositions() {
+    writeJSON(codexReviewDispositions, to: codexReviewDispositionsFile)
   }
 
   private func recordCodexTransferCheckpoints(_ plans: [CodexTransferPlan]) {
@@ -2690,6 +2753,9 @@ final class CleanupViewModel: ObservableObject {
     }
     if let savedCodexRoots: [String] = readJSON([String].self, from: codexScanRootsFile), !savedCodexRoots.isEmpty {
       codexScanRootsDraft = savedCodexRoots.joined(separator: "\n")
+    }
+    if let savedDispositions: [String: CodexReviewDisposition] = readJSON([String: CodexReviewDisposition].self, from: codexReviewDispositionsFile) {
+      codexReviewDispositions = savedDispositions
     }
     let defaults = UserDefaults.standard
     if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
@@ -14939,7 +15005,9 @@ private struct CodexFlowConnector: View {
 
 private struct CodexDecisionReviewPanel: View {
   let decisions: [CodexSmartDecision]
+  let excludedDecisions: [CodexSmartDecision]
   let groupSummaries: [CodexSmartGroupSummary]
+  let dispositions: [String: CodexReviewDisposition]
   let catalogStatus: String
   let sessionID: String
   let canonicalSourceByGroup: [String: String]
@@ -14948,6 +15016,8 @@ private struct CodexDecisionReviewPanel: View {
   let advisoryStatus: String
   let onRequestAdvisory: () -> Void
   let onChooseCanonical: (CodexSmartDecision) -> Void
+  let onSetDisposition: (CodexSmartDecision, CodexReviewDisposition?) -> Void
+  let onReevaluateGroup: (String) -> Void
 
   private var groupBlockerSummaries: [String] {
     Dictionary(grouping: decisions, by: \.groupKey).compactMap { groupKey, groupDecisions in
@@ -15034,6 +15104,11 @@ private struct CodexDecisionReviewPanel: View {
                       .font(.system(size: 10, weight: .semibold, design: .rounded))
                       .foregroundStyle(DashboardTheme.deepBlue)
                   }
+                  Button("Re-evaluate") {
+                    onReevaluateGroup(group.groupKey)
+                  }
+                  .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+                  .controlSize(.small)
                 }
                 Spacer(minLength: 4)
                 PillBadge(text: group.isBlocked ? "REVIEW" : "READY", tint: group.isBlocked ? DashboardTheme.warning : DashboardTheme.success)
@@ -15050,6 +15125,27 @@ private struct CodexDecisionReviewPanel: View {
             detail: summary,
             kind: .warning
           )
+        }
+
+        if excludedDecisions.isEmpty == false {
+          BannerCard(
+            title: "Explicitly excluded sources retained",
+            detail: excludedDecisions.map { $0.evidence.name + " — " + $0.sourcePath }.joined(separator: "\n"),
+            kind: .ready
+          )
+          ForEach(excludedDecisions) { decision in
+            HStack(spacing: 8) {
+              Text(decision.evidence.name)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(DashboardTheme.muted)
+              Spacer(minLength: 4)
+              Button("Restore to review") {
+                onSetDisposition(decision, nil)
+              }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+              .controlSize(.small)
+            }
+          }
         }
 
         if decisions.isEmpty {
@@ -15113,6 +15209,24 @@ private struct CodexDecisionReviewPanel: View {
                   }
                   .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
                   .controlSize(.small)
+                }
+                if decision.classification.isReview {
+                  HStack(spacing: 6) {
+                    let disposition = dispositions[decision.sourcePath]
+                    Button(disposition == .deferred ? "Resume review" : "Defer") {
+                      onSetDisposition(decision, disposition == .deferred ? nil : .deferred)
+                    }
+                    .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+                    .controlSize(.small)
+                    Button("Exclude") {
+                      onSetDisposition(decision, .excluded)
+                    }
+                    .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+                    .controlSize(.small)
+                    if let disposition {
+                      PillBadge(text: disposition.label, tint: disposition == .deferred ? DashboardTheme.warning : DashboardTheme.deepBlue)
+                    }
+                  }
                 }
               }
               Spacer(minLength: 8)
@@ -15928,13 +16042,19 @@ struct ContentView: View {
         kind: model.isCodexPortalBusy ? .running : (model.codexSmartReviewCount > 0 ? .warning : .ready)
       )
 
+      Text(model.codexGroupReviewStatus)
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+
       Text(model.codexCanonicalSelectionSummary)
         .font(.system(size: 11, weight: .bold, design: .rounded))
         .foregroundStyle(model.codexMissingCanonicalGroupCount == 0 ? DashboardTheme.success : DashboardTheme.warning)
 
       CodexDecisionReviewPanel(
-        decisions: model.codexSmartDecisions,
+        decisions: model.codexActiveSmartDecisions,
+        excludedDecisions: model.codexExcludedSmartDecisions,
         groupSummaries: model.codexSmartGroupSummaries,
+        dispositions: model.codexReviewDispositions,
         catalogStatus: model.codexCatalogStatus,
         sessionID: model.codexActiveSessionID,
         canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
@@ -15946,6 +16066,12 @@ struct ContentView: View {
         },
         onChooseCanonical: { decision in
           model.chooseCodexCanonicalSource(decision)
+        },
+        onSetDisposition: { decision, disposition in
+          model.setCodexReviewDisposition(decision, disposition: disposition)
+        },
+        onReevaluateGroup: { groupKey in
+          model.reEvaluateCodexGroup(groupKey)
         }
       )
     }

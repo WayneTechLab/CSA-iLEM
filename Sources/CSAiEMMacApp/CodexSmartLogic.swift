@@ -45,6 +45,18 @@ enum CodexDecisionClass: String, Codable, CaseIterable, Identifiable, Sendable {
   }
 }
 
+enum CodexReviewDisposition: String, Codable, CaseIterable, Sendable {
+  case deferred
+  case excluded
+
+  var label: String {
+    switch self {
+    case .deferred: return "Deferred"
+    case .excluded: return "Explicitly excluded"
+    }
+  }
+}
+
 enum CodexIncidentSeverity: String, Codable, CaseIterable, Sendable {
   case recoverable
   case fatal
@@ -330,7 +342,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.4"
+  static let ruleVersion = "smart-logic-v2.5"
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in
@@ -490,6 +502,10 @@ enum CodexSmartLogicEngine {
       )
     }
     .sorted { $0.groupKey.localizedCaseInsensitiveCompare($1.groupKey) == .orderedAscending }
+  }
+
+  static func activeDecisions(_ decisions: [CodexSmartDecision], dispositions: [String: CodexReviewDisposition]) -> [CodexSmartDecision] {
+    decisions.filter { dispositions[$0.sourcePath] != .excluded }
   }
 
   private static func leadScore(_ project: CodexProjectEntry) -> Int {

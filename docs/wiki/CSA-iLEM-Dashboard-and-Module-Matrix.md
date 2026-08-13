@@ -111,6 +111,19 @@ review-only or fatal, the group stays blocked until the operator resolves or
 explicitly excludes it. The summary reuses the persisted decision/catalog
 path and does not represent missing or unavailable index state as a cache hit.
 
+## Phase 13.8 review resolution boundary
+
+Review sources now have explicit local dispositions. `Deferred` keeps the
+source in the active group and continues to block readiness. `Explicitly
+excluded` removes the source from active transfer selection, persists the
+decision, and retains the source and evidence for restoration; it never deletes
+or moves the source. A restore action returns the source to active review.
+
+The group `Re-evaluate` action evaluates only the existing indexed source rows
+for that group. It does not rescan unrelated folders, and it resets transfer
+and Stage 2 arms after changing the decision state. Canonical selection,
+disposition, and remote mutation remain separate confirmations.
+
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.

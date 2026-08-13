@@ -517,6 +517,17 @@ Current Phase 13.7 slice:
   when a lead candidate is obvious; selecting a lead remains an explicit
   operator action.
 
+Current Phase 13.8 slice:
+- review-classified sources can be explicitly deferred or excluded from the
+  active group readiness view, with dispositions persisted locally and the
+  source retained in the review ledger;
+- deferred sources remain blockers, while explicitly excluded sources are
+  removed from the active transfer selection and can be restored to review;
+- a group can be re-evaluated from its existing indexed source rows without
+  rescanning unrelated folders, and write arms reset after the re-evaluation;
+- the dashboard shows the before/after group state and keeps exclusion,
+  canonical selection, and remote mutation as separate operator decisions.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe
