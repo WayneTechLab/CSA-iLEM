@@ -17,7 +17,7 @@ echo "[3/11] SYSTEMX plan validation"
 node .SYSTEMX/scripts/validate-10000-task-plan.mjs
 
 echo "[4/11] Shell syntax"
-bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh build-gui-app.sh ".SYSTEMX/scripts/release-manifest-smoke.sh"
+bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh build-gui-app.sh ".SYSTEMX/scripts/release-manifest-smoke.sh" ".SYSTEMX/scripts/github-live-readonly-smoke.sh"
 
 echo "[5/11] SHA-256 manifest"
 shasum -a 256 -c --strict SHA256SUMS

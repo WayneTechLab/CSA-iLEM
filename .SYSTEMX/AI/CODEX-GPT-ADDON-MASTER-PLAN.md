@@ -370,6 +370,11 @@ The current branch has direct evidence for each local milestone gate:
   validates two owner/login bindings, records independent binding digests, and
   blocks a mismatched token response without contacting GitHub or changing
   global `gh` authentication state.
+- live GitHub read-only smoke: `.SYSTEMX/scripts/github-live-readonly-smoke.sh`
+  has verified the configured WayneTechLab and DARQ-Labs-LLC owner/account
+  bindings against live identities, rate limits, organization reads, the three
+  temporary field-guide repositories, and the DarkLabResearch repository;
+  limited-token behavior remains an explicit manual gate.
 - durable transfer-index records now persist under the local SQLite catalog;
   cache reuse validates the source/destination index artifact digests and the
   exact scan option set before using changed-only verification.

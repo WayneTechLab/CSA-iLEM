@@ -23,6 +23,10 @@
 - Added a disposable GitHub identity-scope smoke harness covering two owner /
   login bindings and fail-closed mismatched-login behavior without contacting
   GitHub or changing global `gh` authentication state.
+- Added an opt-in Bash 3-compatible live GitHub read-only smoke harness for
+  real owner/account bindings, rate limits, organization reads, repository
+  identity, default branches, commit reachability, and content inventory;
+  it performs no GitHub mutation and does not infer a limited token.
 - Added durable SQLite transfer-index records containing source/destination
   artifact digests, option sets, counts, and paths; saved changed-only cache
   reuse now requires a matching catalog record and current artifact digests.

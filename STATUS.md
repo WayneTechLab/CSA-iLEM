@@ -138,8 +138,9 @@ These are the known production gaps or weak spots still open:
 - the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source; the local manifest contract now has deterministic tamper-rejection coverage
 - destructive workspace/file flows are safer than before, but still need broader rollback and recovery coverage under interrupted or cross-device failures; the currently exercised post-promotion, export, snapshot-restore, and cross-root relocation boundaries are covered
 - GitHub admin features have local multi-account binding and mismatch fixtures,
-  but have not yet been fully smoke-tested against multiple live organizations
-  and intentionally limited token scopes
+  and the opt-in live read-only smoke now verifies two live owner/account
+  bindings plus repository identity, branch, content, organization, and rate
+  limit reads; intentionally limited token scope behavior remains untested
 - there is still no deep automated regression suite for install, uninstall, GUI actions, and GitHub-side operations
 
 ## Almost Done
@@ -181,6 +182,9 @@ These are the next production-hardening tasks with the best return:
   - devcontainer lifecycle
   - GitHub cleanup dry-run
 - add clearer permission/scope diagnostics everywhere GitHub API data can be partially unavailable
+- run `.SYSTEMX/scripts/github-live-readonly-smoke.sh` with an intentionally
+  limited token and record the expected read/write boundary without mutating
+  any test repository
 - extend changed-only resume coverage with timing and mutation fixtures across
   large multi-source projects; durable catalog-backed cache reuse is now in the
   runtime path but still needs broader performance evidence
