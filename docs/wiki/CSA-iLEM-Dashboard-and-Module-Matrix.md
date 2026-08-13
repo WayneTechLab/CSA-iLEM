@@ -198,6 +198,15 @@ an imported bundle cannot override catalog evidence, become a scan baseline,
 or authorize canonical selection, transfer, cleanup, deletion, or remote
 provider mutation.
 
+## Phase 13.17 provenance filtering
+
+When imported evidence is open, the authority panel provides deterministic
+filters for all provenance, overlapping sources, live-only sources, and
+imported-only sources. Each visible source retains its live and imported
+transition kinds, making handoff drift reviewable quickly while preserving the
+fail-closed authority boundary. Filtering does not alter the SQLite catalog,
+source files, canonical selections, transfer plans, or remote state.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

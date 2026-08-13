@@ -599,6 +599,14 @@ Current Phase 13.16 slice:
 - make provenance visible at the point where operators compare evidence from
   different machines, sessions, or handoff files.
 
+Current Phase 13.17 slice:
+- provide a deterministic provenance filter for overlapping, live-only, and
+  imported-only source paths;
+- show each filtered source with its live and imported transition kinds so an
+  operator can triage handoff drift without opening a deep scan;
+- keep filtering read-only and session-scoped, with no catalog promotion,
+  canonical selection, transfer, cleanup, deletion, or remote write.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

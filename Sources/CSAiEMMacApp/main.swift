@@ -1755,6 +1755,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexRecentSessions: [CodexCatalogSessionSummary] = []
   @Published var codexComparisonSessionID = ""
   @Published var codexComparisonGroupKey = ""
+  @Published var codexEvidenceProvenanceFilter: CodexEvidenceProvenanceFilter = .all
   @Published var codexComparisonDeltas: [CodexSourceDelta] = []
   @Published var codexDecisionComparisonRows: [CodexDecisionComparisonRow] = []
   @Published var codexComparisonBaselineSessionID = ""
@@ -2265,6 +2266,15 @@ final class CleanupViewModel: ObservableObject {
       liveSessionID: codexComparisonSessionID,
       liveRows: codexVisibleDecisionComparisonRows,
       importedBundle: imported
+    )
+  }
+
+  var codexVisibleEvidenceProvenanceRows: [CodexEvidenceProvenanceRow] {
+    guard let imported = codexImportedEvidenceBundle else { return [] }
+    return CodexSmartLogicEngine.provenanceRows(
+      liveRows: codexVisibleDecisionComparisonRows,
+      importedBundle: imported,
+      filter: codexEvidenceProvenanceFilter
     )
   }
 
@@ -16552,6 +16562,20 @@ struct ContentView: View {
                   Text("Rows live/imported: " + String(authority.liveRowCount) + " / " + String(authority.importedRowCount) + " · overlapping sources: " + String(authority.overlappingSourceCount))
                   Text("Live-only sources: " + String(authority.liveOnlySourceCount) + " · imported-only sources: " + String(authority.importedOnlySourceCount))
                   Text("Imported evidence never overrides live catalog authority.")
+                  Picker("Provenance filter", selection: $model.codexEvidenceProvenanceFilter) {
+                    ForEach(CodexEvidenceProvenanceFilter.allCases) { filter in
+                      Text(filter.label).tag(filter)
+                    }
+                  }
+                  .pickerStyle(.menu)
+                  .frame(maxWidth: 300, alignment: .leading)
+                  Text("Showing " + String(model.codexVisibleEvidenceProvenanceRows.count) + " source(s) for this filter.")
+                  ForEach(Array(model.codexVisibleEvidenceProvenanceRows.prefix(12))) { row in
+                    let liveKind = row.liveKind?.rawValue.uppercased() ?? "—"
+                    let importedKind = row.importedKind?.rawValue.uppercased() ?? "—"
+                    Text(row.provenance.label.uppercased() + " · " + row.sourcePath + " · live " + liveKind + " · imported " + importedKind)
+                      .textSelection(.enabled)
+                  }
                 }
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(DashboardTheme.muted)

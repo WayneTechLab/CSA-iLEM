@@ -282,6 +282,56 @@ struct CodexEvidenceAuthorityComparison: Codable, Hashable, Sendable {
   var sameCurrentSession: Bool { liveSessionID == importedCurrentSessionID }
 }
 
+enum CodexEvidenceProvenance: String, Codable, CaseIterable, Sendable {
+  case overlapping
+  case liveOnly
+  case importedOnly
+
+  var label: String {
+    switch self {
+    case .overlapping: return "Overlapping"
+    case .liveOnly: return "Live only"
+    case .importedOnly: return "Imported only"
+    }
+  }
+}
+
+enum CodexEvidenceProvenanceFilter: String, Codable, CaseIterable, Identifiable, Sendable {
+  case all
+  case overlapping
+  case liveOnly
+  case importedOnly
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .all: return "All provenance"
+    case .overlapping: return "Overlapping sources"
+    case .liveOnly: return "Live-only sources"
+    case .importedOnly: return "Imported-only sources"
+    }
+  }
+
+  func includes(_ provenance: CodexEvidenceProvenance) -> Bool {
+    switch self {
+    case .all: return true
+    case .overlapping: return provenance == .overlapping
+    case .liveOnly: return provenance == .liveOnly
+    case .importedOnly: return provenance == .importedOnly
+    }
+  }
+}
+
+struct CodexEvidenceProvenanceRow: Codable, Hashable, Identifiable, Sendable {
+  let sourcePath: String
+  let provenance: CodexEvidenceProvenance
+  let liveKind: CodexDecisionComparisonKind?
+  let importedKind: CodexDecisionComparisonKind?
+
+  var id: String { sourcePath }
+}
+
 struct CodexSessionCheckpoint: Codable, Hashable, Sendable {
   let sessionID: String
   let sourcePath: String
@@ -780,6 +830,34 @@ enum CodexSmartLogicEngine {
       liveOnlySourceCount: liveSources.subtracting(importedSources).count,
       importedOnlySourceCount: importedSources.subtracting(liveSources).count
     )
+  }
+
+  static func provenanceRows(
+    liveRows: [CodexDecisionComparisonRow],
+    importedBundle: CodexComparisonEvidenceBundle,
+    filter: CodexEvidenceProvenanceFilter = .all
+  ) -> [CodexEvidenceProvenanceRow] {
+    let liveByPath = Dictionary(uniqueKeysWithValues: liveRows.map { ($0.sourcePath, $0) })
+    let importedByPath = Dictionary(uniqueKeysWithValues: importedBundle.rows.map { ($0.sourcePath, $0) })
+    let paths = Set(liveByPath.keys).union(importedByPath.keys).sorted()
+    return paths.compactMap { path in
+      let live = liveByPath[path]
+      let imported = importedByPath[path]
+      let provenance: CodexEvidenceProvenance
+      switch (live, imported) {
+      case (.some, .some): provenance = .overlapping
+      case (.some, nil): provenance = .liveOnly
+      case (nil, .some): provenance = .importedOnly
+      case (nil, nil): return nil
+      }
+      guard filter.includes(provenance) else { return nil }
+      return CodexEvidenceProvenanceRow(
+        sourcePath: path,
+        provenance: provenance,
+        liveKind: live?.kind,
+        importedKind: imported?.kind
+      )
+    }
   }
 
   private static func csvEscape(_ value: String) -> String {

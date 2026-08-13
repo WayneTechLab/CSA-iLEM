@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.16 evidence authority labeling is in progress. The native app now
+Next phase: Phase 13.17 provenance filtering is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -95,6 +95,10 @@ session as authoritative and retained imported bundles as read-only. It reports
 current-session identity match, overlapping source paths, live-only sources,
 and imported-only sources. The panel is informational and cannot promote an
 imported bundle into the catalog or authorize any write operation.
+Phase 13.17 adds a deterministic provenance filter for overlapping, live-only,
+and imported-only source paths, with live and imported transition kinds shown
+side by side. Filtering is read-only and cannot promote evidence, select a
+canonical source, or authorize transfer, cleanup, deletion, or remote mutation.
 not discard available local research evidence.
 
 Long-range product roadmap:
