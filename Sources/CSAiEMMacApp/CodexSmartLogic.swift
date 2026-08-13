@@ -265,7 +265,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
       throw NSError(domain: "CSAiEM.LocalAdvisory", code: 2, userInfo: [NSLocalizedDescriptionKey: "Local model response did not contain message content."])
     }
 
-    let parsed = parseAdvisoryJSON(content)
+    let parsed = Self.parseAdvisoryJSON(content)
     let validIDs = Set(input.decisions.map(\.id))
     let suggestions = parsed.ids.filter { validIDs.contains($0) }
     return CodexAIAdvisory(
@@ -278,7 +278,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
     )
   }
 
-  private func parseAdvisoryJSON(_ content: String) -> (summary: String, ids: [String]) {
+  static func parseAdvisoryJSON(_ content: String) -> (summary: String, ids: [String]) {
     let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
     let candidate = trimmed.hasPrefix("```")
       ? trimmed.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "").trimmingCharacters(in: .whitespacesAndNewlines)

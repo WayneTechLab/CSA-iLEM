@@ -121,6 +121,24 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(advisory.suggestedReviewIDs, [decisions[1].id])
   }
 
+  func testLocalAdvisoryParserAcceptsFencedJSONAndPreservesOnlyContractFields() {
+    let parsed = LocalCodexAdvisoryProvider.parseAdvisoryJSON("""
+    ```json
+    {"summary":"Review the dirty shadow copy first.","suggested_review_ids":["review-1"],"canonical_source":"/unsafe/path","delete":true}
+    ```
+    """)
+
+    XCTAssertEqual(parsed.summary, "Review the dirty shadow copy first.")
+    XCTAssertEqual(parsed.ids, ["review-1"])
+  }
+
+  func testLocalAdvisoryParserFailsClosedForInvalidModelOutput() {
+    let parsed = LocalCodexAdvisoryProvider.parseAdvisoryJSON("not-json")
+
+    XCTAssertEqual(parsed.summary, "not-json")
+    XCTAssertTrue(parsed.ids.isEmpty)
+  }
+
   func testCatalogStorePersistsReceiptBoundSessionAndCheckpoint() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
