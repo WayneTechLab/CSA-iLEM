@@ -14,6 +14,12 @@
   transfer or cleanup mutation.
 - Added a catalog restart regression proving an interrupted Stage 2 checkpoint
   remains visible as the latest resume state instead of forcing a full rescan.
+- Hardened the optional live GitHub limited-token smoke so supplied classic
+  tokens advertising `delete_repo`, `gist`, `repo`, or `workflow` fail closed;
+  no token is inferred or fabricated and fine-grained tokens with no classic
+  scope header remain eligible for the later manual gate.
+- Added a local fake-`gh` contract check for the limited-token guard, covering
+  both forbidden-scope rejection and the unchanged no-token read-only path.
 
 ## 0.8.0
 

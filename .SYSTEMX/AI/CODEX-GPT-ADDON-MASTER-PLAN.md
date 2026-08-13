@@ -415,6 +415,11 @@ The current branch has direct evidence for each local milestone gate:
   validates two owner/login bindings, records independent binding digests, and
   blocks a mismatched token response without contacting GitHub or changing
   global `gh` authentication state.
+- limited-token guard evidence: the live read-only harness rejects a supplied
+  classic token advertising `repo`, `workflow`, `gist`, or `delete_repo`; a
+  local fake-`gh` execution proves the rejection path and the no-token path
+  without creating, storing, or sending a credential. An actual intentionally
+  limited GitHub token is still required for provider-level evidence.
 - live GitHub read-only smoke: `.SYSTEMX/scripts/github-live-readonly-smoke.sh`
   has verified the configured WayneTechLab and DARQ-Labs-LLC owner/account
   bindings against live identities, rate limits, organization reads, the three

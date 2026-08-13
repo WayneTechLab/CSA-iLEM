@@ -153,7 +153,11 @@ These are the known production gaps or weak spots still open:
 - GitHub admin features have local multi-account binding and mismatch fixtures,
   and the opt-in live read-only smoke now verifies two live owner/account
   bindings plus repository identity, branch, content, organization, and rate
-  limit reads; intentionally limited token scope behavior remains untested
+  limit reads; an optional limited-token guard now fails closed when a supplied
+  classic token advertises `delete_repo`, `gist`, `repo`, or `workflow`, while
+  intentionally limited-token behavior remains untested until such a token is
+  supplied; a local fake-`gh` contract test now proves the guard rejects
+  `repo` and preserves the no-token path
 - there is still no deep automated regression suite for install, uninstall, GUI actions, and GitHub-side operations
 
 ## Almost Done

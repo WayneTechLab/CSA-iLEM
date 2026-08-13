@@ -88,6 +88,22 @@ if [[ -n "${CSA_IEM_LIVE_GITHUB_LIMITED_TOKEN:-}" ]]; then
   limited_login="$(GH_TOKEN="$CSA_IEM_LIVE_GITHUB_LIMITED_TOKEN" gh api user --jq .login)"
   rate_remaining="$(GH_TOKEN="$CSA_IEM_LIVE_GITHUB_LIMITED_TOKEN" gh api rate_limit --jq .rate.remaining)"
   printf '  limited token identity=%s rate-limit remaining=%s\n' "$limited_login" "$rate_remaining"
+  limited_scopes="$(GH_TOKEN="$CSA_IEM_LIVE_GITHUB_LIMITED_TOKEN" gh api -i user | awk -F': ' 'tolower($1) == "x-oauth-scopes" {print $2}' | tr -d '\r' | head -n 1)"
+  if [[ -n "$limited_scopes" ]]; then
+    forbidden_scopes="${CSA_IEM_LIVE_GITHUB_LIMITED_FORBIDDEN_SCOPES:-delete_repo,gist,repo,workflow}"
+    IFS=',' read -ra forbidden_scope_list <<< "$forbidden_scopes"
+    for forbidden_scope in "${forbidden_scope_list[@]}"; do
+      case ",$limited_scopes," in
+        *,"$forbidden_scope",*)
+          echo "FAIL: limited token advertises forbidden write-capable scope: $forbidden_scope" >&2
+          exit 1
+          ;;
+      esac
+    done
+    printf '  limited token classic scopes=%s (forbidden scopes absent)\n' "$limited_scopes"
+  else
+    echo "  limited token exposes no classic X-OAuth-Scopes header (fine-grained token or provider omission)"
+  fi
 else
   echo "  not configured; no limited token was inferred or fabricated"
 fi
