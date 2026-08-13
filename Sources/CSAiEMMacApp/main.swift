@@ -2963,13 +2963,14 @@ final class CleanupViewModel: ObservableObject {
         acceptedCount: bundle.events.filter { $0.action == .accepted }.count,
         revokedCount: bundle.events.filter { $0.action == .revoked }.count,
         fingerprint: CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: bundle.auditVersion, events: bundle.events),
+        validationState: "validated",
         events: bundle.events
       )
       let replacedExisting = codexImportedBaselineAuditHistory.contains { $0.fingerprint == record.fingerprint }
       codexImportedBaselineAuditHistory = CodexImportedBaselineAuditRecord.upsert(record, into: codexImportedBaselineAuditHistory)
       persistCodexImportedBaselineAuditHistory()
       let operation = replacedExisting ? "matching fingerprint refreshed" : "new fingerprint retained"
-      codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s) · " + operation + ". Live audit history and baseline authority unchanged."
+      codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s) · structure validated · " + operation + ". Live audit history and baseline authority unchanged."
       appendLog("[codex] Read-only baseline audit bundle loaded from " + url.path + "\n")
     } catch {
       codexImportedBaselineAuditEvents = []
@@ -17397,19 +17398,7 @@ struct ContentView: View {
         DisclosureGroup("Imported audit history · " + String(model.codexImportedBaselineAuditHistory.count)) {
           VStack(alignment: .leading, spacing: 5) {
             ForEach(model.codexImportedBaselineAuditHistory) { record in
-              HStack(spacing: 8) {
-                Button(record.sourceName + " · " + String(record.events.count) + " event(s) · " + record.compatibilityLabel + " · " + record.fingerprint) {
-                  model.inspectCodexImportedBaselineAuditRecord(record)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(DashboardTheme.text)
-                Spacer()
-                Button("Remove") {
-                  model.removeCodexImportedBaselineAuditRecord(record)
-                }
-                .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
-                .controlSize(.mini)
-              }
+              codexImportedBaselineAuditHistoryRow(record)
             }
             Button("Clear imported audit history") {
               model.clearCodexImportedBaselineAuditHistory()
@@ -17432,6 +17421,24 @@ struct ContentView: View {
       .foregroundStyle(DashboardTheme.muted)
       .textSelection(.enabled)
       .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func codexImportedBaselineAuditHistoryRow(_ record: CodexImportedBaselineAuditRecord) -> some View {
+    let count = String(record.events.count)
+    let label = record.sourceName + " · " + count + " event(s) · " + record.compatibilityLabel + " · " + record.validationLabel + " · " + record.fingerprint
+    return HStack(spacing: 8) {
+      Button(label) {
+        model.inspectCodexImportedBaselineAuditRecord(record)
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(DashboardTheme.text)
+      Spacer()
+      Button("Remove") {
+        model.removeCodexImportedBaselineAuditRecord(record)
+      }
+      .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+      .controlSize(.mini)
+    }
   }
 
   private func codexRouteReceiptBaselineAuditSelectionView() -> AnyView {

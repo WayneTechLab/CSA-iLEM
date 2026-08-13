@@ -546,6 +546,8 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(restored.compatibilityLabel, "schema compatible")
     XCTAssertEqual(restored.acceptedCount, 1)
     XCTAssertEqual(restored.revokedCount, 0)
+    XCTAssertEqual(restored.validationState, "validated")
+    XCTAssertEqual(restored.validationLabel, "structure validated")
     XCTAssertEqual(restored.fingerprint, CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: "baseline-audit-v1", events: [event]))
     XCTAssertEqual(restored.fingerprint.count, 16)
   }
@@ -600,6 +602,14 @@ final class SmartLogicTests: XCTestCase {
     )
     XCTAssertTrue(missingMetadata.validationIssues.contains("an event is missing its ID"))
     XCTAssertTrue(missingMetadata.validationIssues.contains("an event is missing session or source metadata"))
+  }
+
+  func testImportedBaselineAuditLegacyRecordFallsBackToReviewState() throws {
+    let data = Data("{\"id\":\"legacy\",\"sourceName\":\"old.json\",\"importedAt\":0,\"auditVersion\":\"baseline-audit-v1\",\"acceptedCount\":0,\"revokedCount\":0,\"events\":[]}".utf8)
+    let record = try JSONDecoder().decode(CodexImportedBaselineAuditRecord.self, from: data)
+    XCTAssertEqual(record.validationState, "legacy")
+    XCTAssertTrue(record.validationLabel.contains("legacy"))
+    XCTAssertEqual(record.fingerprint.count, 16)
   }
 
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
@@ -1115,7 +1125,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.15" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.16" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

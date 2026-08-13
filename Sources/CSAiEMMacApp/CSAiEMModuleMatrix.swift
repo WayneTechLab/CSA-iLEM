@@ -19,7 +19,7 @@ struct CSAiEMModuleTag: Identifiable, Hashable, Codable {
     .init(id: "codex-portal", name: "Codex project portal", area: "Feature", version: appVersion, tag: "feature.codex", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "smart-logic", name: "Smart Logic and decision matrix", area: "Engine", version: "smart-logic-v5.0", tag: "engine.smart-logic", state: "phase-13.35", lastUpdated: "2026-08-13"),
     .init(id: "index-catalog", name: "Local index catalog", area: "Engine", version: "catalog-v1", tag: "engine.index", state: "primary", lastUpdated: "2026-08-11"),
-    .init(id: "transfer-receipts", name: "Transfer receipts", area: "Engine", version: "receipt-v3.15", tag: "engine.receipts", state: "phase-13.42", lastUpdated: "2026-08-13"),
+    .init(id: "transfer-receipts", name: "Transfer receipts", area: "Engine", version: "receipt-v3.16", tag: "engine.receipts", state: "phase-13.43", lastUpdated: "2026-08-13"),
     .init(id: "stage2", name: "Stage 2 reconciliation", area: "Feature", version: appVersion, tag: "feature.stage2", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "stage3", name: "Stage 3 cleanup", area: "Feature", version: appVersion, tag: "feature.stage3", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "github-bridge", name: "GitHub bridge", area: "Bridge", version: "issues-v1.4", tag: "bridge.github", state: "phase-12.8", lastUpdated: "2026-08-13"),

@@ -641,10 +641,15 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
   let acceptedCount: Int
   let revokedCount: Int
   let fingerprint: String
+  let validationState: String
   let events: [CodexRouteReceiptBaselineAuditEvent]
 
   var compatibilityLabel: String {
     auditVersion == "baseline-audit-v1" ? "schema compatible" : "unknown schema · review required"
+  }
+
+  var validationLabel: String {
+    validationState == "validated" ? "structure validated" : "legacy validation unknown · review required"
   }
 
   static func upsert(_ record: Self, into history: [Self], limit: Int = 20) -> [Self] {
@@ -661,6 +666,7 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
     acceptedCount: Int,
     revokedCount: Int,
     fingerprint: String? = nil,
+    validationState: String = "validated",
     events: [CodexRouteReceiptBaselineAuditEvent]
   ) {
     self.id = id
@@ -671,10 +677,11 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
     self.revokedCount = revokedCount
     self.events = events
     self.fingerprint = fingerprint ?? CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: auditVersion, events: events)
+    self.validationState = validationState
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, sourceName, importedAt, auditVersion, acceptedCount, revokedCount, fingerprint, events
+    case id, sourceName, importedAt, auditVersion, acceptedCount, revokedCount, fingerprint, validationState, events
   }
 
   init(from decoder: Decoder) throws {
@@ -688,6 +695,7 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
       acceptedCount: try container.decode(Int.self, forKey: .acceptedCount),
       revokedCount: try container.decode(Int.self, forKey: .revokedCount),
       fingerprint: try container.decodeIfPresent(String.self, forKey: .fingerprint),
+      validationState: try container.decodeIfPresent(String.self, forKey: .validationState) ?? "legacy",
       events: events
     )
   }

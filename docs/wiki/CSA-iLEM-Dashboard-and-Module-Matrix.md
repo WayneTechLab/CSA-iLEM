@@ -425,6 +425,13 @@ source metadata, and bundles larger than the bounded 50-event limit are
 rejected. Unknown schema versions are not treated as current; they remain
 available with an explicit review-required compatibility label.
 
+## Phase 13.43 persisted validation state
+
+Imported history records retain whether they passed the current structural
+validation. New records show **structure validated** after restart; records
+created before this field existed show **legacy validation unknown · review
+required**. This is an evidence label only and cannot authorize any operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

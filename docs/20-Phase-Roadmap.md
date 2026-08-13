@@ -365,6 +365,11 @@ Current Phase 13.42 slice:
 - retain unknown schema versions for explicit compatibility review rather than
   silently accepting them as current.
 
+Current Phase 13.43 slice:
+- persist whether an imported audit record passed current structural validation;
+- display validated versus legacy review-required state after restart;
+- preserve the state as informational metadata without granting authority.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 
