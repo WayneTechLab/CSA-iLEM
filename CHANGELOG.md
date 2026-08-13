@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Extended Phase 13.7 Smart Logic with deterministic identity-group summaries
+  showing source count, review/fatal blockers, bounded-snapshot coverage,
+  freshness, and ranked lead candidates before source-level details. Group
+  readiness remains fail-closed and does not authorize a merge or deletion.
 - Extended Phase 13.6 Smart Logic with bounded warm-index source snapshots
   (file count, byte estimate, latest modification, and truncation state) and
   separate host activity evidence for Codex, VS Code/Copilot, Claude, and LM

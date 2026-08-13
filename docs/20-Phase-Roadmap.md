@@ -503,6 +503,20 @@ Current Phase 13.6 slice:
   remain authoritative; host activity can explain review priority but cannot
   promote a source, merge a folder, or authorize deletion.
 
+Current Phase 13.7 slice:
+- Smart Logic now produces one deterministic summary per identity group with
+  source count, review and fatal blocker counts, bounded-snapshot coverage,
+  latest observed modification, and the ranked lead candidate;
+- the native decision panel shows group readiness before individual source
+  details, making the one-group/one-destination rule visible without hiding
+  the underlying evidence;
+- group summaries are derived from the existing persisted decision table and
+  source snapshots, so this phase adds no second scanner and does not claim a
+  cache hit when the underlying index state is unavailable;
+- a group remains blocked when any review-only or fatal source remains, even
+  when a lead candidate is obvious; selecting a lead remains an explicit
+  operator action.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

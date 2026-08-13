@@ -97,6 +97,20 @@ claim that the process opened a specific folder. Host activity is review
 context only and cannot establish repository identity, select a canonical
 source, authorize a merge, or authorize deletion.
 
+## Phase 13.7 grouped readiness
+
+Smart Logic derives a single summary row for each identity group from the
+existing decision table. It reports source count, review-only blockers, fatal
+blockers, bounded snapshot coverage, latest observed modification, and the
+ranked lead candidate. The dashboard shows these rows before the individual
+source decisions so the operator can understand the one-group/one-destination
+state quickly.
+
+A ranked lead is evidence, not permission. If any source in the group remains
+review-only or fatal, the group stays blocked until the operator resolves or
+explicitly excludes it. The summary reuses the persisted decision/catalog
+path and does not represent missing or unavailable index state as a cache hit.
+
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.

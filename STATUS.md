@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.6 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.7 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -49,6 +49,11 @@ separates project-local tool markers from host activity evidence for Codex, VS
 Code/Copilot, Claude, and LM Studio. The decision panel shows these facts for
 operator context, but running tools never establish repository identity or
 authorize a merge, write, or deletion.
+Phase 13.7 adds one deterministic summary per identity group with source count,
+review/fatal blockers, bounded snapshot coverage, latest observed change, and
+ranked lead candidate. The decision panel shows this group-level readiness
+before source details; an obvious lead does not unblock a group while another
+source remains unresolved.
 not discard available local research evidence.
 
 Long-range product roadmap:

@@ -686,13 +686,13 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.3" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v2.4" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.6" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
@@ -840,6 +840,40 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(decision.evidence.snapshot.truncated)
     XCTAssertTrue(decision.reasons.contains { $0.contains("does not prove the process opened this project") })
     XCTAssertTrue(decision.reasons.contains { $0.contains("deep content verification remains separate") })
+  }
+
+  func testSmartLogicGroupSummaryAggregatesLeadFreshnessAndBlockers() {
+    let captured = CodexProjectSnapshot(fileCount: 12, byteCount: 1200, latestModification: observedDate, truncated: false)
+    let lead = project(
+      path: "/tmp/flowers-lead",
+      name: "Flowers",
+      remoteURL: "https://github.com/WayneTechLab/flowers.git",
+      branch: "main",
+      ideState: .linked,
+      hasLocalChanges: false,
+      mainState: .synchronized,
+      snapshot: captured
+    )
+    let shadow = project(
+      path: "/tmp/flowers-shadow",
+      name: "Flowers-copy",
+      remoteURL: "https://github.com/WayneTechLab/flowers.git",
+      branch: "main",
+      ideState: .unlinked,
+      hasLocalChanges: false,
+      mainState: .synchronized,
+      snapshot: captured
+    )
+
+    let summary = CodexSmartLogicEngine.groupSummaries(CodexSmartLogicEngine.evaluate([lead, shadow])).first!
+    XCTAssertEqual(summary.sourceCount, 2)
+    XCTAssertEqual(summary.reviewCount, 1)
+    XCTAssertEqual(summary.fatalCount, 0)
+    XCTAssertEqual(summary.snapshotCoverageCount, 2)
+    XCTAssertEqual(summary.recommendedLeadPath, "/tmp/flowers-lead")
+    XCTAssertEqual(summary.recommendedLeadName, "Flowers")
+    XCTAssertTrue(summary.isBlocked)
+    XCTAssertEqual(summary.snapshotState, "bounded snapshots complete")
   }
 
   func testBackupMediumPolicyNamesRawPreservationAndOptionalInterchange() {

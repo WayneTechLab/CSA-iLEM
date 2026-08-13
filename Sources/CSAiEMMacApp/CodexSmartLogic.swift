@@ -82,6 +82,38 @@ struct CodexSmartDecision: Codable, Hashable, Identifiable, Sendable {
   let createdAt: Date
 }
 
+struct CodexSmartGroupSummary: Codable, Hashable, Identifiable, Sendable {
+  let groupKey: String
+  let sourceCount: Int
+  let reviewCount: Int
+  let fatalCount: Int
+  let snapshotCoverageCount: Int
+  let latestSnapshotAt: Date?
+  let recommendedLeadPath: String?
+  let recommendedLeadName: String?
+
+  var id: String { groupKey }
+
+  var isBlocked: Bool { reviewCount > 0 }
+
+  var snapshotState: String {
+    if snapshotCoverageCount == sourceCount && sourceCount > 0 { return "bounded snapshots complete" }
+    if snapshotCoverageCount > 0 { return "partial snapshot coverage" }
+    return "snapshot unavailable"
+  }
+
+  var freshnessLabel: String {
+    guard let latestSnapshotAt else { return "freshness unavailable" }
+    return ISO8601DateFormatter().string(from: latestSnapshotAt)
+  }
+
+  var displayName: String {
+    if groupKey.hasPrefix("remote:") { return String(groupKey.dropFirst("remote:".count)) }
+    if groupKey.hasPrefix("name:") { return String(groupKey.dropFirst("name:".count)) }
+    return groupKey
+  }
+}
+
 struct CodexScanSession: Codable, Hashable, Identifiable, Sendable {
   let id: String
   let profile: String
@@ -298,7 +330,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.3"
+  static let ruleVersion = "smart-logic-v2.4"
 
   static func evaluate(_ projects: [CodexProjectEntry], destinationRoot: String? = nil) -> [CodexSmartDecision] {
     let grouped = Dictionary(grouping: projects) { project in
@@ -436,6 +468,28 @@ enum CodexSmartLogicEngine {
         createdAt: Date()
       )
     }
+  }
+
+  static func groupSummaries(_ decisions: [CodexSmartDecision]) -> [CodexSmartGroupSummary] {
+    Dictionary(grouping: decisions, by: \.groupKey).map { groupKey, groupDecisions in
+      let ordered = groupDecisions.sorted {
+        if $0.leadRank != $1.leadRank { return $0.leadRank < $1.leadRank }
+        return $0.sourcePath.localizedStandardCompare($1.sourcePath) == .orderedAscending
+      }
+      let lead = ordered.first(where: { $0.isRecommendedLead }) ?? ordered.first(where: { $0.classification == .canonical }) ?? ordered.first
+      let snapshotDates = groupDecisions.compactMap { $0.evidence.snapshot.latestModification }
+      return CodexSmartGroupSummary(
+        groupKey: groupKey,
+        sourceCount: groupDecisions.count,
+        reviewCount: groupDecisions.filter { $0.classification.isReview }.count,
+        fatalCount: groupDecisions.filter { $0.classification == .fatalIdentityConflict }.count,
+        snapshotCoverageCount: groupDecisions.filter { $0.evidence.snapshot.fileCount > 0 || $0.evidence.snapshot.byteCount > 0 }.count,
+        latestSnapshotAt: snapshotDates.max(),
+        recommendedLeadPath: lead?.sourcePath,
+        recommendedLeadName: lead?.evidence.name
+      )
+    }
+    .sorted { $0.groupKey.localizedCaseInsensitiveCompare($1.groupKey) == .orderedAscending }
   }
 
   private static func leadScore(_ project: CodexProjectEntry) -> Int {

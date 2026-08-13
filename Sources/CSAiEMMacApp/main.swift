@@ -2213,6 +2213,10 @@ final class CleanupViewModel: ObservableObject {
     return FileManager.default.fileExists(atPath: indexPath) ? "Saved transfer index available" : "No saved index yet"
   }
 
+  var codexSmartGroupSummaries: [CodexSmartGroupSummary] {
+    CodexSmartLogicEngine.groupSummaries(codexSmartDecisions)
+  }
+
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
@@ -14935,6 +14939,7 @@ private struct CodexFlowConnector: View {
 
 private struct CodexDecisionReviewPanel: View {
   let decisions: [CodexSmartDecision]
+  let groupSummaries: [CodexSmartGroupSummary]
   let catalogStatus: String
   let sessionID: String
   let canonicalSourceByGroup: [String: String]
@@ -15004,6 +15009,39 @@ private struct CodexDecisionReviewPanel: View {
             detail: advisory.summary + "\nSuggested review order: " + (advisory.suggestedReviewIDs.isEmpty ? "none returned" : advisory.suggestedReviewIDs.prefix(5).joined(separator: ", ")),
             kind: .ready
           )
+        }
+
+        if groupSummaries.isEmpty == false {
+          FieldLabel(text: "Identity groups and destination readiness")
+          LazyVStack(alignment: .leading, spacing: 7) {
+            ForEach(groupSummaries) { group in
+              HStack(alignment: .top, spacing: 8) {
+                Image(systemName: group.isBlocked ? "exclamationmark.triangle" : "checkmark.seal")
+                  .foregroundStyle(group.isBlocked ? DashboardTheme.warning : DashboardTheme.success)
+                  .frame(width: 16)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(group.displayName)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(DashboardTheme.text)
+                  Text("\(group.sourceCount) source(s) · \(group.reviewCount) review blocker(s) · \(group.fatalCount) fatal")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(group.isBlocked ? DashboardTheme.warning : DashboardTheme.muted)
+                  Text(group.snapshotState + " · latest change " + group.freshnessLabel)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DashboardTheme.muted)
+                  if let lead = group.recommendedLeadName {
+                    Text("Lead candidate: " + lead)
+                      .font(.system(size: 10, weight: .semibold, design: .rounded))
+                      .foregroundStyle(DashboardTheme.deepBlue)
+                  }
+                }
+                Spacer(minLength: 4)
+                PillBadge(text: group.isBlocked ? "REVIEW" : "READY", tint: group.isBlocked ? DashboardTheme.warning : DashboardTheme.success)
+              }
+              .padding(8)
+              .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(DashboardTheme.field))
+            }
+          }
         }
 
         ForEach(groupBlockerSummaries, id: \.self) { summary in
@@ -15896,6 +15934,7 @@ struct ContentView: View {
 
       CodexDecisionReviewPanel(
         decisions: model.codexSmartDecisions,
+        groupSummaries: model.codexSmartGroupSummaries,
         catalogStatus: model.codexCatalogStatus,
         sessionID: model.codexActiveSessionID,
         canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
