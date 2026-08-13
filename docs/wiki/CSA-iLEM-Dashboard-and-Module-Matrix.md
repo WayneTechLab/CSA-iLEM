@@ -215,6 +215,14 @@ routing signal for the operator: imported-only context can never become a
 source of action, and neither provenance nor actionability can authorize a
 merge, transfer, cleanup, deletion, or remote mutation.
 
+## Phase 13.19 bounded scan routing
+
+The same evidence row now carries a bounded scan-route suggestion: metadata
+triage, targeted verification, or no deep scan. Imported-only context is kept
+out of expensive deep verification, while changed live evidence is routed to
+focused review. The label does not schedule work and cannot authorize any
+merge, transfer, cleanup, deletion, or remote mutation.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

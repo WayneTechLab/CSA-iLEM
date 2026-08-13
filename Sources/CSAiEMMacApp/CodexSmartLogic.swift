@@ -310,6 +310,20 @@ enum CodexEvidenceActionability: String, Codable, CaseIterable, Sendable {
   }
 }
 
+enum CodexEvidenceScanRoute: String, Codable, CaseIterable, Sendable {
+  case metadataTriage
+  case targetedVerification
+  case noDeepScan
+
+  var label: String {
+    switch self {
+    case .metadataTriage: return "Metadata triage"
+    case .targetedVerification: return "Targeted verification"
+    case .noDeepScan: return "No deep scan"
+    }
+  }
+}
+
 enum CodexEvidenceProvenanceFilter: String, Codable, CaseIterable, Identifiable, Sendable {
   case all
   case overlapping
@@ -350,6 +364,18 @@ struct CodexEvidenceProvenanceRow: Codable, Hashable, Identifiable, Sendable {
     case .liveOnly: return .liveReviewRequired
     case .overlapping: return .liveComparison
     case .importedOnly: return .importedContextOnly
+    }
+  }
+
+  var scanRoute: CodexEvidenceScanRoute {
+    switch provenance {
+    case .importedOnly:
+      return .noDeepScan
+    case .liveOnly:
+      return .targetedVerification
+    case .overlapping:
+      let hasChange = liveKind == .added || liveKind == .changed || importedKind == .added || importedKind == .changed
+      return hasChange ? .targetedVerification : .metadataTriage
     }
   }
 }

@@ -201,6 +201,14 @@ Deliverables:
 - normalized job result shape with status, logs, warnings, report path, and recovery hints
 - shared argument naming across Bash and PowerShell backends
 
+Current Phase 13.19 slice:
+- assign each provenance row a bounded scan route: metadata triage, targeted
+  verification, or no deep scan;
+- route imported-only context away from expensive deep verification and route
+  changed live evidence toward focused review;
+- keep route guidance informational and operator-controlled, with no automatic
+  scan scheduling, merge, transfer, cleanup, deletion, or remote write.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

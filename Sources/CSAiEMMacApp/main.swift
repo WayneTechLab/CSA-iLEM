@@ -16573,7 +16573,7 @@ struct ContentView: View {
                   ForEach(Array(model.codexVisibleEvidenceProvenanceRows.prefix(12))) { row in
                     let liveKind = row.liveKind?.rawValue.uppercased() ?? "—"
                     let importedKind = row.importedKind?.rawValue.uppercased() ?? "—"
-                    let evidenceLabel = row.actionability.label.uppercased() + " · " + row.provenance.label.lowercased()
+                    let evidenceLabel = row.actionability.label.uppercased() + " · " + row.scanRoute.label.lowercased()
                     let transitionLabel = " · live " + liveKind + " · imported " + importedKind
                     Text(evidenceLabel + " · " + row.sourcePath + transitionLabel)
                       .textSelection(.enabled)

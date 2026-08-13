@@ -11,6 +11,7 @@
 - Added Phase 13.16 live-versus-imported evidence authority labels and source-overlap counts so read-only bundles cannot be mistaken for catalog authority.
 - Added Phase 13.17 provenance filtering for overlapping, live-only, and imported-only sources, preserving the live catalog as the sole authority while making handoff differences fast to triage.
 - Added Phase 13.18 actionability labels that distinguish live review, live comparison, and imported-context-only evidence without granting imported rows operation authority.
+- Added Phase 13.19 bounded scan-route guidance: metadata triage, targeted verification, or no deep scan, derived from evidence provenance and transition state without scheduling work automatically.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are
