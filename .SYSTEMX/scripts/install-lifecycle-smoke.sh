@@ -27,6 +27,13 @@ export CSA_IEM_DISABLE_LOGIN_TOOLBAR=1
 export CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES=1
 
 echo "[1/7] isolated CLI install"
+bash "$ROOT_DIR/install-remote.sh" --version >/dev/null
+bash "$ROOT_DIR/install-remote.sh" --help >/dev/null
+if bash "$ROOT_DIR/install-remote.sh" --csa-ilem-unknown-option >/dev/null 2>&1; then
+  echo "FAIL: remote installer accepted an unknown option" >&2
+  exit 1
+fi
+
 bash "$ROOT_DIR/install.sh" \
   --install-root "$INSTALL_ROOT" \
   --bin-dir "$BIN_DIR" \

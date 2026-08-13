@@ -22,7 +22,7 @@ while IFS= read -r -d '' file; do
   count=$((count + 1))
 done < <(find . -type f -name '*.ps1' -not -path './.git/*' -print0 | sort -z)
 
-for script in install.ps1 update-win.ps1 uninstall.ps1; do
+for script in install.ps1 update-win.ps1 uninstall.ps1 install-remote.ps1; do
   version_output="$(pwsh -NoLogo -NoProfile -NonInteractive -File "./$script" --version)"
   help_output="$(pwsh -NoLogo -NoProfile -NonInteractive -File "./$script" --help)"
   [[ -n "$version_output" && -n "$help_output" ]] || {

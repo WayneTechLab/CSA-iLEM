@@ -416,9 +416,10 @@ The current branch has direct evidence for each local milestone gate:
   `--version`/`--help` paths tolerate a non-Windows host without
   `LOCALAPPDATA`; lifecycle mutations still fail closed outside Windows.
 - isolated lifecycle smoke: `.SYSTEMX/scripts/install-lifecycle-smoke.sh`
-  exercises CLI install, same-version replacement/update, wrapper identity,
-  GUI bundle build and signature verification, uninstall, and sentinel
-  preservation under temporary install/bin/app/dist roots.
+  exercises remote-installer argument inspection, CLI install, same-version
+  replacement/update, wrapper identity, GUI bundle build and signature
+  verification, uninstall, and sentinel preservation under temporary
+  install/bin/app/dist roots.
 - recovery safety smoke: `.SYSTEMX/scripts/recovery-safety-smoke.sh` runs a
   partial-metadata Stage 2 preflight in temporary roots and proves the report
   is retained while the source and `.git` tree remain unchanged and no
