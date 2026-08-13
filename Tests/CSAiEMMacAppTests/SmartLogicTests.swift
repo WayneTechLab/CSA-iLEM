@@ -692,7 +692,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.3" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.4" })
   }
 
   func testLocalWorkflowSummaryFlagsDangerousSurfacesAndExtractsActions() throws {
@@ -738,6 +738,34 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(summary.summary.contains("2 remote workflows"))
     XCTAssertTrue(summary.readBoundary.contains("no secret values"))
     XCTAssertEqual(summary.warnings.count, 1)
+  }
+
+  func testLocalDocumentationSummaryFindsHiddenGitHubAndDocsFilesWithinBounds() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-docs-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent(".github"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
+    try "# Project README\n\nOverview\n".write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    try "# Security\n\nPolicy\n".write(to: root.appendingPathComponent(".github/SECURITY.md"), atomically: true, encoding: .utf8)
+    try "# Operations\n\nRunbook\n".write(to: root.appendingPathComponent("docs/operations.md"), atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let summaries = CSAiEMLocalDocumentationSummary.scan(paths: [root.path])
+    XCTAssertEqual(summaries.count, 3)
+    XCTAssertTrue(summaries.contains { $0.kind == "README" && $0.title == "Project README" })
+    XCTAssertTrue(summaries.contains { $0.kind == "Security" && $0.title == "Security" })
+    XCTAssertTrue(summaries.contains { $0.kind == "Project documentation" && $0.title == "Operations" })
+  }
+
+  func testResearchDocumentationSummaryRetainsRemoteAvailabilityAndWarnings() {
+    let summary = CSAiEMResearchDocumentationSummary(
+      local: [],
+      remote: [CSAiEMRemoteDocumentationEntry(path: "docs/guide.md", name: "guide.md", type: "file", size: 12, htmlURL: nil)],
+      remoteStatus: "available",
+      warnings: ["Local inventory capped."]
+    )
+    XCTAssertTrue(summary.summary.contains("0 local documentation files"))
+    XCTAssertTrue(summary.summary.contains("1 remote documentation entries"))
+    XCTAssertEqual(summary.warnings, ["Local inventory capped."])
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

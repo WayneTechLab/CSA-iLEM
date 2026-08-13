@@ -6635,7 +6635,7 @@ final class CleanupViewModel: ObservableObject {
     }
 
     isLoadingResearchSnapshot = true
-    researchStatus = "Building a read-only metadata snapshot for (repo)…"
+    researchStatus = "Building a read-only metadata snapshot for " + repo + "…"
     let localProjects = self.localProjects
     let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
     let jobID = createJob(kind: "Research", title: "Repository intelligence snapshot", target: repo, detail: "Reading repository metadata…", initialState: .running)
@@ -6670,6 +6670,7 @@ final class CleanupViewModel: ObservableObject {
           }
         let uniqueMatches = Array(Set(matches)).sorted()
         let localSummaries = CSAiEMLocalCodebaseSummary.scan(paths: uniqueMatches)
+        let localDocumentation = CSAiEMLocalDocumentationSummary.scan(paths: uniqueMatches)
         let localWorkflows = CSAiEMLocalWorkflowSummary.scan(paths: uniqueMatches)
         let remoteWorkflowsResult = Self.runCommand(
           executable: ghPath,
@@ -6681,6 +6682,27 @@ final class CleanupViewModel: ObservableObject {
         let vulnerabilityResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/vulnerability-alerts", "--silent"], environment: environment, timeout: 30)
         let secretScanningResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/secret-scanning/alerts?per_page=1", "--silent"], environment: environment, timeout: 30)
         let codeScanningResult = Self.runCommand(executable: ghPath, arguments: ["api", "repos/\(repo)/code-scanning/alerts?per_page=1", "--silent"], environment: environment, timeout: 30)
+        let remoteDocumentationResult = Self.runCommand(
+          executable: ghPath,
+          arguments: ["api", "repos/\(repo)/contents?ref=\(metadata.defaultBranchRef?.name ?? "")", "--silent"],
+          environment: environment,
+          timeout: 30
+        )
+        let remoteDocumentation = remoteDocumentationResult.status == 0
+          ? (Self.decodeJSONArray([CSAiEMRemoteDocumentationEntry].self, from: remoteDocumentationResult.output) ?? []).filter { entry in
+              let value = (entry.name + "/" + entry.path).lowercased()
+              return value.contains("readme") || value.contains("docs") || value.contains("wiki") || value.contains("contribut") || value.contains("security") || value.contains("changelog") || value.contains("history") || value.contains("release") || value.contains("license")
+            }.prefix(40).map { $0 }
+          : []
+        let documentation = CSAiEMResearchDocumentationSummary(
+          local: localDocumentation,
+          remote: remoteDocumentation,
+          remoteStatus: remoteDocumentationResult.status == 0 ? "available" : CSAiEMGitHubProviderOutcome.classify(status: Int(remoteDocumentationResult.status), output: remoteDocumentationResult.output).title,
+          warnings: [
+            remoteDocumentationResult.status == 0 ? nil : "Remote documentation inventory unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(remoteDocumentationResult.status), output: remoteDocumentationResult.output).title + "].",
+            localDocumentation.count >= 32 ? "Local documentation inventory capped at 32 files." : nil
+          ].compactMap { $0 }
+        )
         let security = CSAiEMResearchSecuritySummary(
           vulnerabilityAlerts: Self.researchAvailabilityLabel(vulnerabilityResult),
           secretScanningAlerts: Self.researchAvailabilityLabel(secretScanningResult),
@@ -6702,7 +6724,7 @@ final class CleanupViewModel: ObservableObject {
         )
         let releases = releaseResult.status == 0 ? (Self.decodeJSONArray([CSAiEMResearchReleaseEntry].self, from: releaseResult.output) ?? []) : []
         let localChangelogs = CSAiEMLocalChangelogSummary.scan(paths: uniqueMatches)
-        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs, localWorkflows: localWorkflows, security: security)
+        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs, documentation: documentation, localWorkflows: localWorkflows, security: security)
         let releaseNote = releaseResult.status == 0 ? "" : " Release history was unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(releaseResult.status), output: releaseResult.output).title + "]; local evidence remains available."
         self.researchStatus = "Read-only intelligence snapshot ready for " + repo + ". Review evidence before any import, merge, backup, or cleanup action." + releaseNote
         self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
@@ -18099,6 +18121,74 @@ struct ContentView: View {
               .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
             }
           }
+
+          if let documentation = snapshot.documentation {
+            FieldLabel(text: "Documentation snapshot")
+            VStack(alignment: .leading, spacing: 8) {
+              Text(documentation.summary)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(DashboardTheme.text)
+              if documentation.local.isEmpty == false {
+                ForEach(documentation.local) { document in
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(document.title)
+                      .font(.system(size: 11, weight: .semibold, design: .rounded))
+                      .foregroundStyle(DashboardTheme.text)
+                    Text(document.path)
+                      .font(.system(size: 10, weight: .medium, design: .monospaced))
+                      .foregroundStyle(DashboardTheme.muted)
+                      .textSelection(.enabled)
+                    Text(document.summary)
+                      .font(.system(size: 11, weight: .medium, design: .rounded))
+                      .foregroundStyle(DashboardTheme.muted)
+                    if document.headings.isEmpty == false {
+                      Text(document.headings.prefix(8).joined(separator: " · "))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(DashboardTheme.muted)
+                    }
+                    if document.warnings.isEmpty == false {
+                      Text("Review: " + document.warnings.joined(separator: " "))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(DashboardTheme.warning)
+                    }
+                  }
+                  .padding(8)
+                  .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(DashboardTheme.field))
+                }
+              } else {
+                Text("No bounded local documentation files were found in the matched project paths.")
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+              }
+              if documentation.remote.isEmpty == false {
+                Text("Remote: " + documentation.remote.map(\.path).joined(separator: " · "))
+                  .font(.system(size: 10, weight: .medium, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.muted)
+                  .lineLimit(3)
+                  .textSelection(.enabled)
+              }
+              ForEach(documentation.warnings, id: \.self) { warning in
+                Text("Review: " + warning)
+                  .font(.system(size: 10, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.warning)
+              }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
+          }
+
+          FieldLabel(text: "Repository navigation")
+          HStack(spacing: 7) {
+            Button("Actions") { model.openRepoActionsPage() }
+            Button("Issues") { model.openRepoIssuesPage() }
+            Button("Pull requests") { model.openRepoPullRequestsPage() }
+          }
+          HStack(spacing: 7) {
+            Button("Projects") { model.openRepoProjectsPage() }
+            Button("Security") { model.openRepoSecurityPage() }
+            Button("Insights") { model.openRepoInsightsPage() }
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
 
           if snapshot.localWorkflows.isEmpty == false {
             FieldLabel(text: "Local workflow surface")

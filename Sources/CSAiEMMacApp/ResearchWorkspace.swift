@@ -286,6 +286,108 @@ struct CSAiEMLocalChangelogSummary: Identifiable, Hashable, Codable {
   }
 }
 
+struct CSAiEMLocalDocumentationSummary: Identifiable, Hashable, Codable {
+  let path: String
+  let title: String
+  let kind: String
+  let headings: [String]
+  let byteCount: Int
+  let truncated: Bool
+  let warnings: [String]
+
+  var id: String { path }
+
+  var summary: String {
+    let size = ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)
+    return kind + " · " + size + " · " + String(headings.count) + " heading" + (headings.count == 1 ? "" : "s") + (truncated ? " · bounded read" : "")
+  }
+
+  static func scan(paths: [String], maxFiles: Int = 32, maxBytes: Int = 128_000, maxHeadings: Int = 16) -> [Self] {
+    let fileManager = FileManager.default
+    var candidates: Set<String> = []
+    let rootNames = ["README.md", "README", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "GOVERNANCE.md", "CHANGELOG.md", "HISTORY.md", "RELEASES.md"]
+    let directories = ["docs", ".github", ".SYSTEMX/Wiki"]
+
+    for path in paths {
+      let root = URL(fileURLWithPath: path).standardizedFileURL
+      for name in rootNames { candidates.insert(root.appendingPathComponent(name).path) }
+      for directory in directories {
+        let directoryURL = root.appendingPathComponent(directory)
+        guard let enumerator = fileManager.enumerator(at: directoryURL, includingPropertiesForKeys: [.isDirectoryKey], options: [], errorHandler: { _, _ in true }) else { continue }
+        while let url = enumerator.nextObject() as? URL {
+          let ext = url.pathExtension.lowercased()
+          guard ["md", "mdx", "txt"].contains(ext) else { continue }
+          candidates.insert(url.path)
+          if candidates.count >= maxFiles { break }
+        }
+        if candidates.count >= maxFiles { break }
+      }
+      if candidates.count >= maxFiles { break }
+    }
+
+    return candidates.sorted().prefix(maxFiles).compactMap { scan(path: $0, maxBytes: maxBytes, maxHeadings: maxHeadings) }
+      .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+  }
+
+  static func scan(path: String, maxBytes: Int = 128_000, maxHeadings: Int = 16) -> Self? {
+    let url = URL(fileURLWithPath: path).standardizedFileURL
+    guard let data = try? Data(contentsOf: url, options: [.uncached]) else { return nil }
+    let boundedData = data.prefix(maxBytes)
+    guard let text = String(data: boundedData, encoding: .utf8) else {
+      return Self(path: url.path, title: url.deletingPathExtension().lastPathComponent, kind: documentationKind(for: url), headings: [], byteCount: data.count, truncated: true, warnings: ["Documentation is not valid UTF-8."])
+    }
+    let allHeadings = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+      let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard value.hasPrefix("#") else { return nil }
+      return value.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+    }
+    let headings = Array(allHeadings.prefix(maxHeadings))
+    let title = headings.first ?? url.deletingPathExtension().lastPathComponent
+    var warnings: [String] = []
+    if data.count > maxBytes { warnings.append("Documentation read capped at " + String(maxBytes) + " bytes.") }
+    if allHeadings.count > maxHeadings { warnings.append("Heading list capped at " + String(maxHeadings) + " entries.") }
+    return Self(path: url.path, title: title, kind: documentationKind(for: url), headings: headings, byteCount: data.count, truncated: data.count > maxBytes || allHeadings.count > maxHeadings, warnings: warnings)
+  }
+
+  private static func documentationKind(for url: URL) -> String {
+    let lower = url.lastPathComponent.lowercased()
+    if lower.hasPrefix("readme") { return "README" }
+    if lower.contains("security") { return "Security" }
+    if lower.contains("contribut") { return "Contribution guide" }
+    if lower.contains("changelog") || lower.contains("history") || lower.contains("release") { return "Release notes" }
+    if url.path.contains("/.github/") { return "GitHub documentation" }
+    if url.path.contains("/.SYSTEMX/Wiki/") { return "Local Wiki" }
+    if url.path.contains("/docs/") { return "Project documentation" }
+    return "Project documentation"
+  }
+}
+
+struct CSAiEMRemoteDocumentationEntry: Identifiable, Hashable, Codable {
+  let path: String
+  let name: String
+  let type: String
+  let size: Int
+  let htmlURL: String?
+
+  var id: String { path }
+
+  enum CodingKeys: String, CodingKey {
+    case path, name, type, size
+    case htmlURL = "html_url"
+  }
+}
+
+struct CSAiEMResearchDocumentationSummary: Hashable, Codable {
+  let local: [CSAiEMLocalDocumentationSummary]
+  let remote: [CSAiEMRemoteDocumentationEntry]
+  let remoteStatus: String
+  let warnings: [String]
+
+  var summary: String {
+    String(local.count) + " local documentation files · " + String(remote.count) + " remote documentation entries · remote inventory " + remoteStatus
+  }
+}
+
 struct CSAiEMLocalWorkflowSummary: Identifiable, Hashable, Codable {
   let path: String
   let workflowName: String
@@ -378,6 +480,7 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
   let localSummaries: [CSAiEMLocalCodebaseSummary]
   let releases: [CSAiEMResearchReleaseEntry]
   let localChangelogs: [CSAiEMLocalChangelogSummary]
+  let documentation: CSAiEMResearchDocumentationSummary?
   let localWorkflows: [CSAiEMLocalWorkflowSummary]
   let security: CSAiEMResearchSecuritySummary?
   let riskNotes: [String]
@@ -395,6 +498,7 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
     localSummaries: [CSAiEMLocalCodebaseSummary] = [],
     releases: [CSAiEMResearchReleaseEntry] = [],
     localChangelogs: [CSAiEMLocalChangelogSummary] = [],
+    documentation: CSAiEMResearchDocumentationSummary? = nil,
     localWorkflows: [CSAiEMLocalWorkflowSummary] = [],
     security: CSAiEMResearchSecuritySummary? = nil,
     capturedAt: Date = Date()
@@ -441,6 +545,7 @@ struct CSAiEMResearchSnapshot: Identifiable, Hashable, Codable {
       localSummaries: localSummaries.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
       releases: releases,
       localChangelogs: localChangelogs.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
+      documentation: documentation,
       localWorkflows: localWorkflows.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending },
       security: security,
       riskNotes: risks,

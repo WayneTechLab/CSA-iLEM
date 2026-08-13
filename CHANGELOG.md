@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Extended Phase 13.5 research with bounded local and remote documentation
+  snapshots plus native repository navigation links for Actions, Issues, Pull
+  Requests, Projects, Security, and Insights. Documentation remains bounded
+  read-only evidence and never authorizes a merge or remote mutation.
 - Extended Phase 13.4 research with bounded GitHub Actions workflow inventory,
   local workflow security-surface flags, and availability-only vulnerability,
   secret-scanning, and code-scanning outcomes. The surface remains read-only

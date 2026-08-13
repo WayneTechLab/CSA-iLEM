@@ -66,6 +66,23 @@ native app does not read secret values, edit workflows, dismiss alerts, or
 perform administrative changes in this research phase. Remote failures are
 categorized and retained alongside available local evidence.
 
+## Phase 13.5 documentation and repository navigation
+
+Research snapshots now include bounded documentation evidence from exact local
+matches. Candidate paths include README, contribution, security, release-note,
+`.github`, `docs`, and `.SYSTEMX/Wiki` material. The panel retains the path,
+document kind, headings, byte limit, and any truncation or encoding warning.
+
+The same snapshot can inventory documentation candidates from the selected
+repository's GitHub contents endpoint without downloading the repository tree.
+The provider result is shown as available or categorized unavailable; it is
+never treated as proof of canonical ownership.
+
+Native Actions, Issues, Pull Requests, Projects, Security, and Insights links
+use the selected repository and GitHub host already bound in the app. They are
+navigation shortcuts only and do not dispatch workflows, edit files, dismiss
+alerts, or authorize any other remote operation.
+
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.

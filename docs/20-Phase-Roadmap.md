@@ -475,6 +475,19 @@ Current Phase 13.4 slice:
   available, and all workflow/security evidence stays research context rather
   than a canonical-source or authorization decision.
 
+Current Phase 13.5 slice:
+- the research snapshot reads bounded local documentation from README,
+  contribution, security, changelog, `.github`, `docs`, and `.SYSTEMX/Wiki`
+  paths while preserving file identity, headings, byte caps, and warnings;
+- a bounded GitHub contents inventory identifies remote documentation entries
+  without downloading or rewriting repository content, and provider failures
+  remain visible as availability status;
+- the snapshot exposes direct native links for Actions, Issues, Pull Requests,
+  Projects, Security, and Insights so operators can continue provider review
+  without copying repository URLs or leaving the selected repository context;
+- documentation and navigation remain research/read-only surfaces and do not
+  choose a canonical source, merge files, or authorize a remote mutation.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

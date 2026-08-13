@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.4 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.5 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -39,6 +39,11 @@ inventory, local workflow-surface flags for action references, permissions,
 security endpoint outcomes. The security surface is explicitly read-only: no
 secret values, workflow writes, alert dismissal, or administrative changes are
 performed.
+Phase 13.5 adds bounded local documentation evidence from README, security,
+contribution, release-note, `.github`, `docs`, and `.SYSTEMX/Wiki` paths, a
+remote GitHub contents inventory limited to documentation candidates, and
+native repository links for Actions, Issues, Pull Requests, Projects,
+Security, and Insights. These remain read-only research surfaces.
 not discard available local research evidence.
 
 Long-range product roadmap:
