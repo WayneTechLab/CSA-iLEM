@@ -265,6 +265,13 @@ struct CodexComparisonEvidenceBundle: Codable, Hashable, Sendable {
   let profileAssessment: CodexEvidenceProfileAssessment?
 }
 
+struct CodexImportedRouteReceiptRecord: Codable, Hashable, Identifiable, Sendable {
+  let id: String
+  let sourceName: String
+  let importedAt: Date
+  let bundle: CodexRouteReceiptExportBundle
+}
+
 enum CodexEvidenceCompatibilityState: String, Codable, CaseIterable, Identifiable, Sendable {
   case complete
   case partial

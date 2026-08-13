@@ -290,6 +290,12 @@ Current Phase 13.30 slice:
   and bounded detail in the exported bundle;
 - keep the SQLite catalog authoritative and export no source files or credentials.
 
+Current Phase 13.31 slice:
+- inspect exported route-receipt JSON bundles without mutating the live catalog;
+- retain a bounded local history with remove and clear controls;
+- label imported receipts as read-only provenance and keep them separate from live
+  pending-route selection and execution.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

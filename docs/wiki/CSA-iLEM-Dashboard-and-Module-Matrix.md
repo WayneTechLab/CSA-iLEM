@@ -325,6 +325,14 @@ deterministically ordered receipt rows with source path, route, state, attempt
 count, timestamp, and bounded detail. Export is read-only: it does not copy
 source files, mutate SQLite authority, upload anything, or include credentials.
 
+## Phase 13.31 read-only route-receipt inspection
+
+The dashboard can inspect a previously exported route-receipt JSON bundle. The
+bundle is retained in a bounded local history with inspect, remove, and clear
+controls. Imported receipts are labeled **IMPORTED BUNDLE · read-only** and are
+never merged into the live SQLite catalog, pending-route predicate, or resume
+selection. The live catalog remains the only authority for operation state.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

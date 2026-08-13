@@ -81,6 +81,7 @@ private let codexReviewAuditFile = (appSupportDir as NSString).appendingPathComp
 private let codexSourceFingerprintsFile = (appSupportDir as NSString).appendingPathComponent("codex-source-fingerprints.json")
 private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathComponent("codex-smart-decisions.json")
 private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
+private let codexImportedRouteReceiptHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-route-receipt-history.json")
 private let stage2SourceRootKey = "com.waynetechlab.csa-iem.stage2-source-root"
 private let stage2ManagedRootKey = "com.waynetechlab.csa-iem.stage2-managed-root"
 private let stage2GitHubOwnerAccountsKey = "com.waynetechlab.csa-iem.stage2-github-owner-accounts"
@@ -1761,6 +1762,9 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonBaselineSessionID = ""
   @Published var codexComparisonExportStatus = ""
   @Published var codexRouteReceiptExportStatus = ""
+  @Published var codexImportedRouteReceiptBundle: CodexRouteReceiptExportBundle?
+  @Published var codexImportedRouteReceiptHistory: [CodexImportedRouteReceiptRecord] = []
+  @Published var codexImportedRouteReceiptStatus = "No external route receipt bundle loaded."
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
@@ -2892,6 +2896,53 @@ final class CleanupViewModel: ObservableObject {
     }
   }
 
+  func chooseCodexRouteReceiptBundle() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.json]
+    panel.prompt = "Inspect Route Receipts"
+    panel.message = "Choose a CSA-iLEM route-receipt JSON export. It will be inspected read-only and will not be added to the live SQLite catalog."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    do {
+      let data = try Data(contentsOf: url)
+      let bundle = try JSONDecoder().decode(CodexRouteReceiptExportBundle.self, from: data)
+      let record = CodexImportedRouteReceiptRecord(id: UUID().uuidString, sourceName: url.lastPathComponent, importedAt: Date(), bundle: bundle)
+      codexImportedRouteReceiptBundle = bundle
+      codexImportedRouteReceiptHistory.removeAll { $0.sourceName == record.sourceName && $0.bundle.sessionID == record.bundle.sessionID }
+      codexImportedRouteReceiptHistory.insert(record, at: 0)
+      persistCodexImportedRouteReceiptHistory()
+      codexImportedRouteReceiptStatus = "Read-only route receipts loaded: " + url.lastPathComponent + " · " + String(bundle.receipts.count) + " receipt(s). Live catalog authority unchanged."
+      appendLog("[codex] Read-only route receipt bundle loaded from " + url.path + "\n")
+    } catch {
+      codexImportedRouteReceiptBundle = nil
+      codexImportedRouteReceiptStatus = "Route receipt import rejected: " + error.localizedDescription
+      appendLog("[codex] Route receipt bundle rejected: " + error.localizedDescription + "\n")
+    }
+  }
+
+  func inspectCodexImportedRouteReceiptRecord(_ record: CodexImportedRouteReceiptRecord) {
+    codexImportedRouteReceiptBundle = record.bundle
+    codexImportedRouteReceiptStatus = "Read-only route receipt history entry: " + record.sourceName + " · " + String(record.bundle.receipts.count) + " receipt(s). Live catalog authority unchanged."
+  }
+
+  func removeCodexImportedRouteReceiptRecord(_ record: CodexImportedRouteReceiptRecord) {
+    codexImportedRouteReceiptHistory.removeAll { $0.id == record.id }
+    if codexImportedRouteReceiptBundle == record.bundle {
+      codexImportedRouteReceiptBundle = nil
+      codexImportedRouteReceiptStatus = "Selected imported route receipt bundle cleared; the live catalog was not changed."
+    }
+    persistCodexImportedRouteReceiptHistory()
+  }
+
+  func clearCodexImportedRouteReceiptHistory() {
+    codexImportedRouteReceiptHistory.removeAll()
+    codexImportedRouteReceiptBundle = nil
+    codexImportedRouteReceiptStatus = "Imported route receipt history cleared; the live catalog was not changed."
+    persistCodexImportedRouteReceiptHistory()
+  }
+
   func chooseCodexEvidenceBundle() {
     let panel = NSOpenPanel()
     panel.canChooseFiles = true
@@ -3238,6 +3289,9 @@ final class CleanupViewModel: ObservableObject {
     if let savedEvidence: [CodexImportedEvidenceRecord] = readJSON([CodexImportedEvidenceRecord].self, from: codexImportedEvidenceHistoryFile) {
       codexImportedEvidenceHistory = Array(savedEvidence.prefix(10))
     }
+    if let savedRouteReceiptEvidence: [CodexImportedRouteReceiptRecord] = readJSON([CodexImportedRouteReceiptRecord].self, from: codexImportedRouteReceiptHistoryFile) {
+      codexImportedRouteReceiptHistory = Array(savedRouteReceiptEvidence.prefix(10))
+    }
     let defaults = UserDefaults.standard
     if let savedOutputRoot = defaults.string(forKey: codexOutputRootKey), !savedOutputRoot.isEmpty {
       codexOutputRootDraft = savedOutputRoot
@@ -3370,6 +3424,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistCodexImportedEvidenceHistory() {
     writeJSON(Array(codexImportedEvidenceHistory.prefix(10)), to: codexImportedEvidenceHistoryFile)
+  }
+
+  private func persistCodexImportedRouteReceiptHistory() {
+    writeJSON(Array(codexImportedRouteReceiptHistory.prefix(10)), to: codexImportedRouteReceiptHistoryFile)
   }
 
   private func configureStage2DefaultsIfNeeded() {
@@ -16930,6 +16988,65 @@ struct ContentView: View {
           .font(.system(size: 10, weight: .medium, design: .monospaced))
           .foregroundStyle(DashboardTheme.muted)
           .textSelection(.enabled)
+      }
+      HStack(spacing: 8) {
+        Button("Inspect exported receipts") {
+          model.chooseCodexRouteReceiptBundle()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .controlSize(.small)
+        Text("Imported bundles remain read-only and never override live SQLite receipts.")
+          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+      Text(model.codexImportedRouteReceiptStatus)
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(DashboardTheme.muted)
+        .textSelection(.enabled)
+      if let importedRouteReceipts = model.codexImportedRouteReceiptBundle {
+        DisclosureGroup("Inspected route receipts · " + String(importedRouteReceipts.receipts.count) + " row(s)") {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Session " + importedRouteReceipts.sessionID + " · " + importedRouteReceipts.summary.headline)
+            Text("IMPORTED BUNDLE · read-only · live SQLite catalog remains authoritative")
+              .foregroundStyle(DashboardTheme.warning)
+            ForEach(Array(importedRouteReceipts.receipts.prefix(12))) { receipt in
+              Text(receipt.state.rawValue.uppercased() + " · " + receipt.route.rawValue + " · " + receipt.sourcePath)
+                .textSelection(.enabled)
+            }
+          }
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.muted)
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      }
+      if !model.codexImportedRouteReceiptHistory.isEmpty {
+        DisclosureGroup("Imported route receipt history · " + String(model.codexImportedRouteReceiptHistory.count)) {
+          VStack(alignment: .leading, spacing: 5) {
+            ForEach(model.codexImportedRouteReceiptHistory) { record in
+              HStack(spacing: 8) {
+                Button(record.sourceName + " · " + String(record.bundle.receipts.count) + " receipt(s)") {
+                  model.inspectCodexImportedRouteReceiptRecord(record)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(DashboardTheme.text)
+                Spacer()
+                Button("Remove") {
+                  model.removeCodexImportedRouteReceiptRecord(record)
+                }
+                .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+                .controlSize(.mini)
+              }
+            }
+            Button("Clear imported route receipt history") {
+              model.clearCodexImportedRouteReceiptHistory()
+            }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            .controlSize(.small)
+          }
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
       }
     }
   }

@@ -8,6 +8,7 @@
 - Added Phase 13.28 selective resume for pending route receipts; completed and skipped sources stay outside the resumed run and the prior operator selection is restored afterward.
 - Added Phase 13.29 receipt-level resume audit preview showing pending paths, route, state, attempt count, and last detail before selective resume.
 - Added Phase 13.30 portable route-receipt JSON/CSV exports from the local SQLite catalog, preserving deterministic receipt order and bounded audit detail without exporting source files.
+- Added Phase 13.31 read-only route-receipt bundle inspection with retained local history and an explicit live-catalog authority boundary.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.
