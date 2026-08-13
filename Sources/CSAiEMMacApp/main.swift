@@ -59,6 +59,7 @@ private let legacyProfileConfigDir = (configBaseDir as NSString).appendingPathCo
 private let appSupportDir = NSString(string: "~/Library/Application Support/CSA-iEM").expandingTildeInPath
 private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent("last-session.env")
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
+private let incidentsFile = (appSupportDir as NSString).appendingPathComponent("incidents.json")
 private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
 private let administratorTerminalModeKey = "com.waynetechlab.csa-iem.administrator-terminal-mode"
 private let codexOutputRootKey = "com.waynetechlab.csa-iem.codex-output-root"
@@ -1186,6 +1187,7 @@ enum StatusKind {
 private enum AppDestination: String, CaseIterable, Identifiable {
   case home
   case jobs
+  case incidents
   case githubAccount
   case githubBilling
   case imports
@@ -1210,6 +1212,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     switch self {
     case .home: return "Home"
     case .jobs: return "Jobs"
+    case .incidents: return "Incidents"
     case .githubAccount: return "GitHub Account"
     case .githubBilling: return "GitHub Billing Reports"
     case .imports: return "Import"
@@ -1236,6 +1239,8 @@ private enum AppDestination: String, CaseIterable, Identifiable {
       return "Simple starting point with session state, workspace summary, and the next best actions."
     case .jobs:
       return "Track background operations, progress, status, retries, and logs without opening Terminal."
+    case .incidents:
+      return "Turn recoverable warnings and fatal blockers into local recovery records and reviewable issue drafts."
     case .githubAccount:
       return "Manage the connected GitHub host, account, organizations, and repository inventory from the app."
     case .githubBilling:
@@ -1277,6 +1282,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     switch self {
     case .home: return "house"
     case .jobs: return "list.bullet.rectangle.portrait"
+    case .incidents: return "exclamationmark.bubble"
     case .githubAccount: return "person.crop.circle"
     case .githubBilling: return "chart.bar.xaxis"
     case .imports: return "square.and.arrow.down.on.square"
@@ -1301,6 +1307,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     switch self {
     case .home: return DashboardTheme.accent
     case .jobs: return DashboardTheme.warning
+    case .incidents: return DashboardTheme.danger
     case .githubAccount: return DashboardTheme.link
     case .githubBilling: return DashboardTheme.warning
     case .imports: return DashboardTheme.success
@@ -1329,7 +1336,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .brandSystem: return "Brand-System.md"
     case .macOSNotes: return "macOS-App-Notes.md"
     case .projectInfo: return "PROJECT-INFO.md"
-    case .home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about: return nil
+    case .home, .jobs, .incidents, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about: return nil
     }
   }
 
@@ -1345,7 +1352,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
   }
 }
 
-private let workspaceDestinations: [AppDestination] = [.home, .jobs, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about]
+private let workspaceDestinations: [AppDestination] = [.home, .jobs, .incidents, .githubAccount, .githubBilling, .imports, .projects, .codexPortal, .projectBackups, .localFiles, .cleanup, .workspace, .settings, .about]
 private let knowledgeDestinations: [AppDestination] = [.helpCenter, .terms, .security, .brandSystem, .macOSNotes, .projectInfo]
 
 @MainActor
@@ -1660,6 +1667,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var runnerServices: [RunnerServiceEntry] = []
   @Published var viewerOrganizations: [String] = []
   @Published var backgroundJobs: [BackgroundJobEntry] = []
+  @Published var incidents: [CSAiEMIncident] = []
+  @Published var selectedIncidentID: String?
   @Published var selectedJobID: String?
   @Published var savedContexts: [SavedGitHubContext] = []
   @Published var favoriteProjects: Set<String> = []
@@ -2677,6 +2686,7 @@ final class CleanupViewModel: ObservableObject {
     if let loadedViews: [SavedProjectView] = readJSON([SavedProjectView].self, from: savedViewsFile) {
       savedProjectViews = loadedViews
     }
+    incidents = CSAiEMIncidentStore.load(from: incidentsFile)
 
     loadSnapshots()
     if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -7270,6 +7280,52 @@ final class CleanupViewModel: ObservableObject {
 
   private func finishJob(id: String, state: BackgroundJobState, detail: String) {
     updateJob(id: id, state: state, detail: detail, progressText: detail)
+    guard state == .failed || state == .cancelled,
+          let job = backgroundJobs.first(where: { $0.id == id }) else { return }
+    recordIncident(for: job)
+  }
+
+  private func recordIncident(for job: BackgroundJobEntry) {
+    guard incidents.contains(where: { $0.jobID == job.id }) == false else { return }
+    let incident = CSAiEMIncident(
+      id: UUID().uuidString,
+      createdAt: job.finishedAt ?? Date(),
+      kind: job.kind,
+      title: job.title,
+      target: job.target,
+      detail: job.detail,
+      jobID: job.id,
+      severity: CSAiEMIncidentClassifier.severity(for: job.detail),
+      state: .open,
+      resolution: nil
+    )
+    incidents.insert(incident, at: 0)
+    selectedIncidentID = incident.id
+    CSAiEMIncidentStore.save(incidents, to: incidentsFile)
+  }
+
+  var openIncidentCount: Int {
+    incidents.filter { $0.state == .open }.count
+  }
+
+  var selectedIncident: CSAiEMIncident? {
+    guard let selectedIncidentID else { return incidents.first }
+    return incidents.first(where: { $0.id == selectedIncidentID }) ?? incidents.first
+  }
+
+  func resolveIncident(_ incident: CSAiEMIncident, note: String = "Resolved from CSA-iEM Jobs and Incidents.") {
+    guard let index = incidents.firstIndex(where: { $0.id == incident.id }) else { return }
+    incidents[index].state = .resolved
+    incidents[index].resolution = note
+    CSAiEMIncidentStore.save(incidents, to: incidentsFile)
+  }
+
+  func clearResolvedIncidents() {
+    incidents.removeAll { $0.state == .resolved }
+    if let selectedIncidentID, incidents.contains(where: { $0.id == selectedIncidentID }) == false {
+      self.selectedIncidentID = incidents.first?.id
+    }
+    CSAiEMIncidentStore.save(incidents, to: incidentsFile)
   }
 
   func clearCompletedJobs() {
@@ -7910,6 +7966,10 @@ final class CleanupViewModel: ObservableObject {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(value, forType: .string)
     appendLog("[gui] Copied \(label) to clipboard.\n")
+  }
+
+  func copyIncidentDraft(_ incident: CSAiEMIncident) {
+    copyToClipboard(CSAiEMIncidentClassifier.redactedIssueDraft(for: incident), label: "incident issue draft")
   }
 
   private func openTerminalCommand(_ command: String) {
@@ -14608,6 +14668,8 @@ struct ContentView: View {
           homePage(for: width, usesSidebar: usesSidebar)
         case .jobs:
           jobsPage(for: width, usesSidebar: usesSidebar)
+        case .incidents:
+          incidentsPage(for: width, usesSidebar: usesSidebar)
         case .githubAccount:
           githubAccountPage(for: width, usesSidebar: usesSidebar)
         case .githubBilling:
@@ -14690,6 +14752,116 @@ struct ContentView: View {
           repoHealthPanel
           logPanel(minHeight: 320)
         }
+      }
+    }
+  }
+
+  private func incidentsPage(for width: CGFloat, usesSidebar: Bool) -> some View {
+    DashboardShell {
+      HeaderPanel(brandMark: model.bundledBrandMark, compact: width < 1280)
+      WorkspaceToolbarStrip(destination: .incidents, menuVisible: isMenuVisible, usesSidebar: usesSidebar) {
+        isMenuVisible.toggle()
+      }
+
+      VStack(alignment: .leading, spacing: 18) {
+        PanelCard(title: "Incident Hub", subtitle: "Recoverable work should continue; fatal identity, integrity, authorization, and deletion-safety blockers remain visible and require review.") {
+          BannerCard(
+            title: "\(model.openIncidentCount) open incident\(model.openIncidentCount == 1 ? "" : "s")",
+            detail: "Failures and cancellations from the Jobs Center are retained locally with their job, target, detail, and next review path.",
+            kind: model.openIncidentCount == 0 ? .ready : .warning
+          )
+          HStack(spacing: 10) {
+            Button("Clear Resolved") { model.clearResolvedIncidents() }
+              .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+              .disabled(model.incidents.allSatisfy { $0.state != .resolved })
+            Text("Local only · no credentials or raw prompts are stored")
+              .font(.system(size: 12, weight: .medium, design: .rounded))
+              .foregroundStyle(DashboardTheme.muted)
+          }
+        }
+
+        if width >= 1200 {
+          HStack(alignment: .top, spacing: 18) {
+            incidentListPanel
+              .frame(maxWidth: 520, alignment: .topLeading)
+            incidentDetailPanel
+              .frame(maxWidth: .infinity, alignment: .topLeading)
+          }
+        } else {
+          incidentListPanel
+          incidentDetailPanel
+        }
+      }
+    }
+  }
+
+  private var incidentListPanel: some View {
+    PanelCard(title: "Recorded incidents", subtitle: "Select an incident to inspect evidence, retry the originating job, or resolve it with an operator note.") {
+      if model.incidents.isEmpty {
+        Text("No failed or cancelled jobs have been recorded.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 10) {
+            ForEach(model.incidents) { incident in
+              Button { model.selectedIncidentID = incident.id } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                  HStack {
+                    Text(incident.title)
+                      .font(.system(size: 14, weight: .bold, design: .rounded))
+                      .foregroundStyle(DashboardTheme.text)
+                    Spacer(minLength: 6)
+                    PillBadge(text: incident.statusLabel, tint: incident.state == .resolved ? DashboardTheme.success : (incident.severity == .fatal ? DashboardTheme.danger : DashboardTheme.warning))
+                  }
+                  Text([incident.kind, incident.target, incident.detail].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                    .lineLimit(3)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(model.selectedIncidentID == incident.id ? DashboardTheme.field : DashboardTheme.panelStrong))
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+        .frame(minHeight: 220, idealHeight: 360, maxHeight: 520)
+      }
+    }
+  }
+
+  private var incidentDetailPanel: some View {
+    PanelCard(title: "Incident evidence and handoff", subtitle: "The issue draft is deterministic and redacted. Review it before using any external issue tracker.") {
+      if let incident = model.selectedIncident {
+        BannerCard(title: incident.title, detail: [incident.kind, incident.target, incident.detail].filter { !$0.isEmpty }.joined(separator: "\n"), kind: incident.severity == .fatal ? .error : .warning)
+        HStack(spacing: 10) {
+          Button("Retry originating job") {
+            if let job = model.backgroundJobs.first(where: { $0.id == incident.jobID }) { model.retryJob(job) }
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          Button(incident.state == .resolved ? "Resolved" : "Mark resolved") {
+            model.resolveIncident(incident)
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: true))
+          .disabled(incident.state == .resolved)
+          Button("Copy issue draft") {
+            model.copyIncidentDraft(incident)
+          }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        }
+        Text(CSAiEMIncidentClassifier.redactedIssueDraft(for: incident))
+          .font(.system(size: 12, weight: .regular, design: .monospaced))
+          .foregroundStyle(DashboardTheme.text)
+          .textSelection(.enabled)
+          .padding(14)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(DashboardTheme.panelStrong))
+      } else {
+        Text("Select an incident to see its evidence and recovery actions.")
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
       }
     }
   }

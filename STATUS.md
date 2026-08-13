@@ -11,6 +11,12 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
+Next phase: Phase 12.1 Incident Hub is in progress. The native app now keeps
+a local incident ledger for failed or cancelled jobs, classifies recoverable
+warnings separately from fatal blockers, and produces redacted issue drafts.
+GitHub issue creation and broader incident correlation remain later Phase 12
+work.
+
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)
 

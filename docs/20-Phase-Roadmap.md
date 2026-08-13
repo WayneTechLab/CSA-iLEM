@@ -360,6 +360,15 @@ Deliverables:
   and next-action evidence without credentials or raw prompts
 - optional issue draft handoff through the existing GitHub CLI bridge
 
+Current Phase 12.1 slice:
+- local incident ledger persisted under Application Support;
+- automatic records for failed and cancelled background jobs;
+- deterministic recoverable-warning versus fatal-blocker classification;
+- redacted issue drafts with no credentials, prompt content, or raw
+  conversation data;
+- retry-originating-job, resolve, and local retention controls in the native
+  Incidents dashboard page.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

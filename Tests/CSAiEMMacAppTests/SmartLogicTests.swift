@@ -4,6 +4,41 @@ import XCTest
 final class SmartLogicTests: XCTestCase {
   private let observedDate = Date(timeIntervalSince1970: 1_754_931_600)
 
+  func testIncidentClassifierSeparatesRecoverableWarningsFromFatalBlockers() {
+    XCTAssertEqual(CSAiEMIncidentClassifier.severity(for: "One source scan timed out; unrelated sources may continue."), .recoverable)
+    XCTAssertEqual(CSAiEMIncidentClassifier.severity(for: "Fatal identity conflict: destination conflict requires operator review."), .fatal)
+  }
+
+  func testIncidentIssueDraftRedactsCredentialsAndHomePaths() {
+    let incident = CSAiEMIncident(
+      id: "incident-1",
+      createdAt: observedDate,
+      kind: "Import",
+      title: "Import failed",
+      target: "/Users/alice/CSA-iEM/Code/Flowers",
+      detail: "authorization: ghp_super-secret-value; inspect /Users/alice/CSA-iEM/Code/Flowers",
+      jobID: "job-1",
+      severity: .fatal,
+      state: .open,
+      resolution: nil
+    )
+
+    let draft = CSAiEMIncidentClassifier.redactedIssueDraft(for: incident)
+    XCTAssertTrue(draft.contains("[REDACTED]"))
+    XCTAssertFalse(draft.contains("ghp_super-secret-value"))
+    XCTAssertFalse(draft.contains("/Users/alice"))
+    XCTAssertTrue(draft.contains("job-1"))
+  }
+
+  func testIncidentStoreRoundTripsLocalRecords() throws {
+    let path = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-incidents-\(UUID().uuidString).json").path
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    let incident = CSAiEMIncident(id: "incident-2", createdAt: observedDate, kind: "Recovery", title: "Recovery warning", target: "Flowers", detail: "retryable", jobID: "job-2", severity: .recoverable, state: .open, resolution: nil)
+
+    CSAiEMIncidentStore.save([incident], to: path)
+    XCTAssertEqual(CSAiEMIncidentStore.load(from: path), [incident])
+  }
+
   func testVerifiedRemoteVariantsGroupAsMergeCandidates() {
     let first = project(
       path: "/tmp/flowers-main",
@@ -461,13 +496,14 @@ final class SmartLogicTests: XCTestCase {
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
     XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")
-    XCTAssertEqual(catalog.count, 16)
+    XCTAssertEqual(catalog.count, 17)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {
