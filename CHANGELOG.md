@@ -27,6 +27,10 @@
   commands now have a 60-second timeout boundary, failed mutation payloads can
   be restored for review and re-arming from Jobs Center, and an allowlisted
   never-delete smoke harness covers the three retained temporary test repos.
+- Added Phase 12.8 restart-safe retry records and provider-outcome categories.
+  Failed issue mutations now persist their credential-free reviewed payload and
+  redacted error across launches, while authentication, permission, not-found,
+  timeout, and generic provider failures are shown as distinct recovery paths.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately

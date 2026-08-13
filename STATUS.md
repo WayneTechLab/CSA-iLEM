@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 12.7 controlled retry and retention coverage is in progress. The native app now
+Next phase: Phase 12.8 restart-safe retry and provider-outcome coverage is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -20,7 +20,9 @@ provider rejection, malformed responses, and state mismatches remain
 operator-visible through the Jobs Center and Incident Hub. GitHub issue
 commands are bounded to 60 seconds, retry restores the exact payload for
 review and re-arming, and the remote smoke harness is restricted to retained
-temporary repositories and never deletes test data.
+temporary repositories and never deletes test data. Failed mutation payloads
+and redacted provider outcomes now persist locally across app restarts without
+storing credentials.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)

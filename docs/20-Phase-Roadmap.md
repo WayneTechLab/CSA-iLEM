@@ -419,6 +419,16 @@ Current Phase 12.7 slice:
 - an allowlisted, never-delete provider smoke harness exercises the three
   retained temporary test repositories without entering the release preflight.
 
+Current Phase 12.8 slice:
+- failed GitHub issue mutations persist a local, credential-free retry record
+  containing the host, repository, issue, action, reviewed payload, attempts,
+  and redacted last error;
+- saved retry records reload after an app restart and can be prepared from the
+  Issues page without silently re-arming or replaying a remote write;
+- provider failures are classified as authentication-required, permission-
+  denied, not-found, timeout, or generic failure so operators can choose the
+  correct recovery path without changing active credentials.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

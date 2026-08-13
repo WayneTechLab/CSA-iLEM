@@ -1,6 +1,6 @@
 import Foundation
 
-enum CSAiEMGitHubIssueMutation: String, CaseIterable, Identifiable, Hashable {
+enum CSAiEMGitHubIssueMutation: String, CaseIterable, Identifiable, Hashable, Codable {
   case comment
   case close
   case reopen
@@ -23,7 +23,7 @@ enum CSAiEMGitHubIssueMutation: String, CaseIterable, Identifiable, Hashable {
   var requiresLabels: Bool { self == .addLabel || self == .removeLabel }
 }
 
-struct CSAiEMGitHubIssueCommand: Hashable {
+struct CSAiEMGitHubIssueCommand: Hashable, Codable {
   let mutation: CSAiEMGitHubIssueMutation
   let issueNumber: Int
   let body: String
@@ -64,6 +64,54 @@ struct CSAiEMGitHubIssueCommand: Hashable {
     case .addLabel: return ["issue", "edit", issue] + labels.flatMap { ["--add-label", $0] }
     case .removeLabel: return ["issue", "edit", issue] + labels.flatMap { ["--remove-label", $0] }
     }
+  }
+}
+
+struct CSAiEMGitHubIssueRetryRecord: Identifiable, Hashable, Codable {
+  let id: String
+  let host: String
+  let repository: String
+  let command: CSAiEMGitHubIssueCommand
+  let createdAt: Date
+  var lastAttemptAt: Date
+  var attempts: Int
+  var lastError: String
+
+  var summary: String {
+    "\(repository)#\(command.issueNumber) · \(command.mutation.title) · \(attempts) attempt\(attempts == 1 ? "" : "s")"
+  }
+}
+
+enum CSAiEMGitHubProviderOutcome: String, Codable, Hashable {
+  case permissionDenied
+  case authenticationRequired
+  case notFound
+  case timeout
+  case failed
+
+  var title: String {
+    switch self {
+    case .permissionDenied: return "Permission denied"
+    case .authenticationRequired: return "Authentication required"
+    case .notFound: return "Issue or repository not found"
+    case .timeout: return "Provider timeout"
+    case .failed: return "Provider failure"
+    }
+  }
+
+  static func classify(status: Int, output: String) -> Self {
+    if status == 124 { return .timeout }
+    let lower = output.lowercased()
+    if lower.contains("bad credentials") || lower.contains("authentication") || lower.contains("not logged in") {
+      return .authenticationRequired
+    }
+    if lower.contains("permission") || lower.contains("forbidden") || lower.contains("resource not accessible") || lower.contains("insufficient permission") {
+      return .permissionDenied
+    }
+    if lower.contains("could not resolve to an issue") || lower.contains("not found") || lower.contains("repository not found") {
+      return .notFound
+    }
+    return .failed
   }
 }
 

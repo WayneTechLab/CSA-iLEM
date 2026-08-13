@@ -68,6 +68,14 @@ and verifies the requested state, labels, or comment presence before marking
 the Jobs Center operation successful. Rejected, malformed, or mismatched
 provider responses remain failed and visible for incident review.
 
+Failed issue mutations also persist a local retry record under the CSA-iEM
+Application Support directory. The record contains no token or credential; it
+stores only the host, repository, issue, reviewed action payload, attempt
+count, and redacted provider error. After restart, the Issues page can prepare
+the exact action again, but the operator must review and re-arm it. Provider
+errors are categorized as authentication-required, permission-denied,
+not-found, timeout, or generic failure.
+
 ## Install and update invariant
 
 The installer reads `VERSION`, builds one `CSA-iEM.app`, replaces the target

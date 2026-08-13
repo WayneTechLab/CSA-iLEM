@@ -127,6 +127,23 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(detail, "Provider read-back state is CLOSED, expected OPEN.")
   }
 
+  func testGitHubProviderOutcomeClassifiesPermissionAuthNotFoundAndTimeout() {
+    XCTAssertEqual(CSAiEMGitHubProviderOutcome.classify(status: 1, output: "HTTP 403: Resource not accessible by integration"), .permissionDenied)
+    XCTAssertEqual(CSAiEMGitHubProviderOutcome.classify(status: 1, output: "authentication required"), .authenticationRequired)
+    XCTAssertEqual(CSAiEMGitHubProviderOutcome.classify(status: 1, output: "Could not resolve to an issue or pull request"), .notFound)
+    XCTAssertEqual(CSAiEMGitHubProviderOutcome.classify(status: 124, output: "Command timed out."), .timeout)
+  }
+
+  func testGitHubIssueRetryRecordRoundTripsReviewedPayload() throws {
+    let command = try CSAiEMGitHubIssueCommand.make(mutation: .addLabel, issueNumber: 7, body: "", labels: "recovery")
+    let date = Date(timeIntervalSince1970: 1_700_000_000)
+    let record = CSAiEMGitHubIssueRetryRecord(id: "github.com|WayneTechLab/Test|7|addLabel", host: "github.com", repository: "WayneTechLab/Test", command: command, createdAt: date, lastAttemptAt: date, attempts: 2, lastError: "Permission denied")
+    let encoded = try JSONEncoder().encode(record)
+    let decoded = try JSONDecoder().decode(CSAiEMGitHubIssueRetryRecord.self, from: encoded)
+    XCTAssertEqual(decoded, record)
+    XCTAssertTrue(decoded.summary.contains("2 attempts"))
+  }
+
   func testIncidentClustersGroupSameSourceStageAndDestination() {
     let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
     let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
@@ -603,7 +620,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
-    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.3" })
+    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

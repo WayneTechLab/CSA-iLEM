@@ -61,6 +61,7 @@ private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
 private let incidentsFile = (appSupportDir as NSString).appendingPathComponent("incidents.json")
 private let issueTemplatesFile = (appSupportDir as NSString).appendingPathComponent("issue-templates.json")
+private let issueMutationRetriesFile = (appSupportDir as NSString).appendingPathComponent("issue-mutation-retries.json")
 private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
 private let administratorTerminalModeKey = "com.waynetechlab.csa-iem.administrator-terminal-mode"
 private let codexOutputRootKey = "com.waynetechlab.csa-iem.codex-output-root"
@@ -1726,6 +1727,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var issueMutationLabels = ""
   @Published var issueMutationStatus = "Select a loaded issue before preparing a remote update."
   @Published var issueMutationArmed = false
+  @Published var issueMutationRetries: [CSAiEMGitHubIssueRetryRecord] = []
   private var issueMutationRetryCommands: [String: CSAiEMGitHubIssueCommand] = [:]
   @Published var selectedJobID: String?
   @Published var savedContexts: [SavedGitHubContext] = []
@@ -2756,6 +2758,7 @@ final class CleanupViewModel: ObservableObject {
     } else {
       issueTemplates = Self.defaultIssueTemplates
     }
+    issueMutationRetries = readJSON([CSAiEMGitHubIssueRetryRecord].self, from: issueMutationRetriesFile) ?? []
 
     loadSnapshots()
     if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2765,6 +2768,10 @@ final class CleanupViewModel: ObservableObject {
 
   private func persistSettings() {
     writeJSON(appSettings, to: settingsFile)
+  }
+
+  private func persistIssueMutationRetries() {
+    writeJSON(issueMutationRetries, to: issueMutationRetriesFile)
   }
 
   private func persistCodexScanRoots() {
@@ -6405,6 +6412,43 @@ final class CleanupViewModel: ObservableObject {
     if let status { issueMutationStatus = status }
   }
 
+  func prepareIssueMutationRetry(_ record: CSAiEMGitHubIssueRetryRecord) {
+    selectedIssueNumber = record.command.issueNumber
+    selectedIssueMutation = record.command.mutation
+    issueMutationBody = record.command.body
+    issueMutationLabels = record.command.labels.joined(separator: ",")
+    issueMutationArmed = false
+    issueMutationStatus = "Retry prepared for \(record.repository)#\(record.command.issueNumber). Review the retained payload and arm the remote action again."
+  }
+
+  private func rememberIssueMutationRetry(command: CSAiEMGitHubIssueCommand, repository: String, error: String) {
+    let hostValue = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host.trimmingCharacters(in: .whitespacesAndNewlines)
+    let retryID = "\(hostValue)|\(repository)|\(command.issueNumber)|\(command.mutation.rawValue)"
+    let now = Date()
+    if let index = issueMutationRetries.firstIndex(where: { $0.id == retryID }) {
+      issueMutationRetries[index].lastAttemptAt = now
+      issueMutationRetries[index].attempts += 1
+      issueMutationRetries[index].lastError = redactSensitiveText(error)
+    } else {
+      issueMutationRetries.insert(CSAiEMGitHubIssueRetryRecord(id: retryID, host: hostValue, repository: repository, command: command, createdAt: now, lastAttemptAt: now, attempts: 1, lastError: redactSensitiveText(error)), at: 0)
+    }
+    issueMutationRetries.sort { $0.lastAttemptAt > $1.lastAttemptAt }
+    persistIssueMutationRetries()
+  }
+
+  private func clearIssueMutationRetry(command: CSAiEMGitHubIssueCommand, repository: String) {
+    let hostValue = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host.trimmingCharacters(in: .whitespacesAndNewlines)
+    let retryID = "\(hostValue)|\(repository)|\(command.issueNumber)|\(command.mutation.rawValue)"
+    issueMutationRetries.removeAll { $0.id == retryID }
+    persistIssueMutationRetries()
+  }
+
+  private func providerFailureDetail(prefix: String, status: Int, output: String) -> String {
+    let outcome = CSAiEMGitHubProviderOutcome.classify(status: status, output: output)
+    let detail = redactSensitiveText(output).trimmingCharacters(in: .whitespacesAndNewlines)
+    return "\(prefix) [\(outcome.title)]: \(detail)"
+  }
+
   func mutateSelectedGitHubIssue() {
     guard issueMutationArmed else {
       issueMutationStatus = "Arm the reviewed issue action before making a remote change."
@@ -6443,10 +6487,9 @@ final class CleanupViewModel: ObservableObject {
             let verification = Self.runCommand(executable: ghPath, arguments: verificationArguments, environment: environment, timeout: 60)
             DispatchQueue.main.async {
               guard verification.status == 0 else {
-                let prefix = verification.status == 124 ? "Remote action was accepted, but provider read-back timed out" : "Remote action was accepted, but provider read-back failed"
-                let output = redactSensitiveText(verification.output).trimmingCharacters(in: .whitespacesAndNewlines)
-                let detail = "\(prefix): \(output)"
+                let detail = self.providerFailureDetail(prefix: "Remote action was accepted, but provider read-back failed", status: Int(verification.status), output: verification.output)
                 self.issueMutationStatus = detail
+                self.rememberIssueMutationRetry(command: command, repository: repo, error: detail)
                 self.finishJob(id: jobID, state: .failed, detail: detail)
                 self.loadGitHubIssues()
                 return
@@ -6456,23 +6499,27 @@ final class CleanupViewModel: ObservableObject {
                 switch CSAiEMGitHubIssueVerifier.verify(payload, command: command) {
                 case .success(let detail):
                   self.issueMutationStatus = "\(detail) Remote issue state confirmed."
+                  self.clearIssueMutationRetry(command: command, repository: repo)
                   self.updateJob(id: jobID, state: .succeeded, detail: detail)
                 case .failure(let error):
                   let detail = "Remote action was accepted, but provider read-back did not match: \(error.localizedDescription)"
                   self.issueMutationStatus = detail
+                  self.rememberIssueMutationRetry(command: command, repository: repo, error: detail)
                   self.finishJob(id: jobID, state: .failed, detail: detail)
                 }
               } catch {
                 let detail = "Remote action was accepted, but provider read-back could not be decoded: \(error.localizedDescription)"
                 self.issueMutationStatus = detail
+                self.rememberIssueMutationRetry(command: command, repository: repo, error: detail)
                 self.finishJob(id: jobID, state: .failed, detail: detail)
               }
               self.loadGitHubIssues()
             }
           }
         } else {
-          let prefix = result.status == 124 ? "GitHub issue action timed out" : "GitHub issue action failed"
-          self.issueMutationStatus = "\(prefix): \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+          let detail = self.providerFailureDetail(prefix: "GitHub issue action failed", status: Int(result.status), output: result.output)
+          self.issueMutationStatus = detail
+          self.rememberIssueMutationRetry(command: command, repository: repo, error: detail)
           self.finishJob(id: jobID, state: .failed, detail: self.issueMutationStatus)
         }
       }
@@ -7634,16 +7681,18 @@ final class CleanupViewModel: ObservableObject {
     case ("GitHub", "Secrets and variables"):
       loadSecretsAndVariables()
     case ("GitHub", "Update GitHub issue"):
-      guard let command = issueMutationRetryCommands[job.id] else {
+      if let command = issueMutationRetryCommands[job.id] {
+        selectedIssueNumber = command.issueNumber
+        selectedIssueMutation = command.mutation
+        issueMutationBody = command.body
+        issueMutationLabels = command.labels.joined(separator: ",")
+        issueMutationArmed = false
+        issueMutationStatus = "Retry prepared for issue #\(command.issueNumber). Review the retained payload and arm the remote action again."
+      } else if let record = issueMutationRetries.first(where: { "\($0.repository)#\($0.command.issueNumber)" == job.target }) {
+        prepareIssueMutationRetry(record)
+      } else {
         jobCenterStatus = "This GitHub issue retry has no retained reviewed payload. Prepare the action again from the Issues page."
-        return
       }
-      selectedIssueNumber = command.issueNumber
-      selectedIssueMutation = command.mutation
-      issueMutationBody = command.body
-      issueMutationLabels = command.labels.joined(separator: ",")
-      issueMutationArmed = false
-      issueMutationStatus = "Retry prepared for issue #\(command.issueNumber). Review the retained payload and arm the remote action again."
     case ("GitHub", "Rules and protection"):
       loadBranchProtectionAndRulesets()
     case ("Local", "Storage insights"):
@@ -15263,6 +15312,30 @@ struct ContentView: View {
   private var issueMutationPanel: some View {
     PanelCard(title: "Reviewed issue action", subtitle: "Comment, lifecycle, and label changes stay disabled until you select an issue and explicitly arm this exact remote mutation.") {
       BannerCard(title: model.issueMutationStatus, detail: "The action is executed through the authenticated GitHub CLI session. CSA-iLEM reads the provider state back and marks the job successful only when it matches.", kind: model.issueMutationArmed ? .warning : .ready)
+
+      if !model.issueMutationRetries.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          FieldLabel(text: "Saved retry records")
+          ForEach(model.issueMutationRetries) { record in
+            HStack(spacing: 10) {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(record.summary)
+                  .font(.system(size: 12, weight: .bold, design: .rounded))
+                  .foregroundStyle(DashboardTheme.text)
+                Text(record.lastError)
+                  .font(.system(size: 11, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                  .lineLimit(2)
+              }
+              Spacer(minLength: 4)
+              Button("Prepare") { model.prepareIssueMutationRetry(record) }
+                .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(DashboardTheme.panelStrong))
+          }
+        }
+      }
 
       HStack(spacing: 10) {
         Picker("Action", selection: Binding(get: { model.selectedIssueMutation }, set: { value in
