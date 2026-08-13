@@ -352,6 +352,12 @@ Current Phase 13.40 slice:
 - use the fingerprint, not filename or import time, as the duplicate identity
   signal while keeping the handoff non-authoritative.
 
+Current Phase 13.41 slice:
+- upsert imported audit history by content fingerprint;
+- refresh duplicate entries with the latest filename and import timestamp;
+- keep the duplicate decision local and informational without changing audit
+  authority or operation selection.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

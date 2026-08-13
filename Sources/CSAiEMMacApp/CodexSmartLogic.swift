@@ -622,6 +622,12 @@ struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendab
     auditVersion == "baseline-audit-v1" ? "schema compatible" : "unknown schema · review required"
   }
 
+  static func upsert(_ record: Self, into history: [Self], limit: Int = 20) -> [Self] {
+    var updated = history.filter { $0.fingerprint != record.fingerprint }
+    updated.insert(record, at: 0)
+    return Array(updated.prefix(limit))
+  }
+
   init(
     id: String,
     sourceName: String,

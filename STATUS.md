@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.40 baseline-audit fingerprinting is in progress. The native app now
+Next phase: Phase 13.41 baseline-audit duplicate handling is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -173,6 +173,10 @@ Phase 13.40 adds deterministic content fingerprints to imported baseline-audit
 history. Duplicate handoffs can be recognized independently of filename and
 import time; the fingerprint remains evidence metadata and cannot grant
 authority.
+
+Phase 13.41 makes fingerprint deduplication operational: importing the same
+content refreshes one local history entry with current source provenance instead
+of creating redundant records. This remains isolated from live authority.
 not discard available local research evidence.
 
 Long-range product roadmap:

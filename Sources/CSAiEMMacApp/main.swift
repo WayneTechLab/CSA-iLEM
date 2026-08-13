@@ -2961,11 +2961,11 @@ final class CleanupViewModel: ObservableObject {
         fingerprint: CodexSmartLogicEngine.baselineAuditFingerprint(auditVersion: bundle.auditVersion, events: bundle.events),
         events: bundle.events
       )
-      codexImportedBaselineAuditHistory.removeAll { $0.sourceName == record.sourceName && $0.events == record.events }
-      codexImportedBaselineAuditHistory.insert(record, at: 0)
-      codexImportedBaselineAuditHistory = Array(codexImportedBaselineAuditHistory.prefix(20))
+      let replacedExisting = codexImportedBaselineAuditHistory.contains { $0.fingerprint == record.fingerprint }
+      codexImportedBaselineAuditHistory = CodexImportedBaselineAuditRecord.upsert(record, into: codexImportedBaselineAuditHistory)
       persistCodexImportedBaselineAuditHistory()
-      codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s). Live audit history and baseline authority unchanged."
+      let operation = replacedExisting ? "matching fingerprint refreshed" : "new fingerprint retained"
+      codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s) · " + operation + ". Live audit history and baseline authority unchanged."
       appendLog("[codex] Read-only baseline audit bundle loaded from " + url.path + "\n")
     } catch {
       codexImportedBaselineAuditEvents = []

@@ -563,6 +563,10 @@ final class SmartLogicTests: XCTestCase {
     let first = CodexImportedBaselineAuditRecord(id: "one", sourceName: "one.json", importedAt: observedDate, auditVersion: "baseline-audit-v1", acceptedCount: 0, revokedCount: 1, events: [event])
     let second = CodexImportedBaselineAuditRecord(id: "two", sourceName: "two.json", importedAt: observedDate.addingTimeInterval(100), auditVersion: "baseline-audit-v1", acceptedCount: 0, revokedCount: 1, events: [event])
     XCTAssertEqual(first.fingerprint, second.fingerprint)
+    let refreshed = CodexImportedBaselineAuditRecord.upsert(second, into: [first])
+    XCTAssertEqual(refreshed.count, 1)
+    XCTAssertEqual(refreshed.first?.sourceName, "two.json")
+    XCTAssertEqual(refreshed.first?.importedAt, second.importedAt)
   }
 
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
@@ -1078,7 +1082,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.13" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.14" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

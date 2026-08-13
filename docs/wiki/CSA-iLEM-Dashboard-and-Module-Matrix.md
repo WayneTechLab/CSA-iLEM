@@ -409,6 +409,14 @@ fingerprint so duplicate handoffs can be recognized even when filenames or
 import times differ. It is evidence metadata only and never authorizes a
 baseline, transfer, cleanup, deletion, or remote mutation.
 
+## Phase 13.41 duplicate handoff handling
+
+When an imported audit bundle has a fingerprint already present in local
+history, CSA-iLEM refreshes that one entry with the latest filename and import
+time rather than adding a duplicate. The dashboard reports whether a new
+fingerprint was retained or an existing fingerprint was refreshed. This local
+housekeeping cannot alter live audit authority or authorize an operation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid
