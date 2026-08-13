@@ -1,6 +1,6 @@
 # CODEX ~ GPT Add-on Master Plan
 
-Status: 0.8.0 local macOS milestone closure candidate; future phases remain separately tracked
+Status: 0.8.0 local macOS milestone evidence complete on the hardening branch; merge/release approval and future phases remain separately tracked
 Product: CSA-iLEM / CSA-iEM native macOS operator application
 Repository scope: this CSA-iLEM checkout only
 Current baseline: 0.8.0
@@ -16,7 +16,9 @@ This document closes the current local macOS CODEX ~ GPT Add-on milestone:
 - receipt-linked verification and fail-closed transfer/cleanup boundaries;
 - module/version/tag matrix, single-app install lifecycle, and local release
   verification;
-- native regression coverage for the decision and catalog contracts.
+- native regression coverage for the decision and catalog contracts;
+- installed-app and isolated multi-copy corpus evidence across Fast Index,
+  Full Verification, and YOLO modes.
 
 The following are deliberately post-milestone phases, not hidden blockers to
 the 0.8.0 local close: a native Windows GUI, notarized public distribution,
@@ -338,7 +340,7 @@ This is the exact false-positive/identity case Smart Logic must surface.
 The current branch has direct evidence for each local milestone gate:
 
 - native release build: `swift build -c release`;
-- native regression suite: `swift test` with five passing Smart Logic/catalog
+- native regression suite: `swift test` with 21 passing Smart Logic/catalog
   tests under `Tests/CSAiEMMacAppTests`;
 - plan integrity: `node .SYSTEMX/scripts/validate-10000-task-plan.mjs`;
 - repository/file integrity: `shasum -a 256 -c --strict SHA256SUMS` and
@@ -349,6 +351,12 @@ The current branch has direct evidence for each local milestone gate:
 - live UI: Home, Import, Projects, CODEX ~ GPT PORTAL, and Project Backups
   expose the matrix, status rail, source/output flow, Smart Logic, and index
   state;
+- installed-app corpus smoke: `/Applications/CSA-iEM.app` discovered the
+  isolated nine-folder Flowers/Space/Birds test corpus, grouped 9 sources into
+  6 remote-identity groups, and kept 3 dirty or metadata-broken candidates
+  review-only. Fast Index, Full Verification, and YOLO produced the same
+  deterministic grouping without any transfer, merge, upload, or deletion;
+  the temporary corpus remains retained pending explicit cleanup confirmation.
 - native project tree: the Local Project Library exposes on-demand expandable
   Code and Runtime root snapshots with bounded entries and generated-tree
   exclusions, preserving the fast indexed browse path for normal use.

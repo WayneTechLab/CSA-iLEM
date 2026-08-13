@@ -1,13 +1,14 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-08-12`
+Updated: `2026-08-13`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
-Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone is a
-closure candidate on branch `agent/csa-iem-0.8-dashboard-hardening`. Its
-acceptance evidence is recorded in
+Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone has
+complete local and hosted acceptance evidence on branch
+`agent/csa-iem-0.8-dashboard-hardening`; merge/release approval remains an
+explicit operator decision. Its acceptance evidence is recorded in
 `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The remaining production gaps
 listed below are post-milestone work, not evidence that the implemented local
 dashboard slice is incomplete.
@@ -69,6 +70,16 @@ These major product areas are built into the app now:
   under temporary roots without touching the installed app or user profile
 - blocked Stage 2 recovery safety smoke now preserves partial-metadata source
   trees and writes only an isolated preflight report with no apply mutation
+- installed-app smoke now confirms the native dashboard, Import page, CODEX ~
+  GPT PORTAL, Project Backups page, persistent navigation, matrix strip,
+  bottom status rail, Smart Logic status, and the left-source/right-output
+  flow in `/Applications/CSA-iEM.app` version `0.8.0`
+- the retained private `Flowers-Field-Guide`, `Space-Field-Guide`, and
+  `Birds-Field-Guide` repositories were cloned into an isolated temporary
+  nine-folder corpus containing a clean lead, dirty copy, and metadata-broken
+  shadow for each identity; the installed app classified 9 candidates into 6
+  identity groups with 3 review-only blockers in Fast Index, Full Verification,
+  and YOLO modes without transfer, merge, upload, or deletion
 - local GitHub identity-scope smoke now exercises two owner/login bindings and
   a mismatched token response without contacting GitHub or changing gh auth
 - post-promotion transfer rollback now removes a newly promoted destination and

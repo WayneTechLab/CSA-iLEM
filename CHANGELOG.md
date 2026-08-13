@@ -8,6 +8,10 @@
 - Bumped the Smart Logic rule and module version to `smart-logic-v2.1` so persisted decisions cannot be mistaken for the prior evidence schema.
 - Added an explicit localhost LM Studio/Ollama advisory action. It sends only redacted indexed evidence, filters returned IDs, and cannot choose canonical sources or authorize writes/deletion; Smart Logic remains authoritative.
 - Bumped the Smart Logic rule and module version to `smart-logic-v2.2` for the advisory contract.
+- Verified the installed 0.8.0 dashboard against the retained nine-folder
+  Flowers/Space/Birds corpus: Fast Index, Full Verification, and YOLO all
+  preserved six identity groups and three review-only blockers without
+  transfer or cleanup mutation.
 
 ## 0.8.0
 
