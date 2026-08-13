@@ -376,6 +376,15 @@ detail. This is portable handoff evidence only: the export does not reactivate
 a baseline, change SQLite authority, affect pending-route selection, copy
 project files, or authorize transfer, cleanup, or remote mutation.
 
+## Phase 13.37 baseline-audit handoff inspection
+
+The same audit panel provides **Inspect audit JSON** for a previously exported
+`route-receipt-baseline-audit.json` bundle. Imported events are displayed in a
+separate read-only section with their source and event count. The bundle is not
+written into the local catalog or live audit history, cannot replace or activate
+the current comparison baseline, and cannot authorize transfer, cleanup,
+deletion, or remote mutation.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

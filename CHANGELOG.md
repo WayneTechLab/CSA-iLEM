@@ -14,6 +14,7 @@
 - Added Phase 13.34 explicit comparison-baseline revocation with retained accepted/revoked audit events; revocation clears only the decision and preserves imported evidence.
 - Added Phase 13.35 read-only baseline-history inspection and selection, with explicit non-reactivation messaging and no change to live execution authority.
 - Added Phase 13.36 portable baseline-audit JSON/CSV export from the local catalog, preserving accepted/revoked decision history as read-only handoff evidence without reactivating a baseline or exporting source files.
+- Added Phase 13.37 read-only inspection of exported baseline-audit JSON bundles, keeping imported handoff evidence separate from live audit history and baseline authority.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.

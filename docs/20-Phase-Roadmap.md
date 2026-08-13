@@ -327,6 +327,12 @@ Current Phase 13.36 slice:
 - keep the export outside baseline activation, SQLite authority, receipt resume,
   transfer, cleanup, and remote-write paths.
 
+Current Phase 13.37 slice:
+- inspect a previously exported baseline-audit JSON bundle from the native UI;
+- show imported events in a separate read-only section with explicit provenance;
+- never merge imported events into live audit history or use them to activate a
+  baseline or authorize an operation.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

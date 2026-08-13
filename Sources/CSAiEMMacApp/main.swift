@@ -1771,6 +1771,8 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexRouteReceiptBaselineDecision: CodexRouteReceiptBaselineDecision?
   @Published var codexRouteReceiptBaselineAudit: [CodexRouteReceiptBaselineAuditEvent] = []
   @Published var codexSelectedRouteReceiptBaselineAuditID: String?
+  @Published var codexImportedBaselineAuditEvents: [CodexRouteReceiptBaselineAuditEvent] = []
+  @Published var codexImportedBaselineAuditStatus = "No external baseline-audit bundle loaded."
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
   @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
@@ -2931,6 +2933,28 @@ final class CleanupViewModel: ObservableObject {
     } catch {
       codexRouteReceiptBaselineAuditExportStatus = "Baseline audit export failed: " + error.localizedDescription
       appendLog("[codex] Baseline audit export failed: " + error.localizedDescription + "\n")
+    }
+  }
+
+  func chooseCodexRouteReceiptBaselineAuditBundle() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.json]
+    panel.prompt = "Inspect Baseline Audit"
+    panel.message = "Choose a CSA-iLEM baseline-audit JSON export. It will be inspected read-only and will not replace the live audit history or activate a baseline."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    do {
+      let data = try Data(contentsOf: url)
+      let bundle = try JSONDecoder().decode(CodexRouteReceiptBaselineAuditExportBundle.self, from: data)
+      codexImportedBaselineAuditEvents = bundle.events
+      codexImportedBaselineAuditStatus = "Read-only baseline audit loaded: " + url.lastPathComponent + " · " + String(bundle.events.count) + " event(s). Live audit history and baseline authority unchanged."
+      appendLog("[codex] Read-only baseline audit bundle loaded from " + url.path + "\n")
+    } catch {
+      codexImportedBaselineAuditEvents = []
+      codexImportedBaselineAuditStatus = "Baseline audit import rejected: " + error.localizedDescription
+      appendLog("[codex] Baseline audit bundle rejected: " + error.localizedDescription + "\n")
     }
   }
 
@@ -17263,17 +17287,19 @@ struct ContentView: View {
   private func codexRouteReceiptBaselineAuditView() -> AnyView {
     let auditEvents = Array(model.codexRouteReceiptBaselineAudit.prefix(10))
     let auditCount = model.codexRouteReceiptBaselineAudit.count
-    guard auditCount > 0 else { return AnyView(EmptyView()) }
     let auditTitle = "Baseline decision audit · " + String(auditCount)
     let auditDisclosure = DisclosureGroup(auditTitle) {
-      codexRouteReceiptBaselineAuditContent(auditEvents)
+      codexRouteReceiptBaselineAuditContent(auditEvents, importedEvents: model.codexImportedBaselineAuditEvents)
     }
     .font(.system(size: 10, weight: .semibold, design: .rounded))
     .foregroundStyle(DashboardTheme.text)
     return AnyView(auditDisclosure)
   }
 
-  private func codexRouteReceiptBaselineAuditContent(_ events: [CodexRouteReceiptBaselineAuditEvent]) -> some View {
+  private func codexRouteReceiptBaselineAuditContent(
+    _ events: [CodexRouteReceiptBaselineAuditEvent],
+    importedEvents: [CodexRouteReceiptBaselineAuditEvent]
+  ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       ForEach(events) { event in
         codexRouteReceiptBaselineAuditRow(event)
@@ -17294,8 +17320,42 @@ struct ContentView: View {
           .foregroundStyle(DashboardTheme.muted)
           .textSelection(.enabled)
       }
+      HStack(spacing: 8) {
+        Button("Inspect audit JSON") {
+          model.chooseCodexRouteReceiptBaselineAuditBundle()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .controlSize(.small)
+        Text("Imported audit stays separate, read-only, and non-authoritative.")
+          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .foregroundStyle(DashboardTheme.muted)
+      }
+      if !model.codexImportedBaselineAuditStatus.isEmpty {
+        Text(model.codexImportedBaselineAuditStatus)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.muted)
+          .textSelection(.enabled)
+      }
+      if !importedEvents.isEmpty {
+        DisclosureGroup("Imported read-only audit · " + String(importedEvents.count) + " event(s)") {
+          ForEach(Array(importedEvents.prefix(20))) { event in
+            codexImportedBaselineAuditRow(event)
+          }
+        }
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      }
       codexRouteReceiptBaselineAuditSelectionView()
     }
+  }
+
+  private func codexImportedBaselineAuditRow(_ event: CodexRouteReceiptBaselineAuditEvent) -> some View {
+    let label = event.action.rawValue.uppercased() + " · " + event.importedSourceName + " · " + event.detail
+    return Text(label)
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(DashboardTheme.muted)
+      .textSelection(.enabled)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func codexRouteReceiptBaselineAuditSelectionView() -> AnyView {
