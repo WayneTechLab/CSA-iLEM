@@ -1,0 +1,30 @@
+name: CSA-iLEM native preflight
+
+on:
+  push:
+    branches:
+      - main
+      - 'agent/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: csa-ilem-preflight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-preflight:
+    name: Native macOS release gates
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Check out CSA-iLEM
+        uses: actions/checkout@v4
+
+      - name: Run non-destructive release preflight
+        run: bash .SYSTEMX/scripts/release-preflight.sh

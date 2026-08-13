@@ -6,6 +6,9 @@
   grouping, broken-metadata and shadow-copy classification, deterministic
   advisory boundaries, SQLite session/checkpoint/export persistence, module
   matrix contracts, review semantics, and backup-medium policy labels.
+- Added a non-destructive local/GitHub native release preflight covering tests,
+  release build, SYSTEMX validation, shell syntax, checksums, whitespace, and
+  repository-boundary checks.
 - Added the unified native dashboard shell contract: persistent top navigation,
   side/compact menus, fixed bottom status, explicit page scroll indicators,
   and a shared matrix strip across every dashboard and reference page.

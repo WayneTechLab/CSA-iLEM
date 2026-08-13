@@ -351,6 +351,9 @@ The current branch has direct evidence for each local milestone gate:
   state;
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
+- repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the
+  native checks locally and `.github/workflows/csa-ilem-preflight.yml` runs the
+  same non-destructive gate on macOS for pushes and pull requests.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred

@@ -57,6 +57,9 @@ These major product areas are built into the app now:
 - native Swift test target now covers Smart Logic grouping/classification,
   deterministic advisory non-authority, catalog session/checkpoint exports,
   module matrix contracts, review semantics, and backup-medium policy labels
+- non-destructive native release preflight is now repeatable locally and in
+  GitHub Actions through `.SYSTEMX/scripts/release-preflight.sh` and the
+  macOS `CSA-iLEM native preflight` workflow
 - direct cleanup CLI flags for repo-scoped GitHub cleanup actions
 - install, uninstall, and remote install/update scripts for macOS and Windows 11
 - packaged `.app` build flow with bundled docs, assets, icon, and CLI resources
