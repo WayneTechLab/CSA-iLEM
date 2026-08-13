@@ -358,6 +358,10 @@ The current branch has direct evidence for each local milestone gate:
   exercises CLI install, same-version replacement/update, wrapper identity,
   GUI bundle build and signature verification, uninstall, and sentinel
   preservation under temporary install/bin/app/dist roots.
+- recovery safety smoke: `.SYSTEMX/scripts/recovery-safety-smoke.sh` runs a
+  partial-metadata Stage 2 preflight in temporary roots and proves the report
+  is retained while the source and `.git` tree remain unchanged and no
+  canonical destination is created.
 
 When these checks are run on the merged `main` commit, the 0.8.0 local
 milestone is closed. Any remaining items belong to the explicitly deferred

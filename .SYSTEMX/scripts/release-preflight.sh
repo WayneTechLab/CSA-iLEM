@@ -34,4 +34,7 @@ fi
 echo "[8/8] Disposable lifecycle smoke"
 bash .SYSTEMX/scripts/install-lifecycle-smoke.sh
 
+echo "[9/9] Recovery safety smoke"
+bash .SYSTEMX/scripts/recovery-safety-smoke.sh
+
 echo "PASS: CSA-iLEM release preflight"
