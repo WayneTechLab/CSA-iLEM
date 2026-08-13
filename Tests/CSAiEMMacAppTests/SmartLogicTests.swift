@@ -177,6 +177,26 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(snapshot.summary.contains("2 local path matches"))
   }
 
+  func testLocalResearchSummaryParsesDependenciesAndSkipsGeneratedTrees() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-research-(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("node_modules/generated"), withIntermediateDirectories: true)
+    try Data("# fixture\nfastapi>=1.0\nrequests==2.0\n".utf8).write(to: root.appendingPathComponent("requirements.txt"))
+    try Data("{\"dependencies\":{\"swift-markdown\":\"^1.0\"},\"devDependencies\":{\"vitest\":\"^2.0\"}}".utf8).write(to: root.appendingPathComponent("package.json"))
+    try Data("import Foundation\n".utf8).write(to: root.appendingPathComponent("Sources/App.swift"))
+    try Data("generated\n".utf8).write(to: root.appendingPathComponent("node_modules/generated/index.js"))
+
+    let summary = CSAiEMLocalCodebaseSummary.scan(path: root.path)
+    XCTAssertEqual(summary.fileCount, 3)
+    XCTAssertEqual(summary.sourceFileCount, 1)
+    XCTAssertEqual(summary.manifests, ["package.json", "requirements.txt"])
+    XCTAssertEqual(summary.dependencies, ["fastapi", "requests", "swift-markdown", "vitest"])
+    XCTAssertTrue(summary.hasGit == false)
+    XCTAssertTrue(summary.warnings.contains { $0.contains("No .git") })
+    XCTAssertFalse(summary.topLevelEntries.contains("node_modules"))
+  }
+
   func testIncidentClustersGroupSameSourceStageAndDestination() {
     let first = CSAiEMIncident(id: "cluster-1", createdAt: observedDate, kind: "Recovery", title: "Checkpoint warning", target: "Flowers", detail: "retry", jobID: "job-1", severity: .recoverable, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-1", checkpoint: "session-1/index", nextAction: "Resume"), state: .open, resolution: nil)
     let second = CSAiEMIncident(id: "cluster-2", createdAt: observedDate.addingTimeInterval(10), kind: "Recovery", title: "Retry warning", target: "Flowers", detail: "retry", jobID: "job-2", severity: .fatal, evidence: CSAiEMIncidentEvidence(stage: "stage-2-reconciliation", source: "/tmp/flowers", destination: "/tmp/managed/flowers", receipt: "receipt-2", checkpoint: "session-1/reconcile", nextAction: "Review"), state: .open, resolution: nil)
@@ -654,7 +674,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v1.1" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

@@ -439,6 +439,17 @@ Current Phase 13.1 slice:
   triggers a backup, cleanup, or remote write, and its result is recorded in
   the Jobs Center for retry and audit context.
 
+Current Phase 13.2 slice:
+- each exact local path match can produce a bounded codebase summary with file
+  and source counts, byte size, top-level entries, source extensions, Git and
+  README presence, and review warnings;
+- common dependency manifests are identified without traversing generated or
+  vendor trees, and bounded package, Python, Go, and Cargo dependency names
+  are extracted for research context;
+- traversal is capped by file count and depth, and the resulting evidence is
+  read-only metadata that cannot select a canonical source or authorize a
+  transfer, merge, backup, or cleanup.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

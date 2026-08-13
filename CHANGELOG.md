@@ -7,6 +7,10 @@
   bounded `gh repo view` metadata with exact local path matches, highlights
   archived/forked/duplicate-looking evidence, records the operation in Jobs,
   and never promotes a source or authorizes a write.
+- Extended the research snapshot for Phase 13.2 with bounded local codebase
+  and dependency summaries. The native scanner reports file/source/byte counts,
+  manifests, source extensions, Git/README evidence, and common dependency
+  names while excluding generated/vendor trees and avoiding package installs.
 - Started Phase 12.1 Incident Hub with a local persisted ledger, automatic
   failed/cancelled-job records, fatal-versus-recoverable classification,
   redacted issue drafts, retry-originating-job, resolve, and retention

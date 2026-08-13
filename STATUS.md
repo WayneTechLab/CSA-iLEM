@@ -11,7 +11,7 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.1 Deep Research Workspace is in progress. The native app now
+Next phase: Phase 13.2 Deep Research Workspace is in progress. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.
@@ -26,6 +26,10 @@ storing credentials. The GitHub account dashboard also provides a bounded,
 read-only repository intelligence snapshot that combines provider metadata
 with exact local path matches, conservative relationship notes, and review
 flags without selecting a canonical source or authorizing a write.
+Matched local paths now also receive bounded codebase and dependency summaries
+with generated-tree exclusions, file/source/byte counts, manifest evidence, and
+review warnings. Dependency extraction is limited to common local manifests and
+does not install, resolve, or contact package providers.
 
 Long-range product roadmap:
 - [`docs/20-Phase-Roadmap.md`](./docs/20-Phase-Roadmap.md)

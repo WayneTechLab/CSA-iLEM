@@ -6668,7 +6668,9 @@ final class CleanupViewModel: ObservableObject {
           .flatMap { project in
             [project.codePath, project.runtimePath].compactMap { $0 }
           }
-        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: Array(Set(matches)))
+        let uniqueMatches = Array(Set(matches)).sorted()
+        let localSummaries = CSAiEMLocalCodebaseSummary.scan(paths: uniqueMatches)
+        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries)
         self.researchStatus = "Read-only intelligence snapshot ready for (repo). Review evidence before any import, merge, backup, or cleanup action."
         self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
       }
@@ -17968,6 +17970,38 @@ struct ContentView: View {
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(DashboardTheme.muted)
                 .textSelection(.enabled)
+            }
+          }
+
+          if snapshot.localSummaries.isEmpty == false {
+            FieldLabel(text: "Local codebase and dependency summary")
+            ForEach(snapshot.localSummaries) { summary in
+              VStack(alignment: .leading, spacing: 5) {
+                Text(summary.path)
+                  .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                  .foregroundStyle(DashboardTheme.text)
+                  .textSelection(.enabled)
+                Text(summary.summary)
+                  .font(.system(size: 12, weight: .medium, design: .rounded))
+                  .foregroundStyle(DashboardTheme.muted)
+                if summary.manifests.isEmpty == false {
+                  Text("Manifests: " + summary.manifests.joined(separator: ", "))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                if summary.dependencies.isEmpty == false {
+                  Text("Dependencies: " + summary.dependencies.prefix(12).joined(separator: ", ") + (summary.dependencies.count > 12 ? "…" : ""))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                }
+                if summary.warnings.isEmpty == false {
+                  Text("Review: " + summary.warnings.joined(separator: " "))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.warning)
+                }
+              }
+              .padding(10)
+              .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DashboardTheme.field))
             }
           }
 

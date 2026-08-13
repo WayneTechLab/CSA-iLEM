@@ -23,7 +23,7 @@ struct CSAiEMModuleTag: Identifiable, Hashable, Codable {
     .init(id: "stage2", name: "Stage 2 reconciliation", area: "Feature", version: appVersion, tag: "feature.stage2", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "stage3", name: "Stage 3 cleanup", area: "Feature", version: appVersion, tag: "feature.stage3", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "github-bridge", name: "GitHub bridge", area: "Bridge", version: "issues-v1.4", tag: "bridge.github", state: "phase-12.8", lastUpdated: "2026-08-13"),
-    .init(id: "research-workspace", name: "Deep research workspace", area: "Feature", version: "research-v1.0", tag: "feature.research", state: "phase-13.1", lastUpdated: "2026-08-13"),
+    .init(id: "research-workspace", name: "Deep research workspace", area: "Feature", version: "research-v1.1", tag: "feature.research", state: "phase-13.2", lastUpdated: "2026-08-13"),
     .init(id: "local-files", name: "Local files and workspace roots", area: "Feature", version: appVersion, tag: "feature.local-files", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "runner-bridge", name: "Runner and devcontainer bridge", area: "Bridge", version: appVersion, tag: "bridge.runners", state: "primary", lastUpdated: "2026-08-11"),
     .init(id: "recovery", name: "Recovery and resume", area: "Engine", version: appVersion, tag: "engine.recovery", state: "primary", lastUpdated: "2026-08-11"),

@@ -91,6 +91,21 @@ folders, start a backup, perform cleanup, or authorize a GitHub write. The
 operation is recorded in Jobs so a failed read can be retried without silently
 expanding scope.
 
+## Local codebase and dependency summary
+
+For each exact local path match, the research snapshot performs a bounded
+read-only scan. It reports file count, source-file count, byte size, source
+extensions, top-level entries, manifest/dependency-file evidence, Git and README
+presence, and review warnings. It excludes generated and vendor trees such as
+`.git`, `node_modules`, `.build`, `DerivedData`, `Pods`, `vendor`, `dist`, and
+`build`, and enforces file-count and depth caps.
+
+Common `package.json`, `requirements.txt`, `go.mod`, and `Cargo.toml` dependency
+names are extracted only from bounded local manifest content. CSA-iLEM does not
+install, resolve, fetch, or modify dependencies during research. These results
+are evidence for review and cannot authorize a merge, backup, cleanup, or
+remote write.
+
 ## Install and update invariant
 
 The installer reads `VERSION`, builds one `CSA-iEM.app`, replaces the target
