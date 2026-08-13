@@ -19,14 +19,22 @@ SOURCE_ROOT="$TEST_ROOT/source"
 MANAGED_ROOT="$TEST_ROOT/managed"
 REPORT_PATH="$TEST_ROOT/report.md"
 PROJECT="$SOURCE_ROOT/Partial-Wiki-Metadata"
+GH_STUB_ROOT="$TEST_ROOT/bin"
 
-mkdir -p "$PROJECT/.git" "$MANAGED_ROOT"
+mkdir -p "$PROJECT/.git" "$MANAGED_ROOT" "$GH_STUB_ROOT"
 printf 'partial metadata fixture\n' > "$PROJECT/wiki.md"
 printf 'source must remain after blocked preflight\n' > "$PROJECT/README.md"
+cat > "$GH_STUB_ROOT/gh" <<'EOF'
+#!/usr/bin/env bash
+# Keep this safety test local and deterministic: every GitHub operation fails
+# immediately without consulting the host's real gh credentials or network.
+exit 1
+EOF
+chmod +x "$GH_STUB_ROOT/gh"
 
 echo "[1/4] blocked-source preflight"
 set +e
-GH_HOST=invalid.invalid bash "$ROOT_DIR/stage2-workspace.sh" \
+PATH="$GH_STUB_ROOT:$PATH" GH_HOST=invalid.invalid bash "$ROOT_DIR/stage2-workspace.sh" \
   --source "$SOURCE_ROOT" \
   --managed-root "$MANAGED_ROOT" \
   --preflight \
