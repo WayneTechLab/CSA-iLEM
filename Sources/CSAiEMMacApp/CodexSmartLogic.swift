@@ -314,6 +314,15 @@ struct CodexRouteReceiptComparisonSummary: Codable, Hashable, Sendable {
   }
 }
 
+struct CodexRouteReceiptBaselineDecision: Codable, Hashable, Sendable {
+  let id: String
+  let liveSessionID: String
+  let importedSessionID: String
+  let importedSourceName: String
+  let decidedAt: Date
+  let detail: String
+}
+
 enum CodexEvidenceCompatibilityState: String, Codable, CaseIterable, Identifiable, Sendable {
   case complete
   case partial

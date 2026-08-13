@@ -341,6 +341,15 @@ unchanged, changed, live only, or imported only, in deterministic source-path
 order. A changed or imported-only row is evidence for operator review; it does
 not create a pending route, alter the live receipt, or authorize a resume.
 
+## Phase 13.33 explicit comparison-baseline acceptance
+
+The comparison panel provides **Accept as comparison baseline** only after a
+live session and imported bundle are both present. The action persists the
+operator decision with both session IDs, source name, timestamp, and an explicit
+comparison-only detail. Loading a different bundle clears the prior decision.
+The decision never promotes imported receipts into SQLite, pending-route
+selection, transfer execution, or cleanup authority.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

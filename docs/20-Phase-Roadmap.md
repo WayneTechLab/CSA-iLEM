@@ -302,6 +302,13 @@ Current Phase 13.32 slice:
 - show transitions as read-only evidence without changing live resume predicates or
   operation authority.
 
+Current Phase 13.33 slice:
+- require an explicit operator action to accept imported receipts as a comparison
+  baseline;
+- persist the live/imported session IDs, source name, timestamp, and decision detail;
+- reset the decision when a different imported bundle is loaded and never promote
+  the decision into live operation authority.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

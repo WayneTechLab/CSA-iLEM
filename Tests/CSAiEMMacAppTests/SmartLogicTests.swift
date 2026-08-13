@@ -455,6 +455,22 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(summary.liveOnlyCount, 0)
   }
 
+  func testRouteReceiptBaselineDecisionStatesComparisonOnlyAuthority() throws {
+    let decision = CodexRouteReceiptBaselineDecision(
+      id: "baseline-1",
+      liveSessionID: "live-session",
+      importedSessionID: "imported-session",
+      importedSourceName: "route-receipts-imported.json",
+      decidedAt: observedDate,
+      detail: "comparison only"
+    )
+    let data = try JSONEncoder().encode(decision)
+    let restored = try JSONDecoder().decode(CodexRouteReceiptBaselineDecision.self, from: data)
+    XCTAssertEqual(restored, decision)
+    XCTAssertTrue(restored.detail.contains("comparison"))
+    XCTAssertNotEqual(restored.liveSessionID, restored.importedSessionID)
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -967,8 +983,8 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(catalog.count, 18)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.7" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.5" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v4.8" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.6" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
