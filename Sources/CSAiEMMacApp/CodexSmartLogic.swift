@@ -281,6 +281,33 @@ struct CodexImportedEvidenceRecord: Codable, Hashable, Identifiable, Sendable {
   }
 }
 
+enum CodexEvidenceHistoryFilter: String, Codable, CaseIterable, Identifiable, Sendable {
+  case all
+  case verificationRecommended
+  case profileMatched
+  case legacyUnknown
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .all: return "All retained evidence"
+    case .verificationRecommended: return "Full Verification recommended"
+    case .profileMatched: return "Profile matched route"
+    case .legacyUnknown: return "Legacy or unknown profile"
+    }
+  }
+
+  func includes(_ record: CodexImportedEvidenceRecord) -> Bool {
+    switch self {
+    case .all: return true
+    case .verificationRecommended: return record.profileAuditLabel == "Full Verification recommended"
+    case .profileMatched: return record.profileAuditLabel == "profile matched route"
+    case .legacyUnknown: return record.profileLabel == "unknown" || record.profileAuditLabel == "assessment unavailable"
+    }
+  }
+}
+
 struct CodexEvidenceAuthorityComparison: Codable, Hashable, Sendable {
   let liveSessionID: String
   let importedCurrentSessionID: String

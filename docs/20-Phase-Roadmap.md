@@ -240,6 +240,14 @@ Current Phase 13.23 slice:
 - keep history bounded, local, read-only, and unable to alter catalog state or
   authorize an operation.
 
+Current Phase 13.24 slice:
+- filter retained evidence history by Full Verification recommendation, profile
+  match, or legacy or unknown profile context;
+- keep filtering local, bounded, read-only, and limited to the visible history
+  list;
+- preserve the live catalog, retained bundles, profile selection, and all
+  operation gates unchanged.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

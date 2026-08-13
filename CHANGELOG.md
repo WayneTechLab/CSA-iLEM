@@ -16,6 +16,7 @@
 - Added Phase 13.21 scan-profile suitability guidance so Fast Index and YOLO visibly recommend Full Verification when targeted routes remain, without changing the selected profile automatically.
 - Added Phase 13.22 export provenance for the selected scan profile and suitability assessment so handoff evidence preserves the operator context for later audit.
 - Added Phase 13.23 retained-history labels for exported scan profile and profile assessment so operators can triage old evidence before opening it.
+- Added Phase 13.24 read-only retained-history filters for Full Verification recommendations, matched profiles, and legacy or unknown profile context.
 - Extended Phase 13.8 review handling with persisted defer/exclude
   dispositions, restore-to-review controls, and affected-group re-evaluation
   from existing indexed rows. Deferred sources remain blockers; exclusions are

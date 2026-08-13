@@ -252,6 +252,13 @@ the profile matched the route assessment or Full Verification was recommended.
 Operators can triage a handoff before opening it. The bounded local history is
 read-only and cannot modify the live catalog or authorize an operation.
 
+## Phase 13.24 retained-history filtering
+
+The retained imported-evidence history can be filtered by Full Verification
+recommended, profile matched, or legacy or unknown profile context. The filter
+only changes the visible list; it does not mutate retained bundles, the live
+catalog, profile selection, or operation gates.
+
 ## GitHub issue actions
 
 The GitHub Issues page is a native bridge to the authenticated `gh` session.

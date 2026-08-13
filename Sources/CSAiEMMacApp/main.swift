@@ -1762,6 +1762,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var codexComparisonExportStatus = ""
   @Published var codexImportedEvidenceBundle: CodexComparisonEvidenceBundle?
   @Published var codexImportedEvidenceHistory: [CodexImportedEvidenceRecord] = []
+  @Published var codexEvidenceHistoryFilter: CodexEvidenceHistoryFilter = .all
   @Published var codexImportedEvidenceStatus = "No external comparison evidence loaded."
   @Published var codexComparisonStatus = "Select a saved session after the first scan to inspect source-level changes."
   @Published var codexBaselineRebuildReason = ""
@@ -2287,6 +2288,10 @@ final class CleanupViewModel: ObservableObject {
     guard let routeSummary = codexEvidenceScanRouteSummary,
           let profile = CodexEvidenceScanProfile(rawValue: codexSmartScanMode.rawValue) else { return nil }
     return CodexSmartLogicEngine.profileAssessment(profile: profile, routeSummary: routeSummary)
+  }
+
+  var codexVisibleEvidenceHistory: [CodexImportedEvidenceRecord] {
+    codexImportedEvidenceHistory.filter { codexEvidenceHistoryFilter.includes($0) }
   }
 
   var codexSmartArchivePath: String {
@@ -16541,7 +16546,19 @@ struct ContentView: View {
             if !model.codexImportedEvidenceHistory.isEmpty {
               DisclosureGroup("Imported evidence history · " + String(model.codexImportedEvidenceHistory.count)) {
                 VStack(alignment: .leading, spacing: 5) {
-                  ForEach(model.codexImportedEvidenceHistory) { record in
+                  Picker("History filter", selection: $model.codexEvidenceHistoryFilter) {
+                    ForEach(CodexEvidenceHistoryFilter.allCases) { filter in
+                      Text(filter.label).tag(filter)
+                    }
+                  }
+                  .pickerStyle(.menu)
+                  .frame(maxWidth: 320, alignment: .leading)
+                  let visibleHistoryCount = String(model.codexVisibleEvidenceHistory.count)
+                  let totalHistoryCount = String(model.codexImportedEvidenceHistory.count)
+                  Text("Showing " + visibleHistoryCount + " of " + totalHistoryCount + " retained entry(s).")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(DashboardTheme.muted)
+                  ForEach(model.codexVisibleEvidenceHistory) { record in
                     HStack(spacing: 8) {
                       Button(record.sourceName + " · " + String(record.bundle.rows.count) + " row(s) · " + record.profileLabel + " · " + record.profileAuditLabel) {
                         model.inspectCodexEvidenceRecord(record)
