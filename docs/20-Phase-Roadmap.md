@@ -392,6 +392,16 @@ Current Phase 12.4 slice:
 - selecting a cluster focuses the first incident for retry, resolution, and
   redacted issue handoff.
 
+Current Phase 12.5 slice:
+- the native issue list retains provider labels while remaining backward-
+  compatible with older issue-list payloads;
+- a reviewed issue-action surface supports comments, close, reopen, add-label,
+  and remove-label operations through the existing authenticated `gh` bridge;
+- every remote mutation requires a selected issue, an authenticated host and
+  repository, validated action payload, and a fresh explicit arm toggle;
+- each mutation is recorded in the local Jobs Center and requires a deliberate
+  issue-list reload to verify provider-side state.
+
 Exit criteria:
 - a user can turn a failed operation into a well-formed issue or local recovery
   task without leaving the app, while unrelated sources continue when safe

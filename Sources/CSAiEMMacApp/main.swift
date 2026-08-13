@@ -941,6 +941,21 @@ struct GitHubIssueEntry: Identifiable, Hashable, Decodable {
   let createdAt: String?
   let updatedAt: String?
   let url: String?
+  let labels: [String]
+
+  enum CodingKeys: String, CodingKey { case number, title, state, createdAt, updatedAt, url, labels }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    number = try values.decode(Int.self, forKey: .number)
+    title = try values.decode(String.self, forKey: .title)
+    state = try values.decode(String.self, forKey: .state)
+    createdAt = try values.decodeIfPresent(String.self, forKey: .createdAt)
+    updatedAt = try values.decodeIfPresent(String.self, forKey: .updatedAt)
+    url = try values.decodeIfPresent(String.self, forKey: .url)
+    let rawLabels = try values.decodeIfPresent([[String: String]].self, forKey: .labels) ?? []
+    labels = rawLabels.compactMap { $0["name"] }.sorted()
+  }
 
   var id: Int { number }
 }
@@ -1264,7 +1279,7 @@ private enum AppDestination: String, CaseIterable, Identifiable {
     case .incidents:
       return "Turn recoverable warnings and fatal blockers into local recovery records and reviewable issue drafts."
     case .issues:
-      return "Read GitHub issues, compose local templates, and create a reviewed issue only after an explicit arm step."
+      return "Read GitHub issues, compose locally, and apply reviewed comments, lifecycle, and label actions through the native GitHub bridge."
     case .githubAccount:
       return "Manage the connected GitHub host, account, organizations, and repository inventory from the app."
     case .githubBilling:
@@ -1706,6 +1721,11 @@ final class CleanupViewModel: ObservableObject {
   @Published var issueStatus = "Load issues for the selected repository."
   @Published var isLoadingIssues = false
   @Published var issueWriteArmed = false
+  @Published var selectedIssueMutation: CSAiEMGitHubIssueMutation = .comment
+  @Published var issueMutationBody = ""
+  @Published var issueMutationLabels = ""
+  @Published var issueMutationStatus = "Select a loaded issue before preparing a remote update."
+  @Published var issueMutationArmed = false
   @Published var selectedJobID: String?
   @Published var savedContexts: [SavedGitHubContext] = []
   @Published var favoriteProjects: Set<String> = []
@@ -6345,7 +6365,7 @@ final class CleanupViewModel: ObservableObject {
       guard let self else { return }
       let result = Self.runCommand(
         executable: ghPath,
-        arguments: ["issue", "list", "--repo", repo, "--limit", "100", "--state", "all", "--json", "number,title,state,createdAt,updatedAt,url"],
+        arguments: ["issue", "list", "--repo", repo, "--limit", "100", "--state", "all", "--json", "number,title,state,createdAt,updatedAt,url,labels"],
         environment: environment
       )
       DispatchQueue.main.async {
@@ -6358,6 +6378,8 @@ final class CleanupViewModel: ObservableObject {
         do {
           self.githubIssues = try JSONDecoder().decode([GitHubIssueEntry].self, from: Data(result.output.utf8))
           self.selectedIssueNumber = self.githubIssues.first?.number
+          self.issueMutationArmed = false
+          self.issueMutationStatus = self.githubIssues.isEmpty ? "No issue selected." : "Select an issue and review the proposed remote action."
           self.issueStatus = "Loaded \(self.githubIssues.count) issue(s) for \(repo)."
         } catch {
           self.githubIssues = []
@@ -6374,6 +6396,53 @@ final class CleanupViewModel: ObservableObject {
     issueDraftLabels = template.labels
     issueWriteArmed = false
     issueStatus = "Template loaded locally. Review the title and body before arming a remote create."
+  }
+
+  func resetIssueMutationArm(_ status: String? = nil) {
+    issueMutationArmed = false
+    if let status { issueMutationStatus = status }
+  }
+
+  func mutateSelectedGitHubIssue() {
+    guard issueMutationArmed else {
+      issueMutationStatus = "Arm the reviewed issue action before making a remote change."
+      return
+    }
+    guard let ghPath, let repo = primaryRepoSlug, !repo.isEmpty else {
+      issueMutationStatus = "Select a repository and confirm GitHub CLI availability first."
+      return
+    }
+    guard isAuthenticated else {
+      issueMutationStatus = "GitHub CLI login is required before a remote issue change can be made."
+      return
+    }
+    let command: CSAiEMGitHubIssueCommand
+    do {
+      command = try CSAiEMGitHubIssueCommand.make(mutation: selectedIssueMutation, issueNumber: selectedIssueNumber, body: issueMutationBody, labels: issueMutationLabels)
+    } catch {
+      issueMutationStatus = error.localizedDescription
+      return
+    }
+
+    let arguments = command.arguments + ["--repo", repo]
+    let jobID = createJob(kind: "GitHub", title: "Update GitHub issue", target: "\(repo)#\(command.issueNumber)", detail: "Applying a reviewed \(command.mutation.title.lowercased()) action…", initialState: .running)
+    issueMutationStatus = "Applying the reviewed \(command.mutation.title.lowercased()) action to \(repo)#\(command.issueNumber)…"
+    let environment = baseEnvironment().merging(["GH_HOST": host.trimmingCharacters(in: .whitespacesAndNewlines)], uniquingKeysWith: { _, new in new })
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
+      let result = Self.runCommand(executable: ghPath, arguments: arguments, environment: environment)
+      DispatchQueue.main.async {
+        self.issueMutationArmed = false
+        if result.status == 0 {
+          let output = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+          self.issueMutationStatus = "GitHub issue action completed. Reload the issue list to confirm remote state."
+          self.updateJob(id: jobID, state: .succeeded, detail: output.isEmpty ? "Remote issue action completed." : output)
+        } else {
+          self.issueMutationStatus = "GitHub issue action failed: \(redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines))"
+          self.finishJob(id: jobID, state: .failed, detail: self.issueMutationStatus)
+        }
+      }
+    }
   }
 
   func prepareIssueDraft(for incident: CSAiEMIncident) {
@@ -15039,11 +15108,16 @@ struct ContentView: View {
         if width >= 1200 {
           HStack(alignment: .top, spacing: 18) {
             issuesListPanel.frame(maxWidth: 520, alignment: .topLeading)
-            issueComposerPanel.frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 18) {
+              issueComposerPanel
+              issueMutationPanel
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
           }
         } else {
           issuesListPanel
           issueComposerPanel
+          issueMutationPanel
         }
       }
     }
@@ -15059,7 +15133,11 @@ struct ContentView: View {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(model.githubIssues) { issue in
-              Button { model.selectedIssueNumber = issue.number } label: {
+              Button {
+                model.selectedIssueNumber = issue.number
+                model.issueMutationLabels = issue.labels.joined(separator: ",")
+                model.resetIssueMutationArm("Issue #\(issue.number) selected. Review the remote action before arming it.")
+              } label: {
                 VStack(alignment: .leading, spacing: 7) {
                   HStack {
                     Text("#\(issue.number) \(issue.title)")
@@ -15134,6 +15212,59 @@ struct ContentView: View {
       Button("Create GitHub Issue") { model.createGitHubIssueFromDraft() }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
         .disabled(!model.issueWriteArmed)
+    }
+  }
+
+  private var issueMutationPanel: some View {
+    PanelCard(title: "Reviewed issue action", subtitle: "Comment, lifecycle, and label changes stay disabled until you select an issue and explicitly arm this exact remote mutation.") {
+      BannerCard(title: model.issueMutationStatus, detail: "The action is executed through the authenticated GitHub CLI session. Reload the list after completion to verify provider state.", kind: model.issueMutationArmed ? .warning : .ready)
+
+      HStack(spacing: 10) {
+        Picker("Action", selection: Binding(get: { model.selectedIssueMutation }, set: { value in
+          model.selectedIssueMutation = value
+          model.resetIssueMutationArm("Action changed to \(value.title). Review the payload before arming it.")
+        })) {
+          ForEach(CSAiEMGitHubIssueMutation.allCases) { mutation in
+            Text(mutation.title).tag(mutation)
+          }
+        }
+        .pickerStyle(.menu)
+        Spacer(minLength: 4)
+        if let issue = model.selectedIssue {
+          PillBadge(text: "#\(issue.number) · \(issue.state)", tint: issue.state.lowercased() == "open" ? DashboardTheme.success : DashboardTheme.muted)
+        } else {
+          PillBadge(text: "No issue", tint: DashboardTheme.muted)
+        }
+      }
+
+      if model.selectedIssueMutation.requiresBody {
+        FieldLabel(text: "Comment")
+        TextEditor(text: $model.issueMutationBody)
+          .font(.system(size: 12, design: .monospaced))
+          .foregroundStyle(DashboardTheme.text)
+          .frame(minHeight: 130)
+          .padding(10)
+          .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(DashboardTheme.field))
+          .onChange(of: model.issueMutationBody) { _ in model.resetIssueMutationArm() }
+      }
+
+      if model.selectedIssueMutation.requiresLabels {
+        FieldLabel(text: "Labels (comma-separated)")
+        TextField("needs-review, recovery", text: $model.issueMutationLabels)
+          .textFieldStyle(.plain)
+          .foregroundStyle(DashboardTheme.text)
+          .dashboardFieldStyle()
+          .onChange(of: model.issueMutationLabels) { _ in model.resetIssueMutationArm() }
+      }
+
+      Toggle("I reviewed the exact issue, action, and payload; arm remote update", isOn: $model.issueMutationArmed)
+        .toggleStyle(.switch)
+        .tint(DashboardTheme.warning)
+        .disabled(model.selectedIssue == nil)
+
+      Button("Apply GitHub Issue Action") { model.mutateSelectedGitHubIssue() }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
+        .disabled(!model.issueMutationArmed || model.selectedIssue == nil)
     }
   }
 

@@ -71,6 +71,28 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(issue.title, "Broken import")
     XCTAssertEqual(issue.state, "OPEN")
     XCTAssertEqual(issue.url, "https://github.com/example/repo/issues/42")
+    XCTAssertTrue(issue.labels.isEmpty)
+  }
+
+  func testGitHubIssueCommandBuildsReviewedCommentAndLabelArguments() throws {
+    let comment = try CSAiEMGitHubIssueCommand.make(mutation: .comment, issueNumber: 42, body: "  checkpoint verified  ", labels: "")
+    XCTAssertEqual(comment.arguments, ["issue", "comment", "42", "--body", "checkpoint verified"])
+
+    let labels = try CSAiEMGitHubIssueCommand.make(mutation: .addLabel, issueNumber: 42, body: "", labels: "needs-review, recovery")
+    XCTAssertEqual(labels.labels, ["needs-review", "recovery"])
+    XCTAssertEqual(labels.arguments, ["issue", "edit", "42", "--add-label", "needs-review", "--add-label", "recovery"])
+  }
+
+  func testGitHubIssueCommandRejectsUnarmedPayloadInputs() {
+    XCTAssertThrowsError(try CSAiEMGitHubIssueCommand.make(mutation: .comment, issueNumber: nil, body: "comment", labels: "")) { error in
+      XCTAssertEqual(error as? CSAiEMGitHubIssueCommand.ValidationError, .invalidIssueNumber)
+    }
+    XCTAssertThrowsError(try CSAiEMGitHubIssueCommand.make(mutation: .comment, issueNumber: 42, body: " ", labels: "")) { error in
+      XCTAssertEqual(error as? CSAiEMGitHubIssueCommand.ValidationError, .missingBody)
+    }
+    XCTAssertThrowsError(try CSAiEMGitHubIssueCommand.make(mutation: .addLabel, issueNumber: 42, body: "", labels: ",")) { error in
+      XCTAssertEqual(error as? CSAiEMGitHubIssueCommand.ValidationError, .missingLabels)
+    }
   }
 
   func testIncidentClustersGroupSameSourceStageAndDestination() {
@@ -549,6 +571,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.1" })
   }
 
   func testDecisionReviewSemanticsKeepFatalConditionsVisible() {

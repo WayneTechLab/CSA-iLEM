@@ -3,7 +3,7 @@
 Status: primary native macOS dashboard contract
 Version: 0.8.0
 Matrix revision: matrix-1.0
-Updated: 2026-08-11
+Updated: 2026-08-13
 
 ## Purpose
 
@@ -55,6 +55,16 @@ When an operator reports a broken surface:
 The matrix is an identity and triage aid. It does not authorize writes,
 replace Git history, bypass Smart Logic, or override receipt and cleanup
 gates.
+
+## GitHub issue actions
+
+The GitHub Issues page is a native bridge to the authenticated `gh` session.
+It reads provider labels and supports reviewed comments, close/reopen actions,
+and label additions or removals. A selected issue, repository, host, and valid
+payload are required. The operator must explicitly arm each remote mutation;
+the arm state resets when the issue, action, or payload changes. The resulting
+operation appears in the local Jobs Center, and the operator reloads the issue
+list to verify provider-side state.
 
 ## Install and update invariant
 

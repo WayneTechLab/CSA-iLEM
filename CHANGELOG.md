@@ -15,6 +15,10 @@
 - Added Phase 12.4 incident clustering so repeated failures on the same
   operation/stage/source/destination chain roll up with open and fatal counts
   while individual job evidence remains available.
+- Added the Phase 12.5 native GitHub issue-action surface for reviewed comments,
+  close/reopen lifecycle changes, and label additions/removals. Each provider
+  mutation is validated, explicitly armed, routed through the existing `gh`
+  bridge, and recorded in the local Jobs Center for reload-based verification.
 - Closed the 0.8.0 local macOS CODEX ~ GPT Add-on milestone on `main` after
   rerunning the full local release preflight and the hosted native macOS gate
   against the exact merged commit; deferred roadmap phases remain separately
