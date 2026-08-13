@@ -569,6 +569,39 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(refreshed.first?.importedAt, second.importedAt)
   }
 
+  func testBaselineAuditBundleValidationRejectsMalformedStructureButAllowsUnknownSchemaReview() {
+    let event = CodexRouteReceiptBaselineAuditEvent(
+      id: "duplicate",
+      action: .accepted,
+      liveSessionID: "live",
+      importedSessionID: "imported",
+      importedSourceName: "bundle.json",
+      occurredAt: observedDate,
+      detail: "accepted"
+    )
+    let validUnknownSchema = CodexRouteReceiptBaselineAuditExportBundle(
+      exportedAt: observedDate,
+      auditVersion: "baseline-audit-v9",
+      events: [event]
+    )
+    XCTAssertTrue(validUnknownSchema.validationIssues.isEmpty)
+
+    let duplicateIDs = CodexRouteReceiptBaselineAuditExportBundle(
+      exportedAt: observedDate,
+      auditVersion: "baseline-audit-v1",
+      events: [event, event]
+    )
+    XCTAssertTrue(duplicateIDs.validationIssues.contains("event IDs are not unique"))
+
+    let missingMetadata = CodexRouteReceiptBaselineAuditExportBundle(
+      exportedAt: observedDate,
+      auditVersion: "baseline-audit-v1",
+      events: [CodexRouteReceiptBaselineAuditEvent(id: "", action: .revoked, liveSessionID: "", importedSessionID: "imported", importedSourceName: "", occurredAt: observedDate, detail: "")]
+    )
+    XCTAssertTrue(missingMetadata.validationIssues.contains("an event is missing its ID"))
+    XCTAssertTrue(missingMetadata.validationIssues.contains("an event is missing session or source metadata"))
+  }
+
   func testCatalogStorePersistsSessionDeltaAndTimingEvidenceAcrossRestart() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-session-diff-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -1082,7 +1115,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.14" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.15" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })

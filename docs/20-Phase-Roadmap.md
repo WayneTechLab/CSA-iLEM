@@ -358,6 +358,13 @@ Current Phase 13.41 slice:
 - keep the duplicate decision local and informational without changing audit
   authority or operation selection.
 
+Current Phase 13.42 slice:
+- validate imported audit bundle structure before retaining it locally;
+- reject missing IDs, duplicate event IDs, missing session/source metadata, and
+  oversized payloads;
+- retain unknown schema versions for explicit compatibility review rather than
+  silently accepting them as current.
+
 Exit criteria:
 - every major operation has the same conceptual inputs and outputs on both operating systems
 

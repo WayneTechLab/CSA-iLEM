@@ -606,6 +606,31 @@ struct CodexRouteReceiptBaselineAuditExportBundle: Codable, Hashable, Sendable {
   let exportedAt: Date
   let auditVersion: String
   let events: [CodexRouteReceiptBaselineAuditEvent]
+
+  var validationIssues: [String] {
+    var issues: [String] = []
+    if events.count > 50 { issues.append("bundle contains more than 50 events") }
+    if events.contains(where: { $0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+      issues.append("an event is missing its ID")
+    }
+    if Set(events.map(\.id)).count != events.count { issues.append("event IDs are not unique") }
+    if events.contains(where: {
+      $0.liveSessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+      $0.importedSessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+      $0.importedSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }) {
+      issues.append("an event is missing session or source metadata")
+    }
+    return issues
+  }
+}
+
+struct CodexBaselineAuditValidationError: LocalizedError, Sendable {
+  let issues: [String]
+
+  var errorDescription: String? {
+    "Baseline audit bundle rejected: " + issues.joined(separator: "; ")
+  }
 }
 
 struct CodexImportedBaselineAuditRecord: Codable, Hashable, Identifiable, Sendable {

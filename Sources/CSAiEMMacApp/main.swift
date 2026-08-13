@@ -2950,6 +2950,10 @@ final class CleanupViewModel: ObservableObject {
     do {
       let data = try Data(contentsOf: url)
       let bundle = try JSONDecoder().decode(CodexRouteReceiptBaselineAuditExportBundle.self, from: data)
+      let validationIssues = bundle.validationIssues
+      guard validationIssues.isEmpty else {
+        throw CodexBaselineAuditValidationError(issues: validationIssues)
+      }
       codexImportedBaselineAuditEvents = bundle.events
       let record = CodexImportedBaselineAuditRecord(
         id: UUID().uuidString,

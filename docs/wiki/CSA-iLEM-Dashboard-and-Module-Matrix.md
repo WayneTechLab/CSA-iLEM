@@ -417,6 +417,14 @@ time rather than adding a duplicate. The dashboard reports whether a new
 fingerprint was retained or an existing fingerprint was refreshed. This local
 housekeeping cannot alter live audit authority or authorize an operation.
 
+## Phase 13.42 audit-bundle validation
+
+Before an imported audit bundle enters local history, CSA-iLEM validates its
+structure. Empty IDs, duplicate event IDs, missing live/imported session or
+source metadata, and bundles larger than the bounded 50-event limit are
+rejected. Unknown schema versions are not treated as current; they remain
+available with an explicit review-required compatibility label.
+
 The GitHub Issues page is a native bridge to the authenticated `gh` session.
 It reads provider labels and supports reviewed comments, close/reopen actions,
 and label additions or removals. A selected issue, repository, host, and valid

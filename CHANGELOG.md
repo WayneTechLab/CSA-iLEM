@@ -19,6 +19,7 @@
 - Added Phase 13.39 baseline-audit compatibility metadata, retaining bundle schema version and accepted/revoked counts so imported handoffs can be triaged before event inspection.
 - Added Phase 13.40 deterministic content fingerprints for imported baseline-audit bundles, allowing duplicate handoffs to be recognized independently of filename and import time.
 - Added Phase 13.41 fingerprint-based history upsert, refreshing an existing duplicate handoff entry with the latest source provenance instead of creating redundant local records.
+- Added Phase 13.42 structural validation for imported baseline-audit bundles, rejecting malformed IDs, duplicate event IDs, missing metadata, and oversized payloads before local retention while leaving unknown schemas reviewable.
 
 - Added Phase 13.9 indexed delta evaluation, persisted review audit history, and an undo path for the last review disposition.
 - Added Phase 13.10 SQLite-backed session diffs, source-delta persistence, and discovery/decision timing evidence in the dashboard.
