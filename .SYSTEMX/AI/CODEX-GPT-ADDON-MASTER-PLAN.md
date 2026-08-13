@@ -411,6 +411,9 @@ The current branch has direct evidence for each local milestone gate:
   validates all repository `.ps1` files with the PowerShell parser when
   `pwsh` is available. It is syntax evidence only and does not claim Windows
   runtime or native GUI validation.
+- Windows CLI inspection evidence: installer, updater, and uninstaller
+  `--version`/`--help` paths tolerate a non-Windows host without
+  `LOCALAPPDATA`; lifecycle mutations still fail closed outside Windows.
 - isolated lifecycle smoke: `.SYSTEMX/scripts/install-lifecycle-smoke.sh`
   exercises CLI install, same-version replacement/update, wrapper identity,
   GUI bundle build and signature verification, uninstall, and sentinel

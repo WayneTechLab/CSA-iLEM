@@ -8,7 +8,11 @@ $AppName = "CSA-iEM"
 $AppVendor = "Wayne Tech Lab LLC"
 $AppUrl = "https://www.WayneTechLab.com"
 
-$InstallRoot = Join-Path $env:LOCALAPPDATA "CSA-iEM"
+$InstallRoot = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA "CSA-iEM"
+} else {
+    Join-Path ([System.IO.Path]::GetTempPath()) "CSA-iEM"
+}
 $BinDir = Join-Path $InstallRoot "bin"
 $ForceInstall = $true
 $BootstrapDeps = $true

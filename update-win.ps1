@@ -16,7 +16,11 @@ function Get-DefaultInstallRoot {
     return (Join-Path $env:LOCALAPPDATA "CSA-iEM")
 }
 
-$InstallRoot = Get-DefaultInstallRoot
+$InstallRoot = if ($env:LOCALAPPDATA) {
+    Get-DefaultInstallRoot
+} else {
+    Join-Path ([System.IO.Path]::GetTempPath()) "CSA-iEM"
+}
 $BinDir = Join-Path $InstallRoot "bin"
 $RepoSlug = "WayneTechLab/CSA-iLEM"
 $RefValue = "main"

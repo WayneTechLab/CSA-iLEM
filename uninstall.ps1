@@ -6,7 +6,11 @@ $VersionFile = Join-Path $ScriptDir "VERSION"
 $AppVersion = if (Test-Path $VersionFile) { (Get-Content -Path $VersionFile -TotalCount 1).Trim() } else { "0.0.0" }
 $AppName = "CSA-iEM"
 
-$InstallRoot = Join-Path $env:LOCALAPPDATA "CSA-iEM"
+$InstallRoot = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA "CSA-iEM"
+} else {
+    Join-Path ([System.IO.Path]::GetTempPath()) "CSA-iEM"
+}
 $BinDir = Join-Path $InstallRoot "bin"
 $ShowHelp = $false
 $ShowVersion = $false

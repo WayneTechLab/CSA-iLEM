@@ -173,6 +173,9 @@ These areas are close, but not fully finished to the standard the app is aiming 
 - the release preflight now runs a reproducible PowerShell parser smoke when
   `pwsh` is available; this validates script syntax only and does not replace
   real Windows 11 runtime validation
+- Windows lifecycle `--version` and `--help` commands now remain inspectable
+  from macOS when `LOCALAPPDATA` is absent, while install/update/uninstall
+  mutations still reject non-Windows hosts before acting
 - The CODEX ~ GPT Add-on master plan now defines deterministic five-second
   source decisions, false-positive protection, recoverable versus fatal
   continuation, explicit YOLO limits, Archive_Data routing, native tool

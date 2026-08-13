@@ -24,6 +24,9 @@
   verified an isolated current-branch GUI bundle with the available Apple
   Development signing identity and hardened runtime; public notarization and
   independent distribution trust remain separate release gates.
+- Hardened Windows installer, updater, and uninstaller `--version`/`--help`
+  paths to tolerate a non-Windows host without `LOCALAPPDATA`; actual Windows
+  lifecycle actions remain fail-closed outside Windows.
 
 ## 0.8.0
 
