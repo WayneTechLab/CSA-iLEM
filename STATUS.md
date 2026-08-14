@@ -341,6 +341,7 @@ These are the known production gaps or weak spots still open:
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
 - the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source; the local manifest contract now has deterministic tamper-rejection coverage
+- a fail-closed `CSA-iLEM macOS release` workflow now validates `vX.Y.Z` against `VERSION` and contains the signed/notarized/stapled artifact path; it will not create a public release until all Apple Developer distribution secrets are present
 - the current Mac host has a valid Apple Development signing identity; an
   isolated current-branch bundle was signed with the hardened runtime and
   passed strict verification, but public distribution signing, notarization,

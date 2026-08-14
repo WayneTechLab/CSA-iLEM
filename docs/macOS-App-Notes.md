@@ -49,6 +49,33 @@ The `.app` bundle includes:
 - app icon assets
 - brand images
 
+## Public release gate
+
+The repository's `CSA-iLEM macOS release` workflow is intentionally separate
+from the normal native preflight. It accepts a `vX.Y.Z` tag only when the tag
+matches the first line of `VERSION`, runs the full non-destructive preflight,
+then stops unless Apple Developer distribution credentials are configured.
+
+When the required repository secrets are present, the workflow signs with a
+Developer ID Application identity, notarizes and staples the app, verifies it
+with `spctl`, creates a versioned macOS ZIP, writes a SHA-256 sidecar, and
+publishes those artifacts to the matching GitHub release. Missing credentials
+fail closed before any release is created; an ad-hoc local signature is never
+treated as a public distribution signature.
+
+Required release secrets are:
+
+- `APPLE_CERTIFICATE_BASE64`
+- `APPLE_CERTIFICATE_PASSWORD`
+- `DEVELOPER_ID_APPLICATION`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_PASSWORD`
+
+The current branch installer remains a development/update path. It should not
+be described as an immutable public release installer until a versioned,
+notarized artifact and an independently published checksum are available.
+
 ## Installer Notes
 
 Use Terminal with `zsh` or `bash`.

@@ -1,0 +1,122 @@
+name: CSA-iLEM macOS release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish, for example v0.8.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: csa-ilem-macos-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sign, notarize, and publish macOS app
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out CSA-iLEM
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate release version
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_TAG"
+          fi
+          [[ "$tag" == v* ]] || { echo "Release tag must start with v: $tag" >&2; exit 1; }
+          version="${tag#v}"
+          expected="$(sed -n '1p' VERSION)"
+          [[ "$version" == "$expected" ]] || {
+            echo "Release tag $tag does not match VERSION $expected" >&2
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run native release preflight
+        run: bash .SYSTEMX/scripts/release-preflight.sh
+
+      - name: Build unsigned app staging bundle
+        env:
+          CSA_IEM_DIST_DIR: ${{ runner.temp }}/csa-ilem-release
+        run: |
+          set -euo pipefail
+          rm -rf "$CSA_IEM_DIST_DIR"
+          mkdir -p "$CSA_IEM_DIST_DIR"
+          ./build-gui-app.sh
+
+      - name: Require Apple distribution credentials
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD DEVELOPER_ID_APPLICATION; do
+            [[ -n "${!name}" ]] || { echo "Missing required repository secret: $name" >&2; exit 1; }
+          done
+
+      - name: Sign, notarize, staple, and publish
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          DIST_DIR: ${{ runner.temp }}/csa-ilem-release
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          app="$DIST_DIR/CSA-iEM.app"
+          zip_path="$DIST_DIR/CSA-iEM-${RELEASE_VERSION}-macOS.zip"
+          checksum_path="$DIST_DIR/CSA-iEM-${RELEASE_VERSION}-macOS.sha256"
+          keychain="$RUNNER_TEMP/csa-ilem-release.keychain-db"
+          certificate="$RUNNER_TEMP/csa-ilem-release.p12"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$certificate"
+          }
+          trap cleanup EXIT
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -s "$keychain"
+
+          codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" "$zip_path"
+          xcrun notarytool submit "$zip_path" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          ditto -c -k --keepParent "$app" "$zip_path"
+          shasum -a 256 "$zip_path" > "$checksum_path"
+          gh release create "$RELEASE_TAG" "$zip_path" "$checksum_path" --repo "$GITHUB_REPOSITORY" --title "CSA-iLEM $RELEASE_VERSION" --generate-notes
