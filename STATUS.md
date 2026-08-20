@@ -11,7 +11,14 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Current hardening phase: Phase 13.45 protects the native lifecycle and local
+Current hardening phase: Phase 13.46 pins the checkout dependency in both
+native macOS workflows to the immutable `actions/checkout` v7.0.1 commit and
+disables persisted checkout credentials. The local release preflight now
+rejects a floating checkout major, the wrong commit, or missing credential
+isolation before any release build can be accepted. This removes the hosted
+Node.js 20 deprecation path without granting publication authority.
+
+Phase 13.45 protects the native lifecycle and local
 state without widening repository scope. The installer now builds the app in
 disposable staging and retains one canonical application bundle, the app holds
 a per-user single-instance lock to prevent duplicate menu-bar toolbars, and the

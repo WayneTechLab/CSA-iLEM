@@ -1236,7 +1236,12 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
-    XCTAssertTrue(catalog.contains { $0.tag == "runtime.release" && $0.version == "release-gate-v1.1" })
+    XCTAssertTrue(catalog.contains {
+      $0.tag == "runtime.release"
+        && $0.version == "release-gate-v1.2"
+        && $0.state == "phase-13.46"
+        && $0.lastUpdated == "2026-08-19"
+    })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.settings" && $0.version == "settings-v1.1" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })

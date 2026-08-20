@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added Phase 13.46 GitHub Actions supply-chain hardening: both native macOS workflows now pin `actions/checkout` v7.0.1 to its immutable commit, disable persisted checkout credentials, and fail local release preflight if either boundary regresses to a floating major reference.
 - Added Phase 13.45 native runtime and publication hardening: one process-level app instance, disposable installer staging with no runnable install-tree duplicate, exact release-tag-to-HEAD validation, and a verified-tag GitHub release boundary.
 - Made cleanup preview-first on fresh launches, changed terminal auto-confirm to opt-in, and stopped credential or unapproved confirmation gates safely instead of leaving a hidden process waiting for GUI-inaccessible input.
 - Added field-by-field settings migration, immediate Privacy-First saved-context purging, and a large-result SQLite regression so older preferences survive new fields and large local catalogs cannot block on a full process pipe.

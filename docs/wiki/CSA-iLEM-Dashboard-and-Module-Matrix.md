@@ -52,6 +52,14 @@ When an operator reports a broken surface:
 4. Compare the relevant receipt, index, or runtime log.
 5. Update the module entry and CHANGELOG only after the fix is verified.
 
+## Phase 13.46 workflow dependency hardening
+
+The `runtime.release` module is `release-gate-v1.2`. Both native macOS
+workflows pin `actions/checkout` v7.0.1 to its immutable commit, disable
+persisted checkout credentials, and are checked by the local release preflight.
+This moves the checkout runtime to Node.js 24 without changing the exact-tag,
+Developer ID, notarization, or verified-release publication gates.
+
 ## Phase 13.45 runtime and publication hardening
 
 Matrix 1.1 tracks settings/privacy persistence and the macOS publication gate

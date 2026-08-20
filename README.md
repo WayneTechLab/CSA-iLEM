@@ -48,6 +48,11 @@ same unified module matrix strip. Home expands the matrix so operators can
 see the version, tag, area, state, and last-updated date for UI pages, engines,
 bridges, runtimes, receipts, recovery, and install/update surfaces.
 
+The `runtime.release` module is currently `release-gate-v1.2`. Native macOS
+preflight and publication workflows pin `actions/checkout` v7.0.1 to an
+immutable commit, disable persisted checkout credentials, and enforce that
+dependency boundary in the local release preflight.
+
 The matrix contract is documented in
 [`docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md`](./docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md).
 

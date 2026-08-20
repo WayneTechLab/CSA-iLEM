@@ -486,3 +486,18 @@ The acceptance lane adds regressions for lock ownership, partial settings,
 large catalog output, release-tag identity, and canonical-only isolated app
 installation. It does not create a tag, a GitHub release, or notarization
 evidence.
+
+## Phase 13.46 GitHub Actions supply-chain hardening
+
+The native preflight and macOS publication workflows pin
+`actions/checkout` v7.0.1 to immutable commit
+`3d3c42e5aac5ba805825da76410c181273ba90b1`. Both workflows disable persisted
+checkout credentials because they do not use Git to push; the publication
+step continues to use its separately scoped GitHub token only when an exact,
+existing release tag has already passed the release gate.
+
+The local release preflight rejects a floating checkout major, a different
+checkout commit, or missing credential isolation in either workflow. This
+keeps the Node.js 24 migration reproducible and prevents a later workflow edit
+from silently restoring the deprecated Node.js 20 action path. It does not
+create or authorize a tag, release, signature, or notarization request.
