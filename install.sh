@@ -12,6 +12,7 @@ BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
 APP_INSTALL_DIR_OVERRIDE="${CSA_IEM_APP_INSTALL_DIR:-}"
 DISABLE_LOGIN_TOOLBAR="${CSA_IEM_DISABLE_LOGIN_TOOLBAR:-0}"
+DISABLE_PROCESS_STOP="${CSA_IEM_DISABLE_PROCESS_STOP:-0}"
 INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=1
@@ -316,8 +317,32 @@ remove_stale_gui_app_bundles() {
   done
 }
 
+remove_legacy_install_tree_app_bundle() {
+  local candidate="$INSTALL_DIR/dist/$APP_NAME.app"
+  local info_plist="$candidate/Contents/Info.plist"
+  local bundle_id=""
+
+  [[ -e "$candidate" || -L "$candidate" ]] || return 0
+  if [[ -f "$info_plist" ]]; then
+    bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
+  fi
+  if [[ "$bundle_id" != "$APP_BUNDLE_IDENTIFIER" ]]; then
+    warn "Retained unexpected app-like data instead of deleting it: $candidate"
+    return 0
+  fi
+
+  rm -rf -- "$candidate"
+  rmdir "$INSTALL_DIR/dist" >/dev/null 2>&1 || true
+  info "Removed legacy duplicate app bundle from the install tree: $candidate"
+}
+
 stop_running_gui_instances() {
   local attempt=0
+
+  if [[ "$DISABLE_PROCESS_STOP" == "1" ]]; then
+    info "Skipping process stop (CSA_IEM_DISABLE_PROCESS_STOP=1)."
+    return 0
+  fi
 
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   while pgrep -x "$APP_NAME" >/dev/null 2>&1; do
@@ -368,7 +393,8 @@ EOF
 
 install_gui_app_bundle() {
   local app_install_dir=""
-  local built_app="$INSTALL_DIR/dist/$APP_NAME.app"
+  local build_dist_root=""
+  local built_app=""
   local target_app=""
   local app_stage_root=""
   local staged_app=""
@@ -392,13 +418,17 @@ install_gui_app_bundle() {
   fi
 
   info "Building native $APP_NAME.app for the menu-bar toolbar..."
-  if ! "$INSTALL_DIR/build-gui-app.sh" >"$build_log" 2>&1; then
+  build_dist_root="$(mktemp -d "${TMPDIR:-/tmp}/csa-iem-install-build.XXXXXX")"
+  built_app="$build_dist_root/$APP_NAME.app"
+  if ! CSA_IEM_DIST_DIR="$build_dist_root" "$INSTALL_DIR/build-gui-app.sh" >"$build_log" 2>&1; then
+    rm -rf -- "$build_dist_root"
     warn "GUI app build failed. See log: $build_log"
     tail -n 30 "$build_log" >&2 || true
     return 1
   fi
 
   if [[ ! -d "$built_app" ]]; then
+    rm -rf -- "$build_dist_root"
     warn "GUI builder finished but did not create $built_app."
     return 1
   fi
@@ -409,10 +439,11 @@ install_gui_app_bundle() {
   app_stage_root="$(mktemp -d "$app_install_dir/.csa-iem-install.XXXXXX")"
   staged_app="$app_stage_root/$APP_NAME.app"
   if ! ditto --norsrc "$built_app" "$staged_app"; then
-    rm -rf -- "$app_stage_root"
+    rm -rf -- "$app_stage_root" "$build_dist_root"
     printf 'Could not stage the verified GUI bundle for installation: %s\n' "$staged_app" >&2
     return 1
   fi
+  rm -rf -- "$build_dist_root"
   xattr -rc "$staged_app" >/dev/null 2>&1 || true
   if command -v codesign >/dev/null 2>&1; then
     if ! codesign --force --deep --sign - --timestamp=none "$staged_app" >/dev/null 2>&1 \
@@ -456,11 +487,16 @@ install_gui_app_bundle() {
     return 1
   fi
   rm -rf -- "$app_stage_root" "$rollback_root"
+  remove_legacy_install_tree_app_bundle
   remove_stale_gui_app_bundles "$target_app"
   install_login_toolbar_agent "$target_app"
 
   info "Installed native app: $target_app"
-  info "Installed login toolbar launcher: ~/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist"
+  if [[ "$DISABLE_LOGIN_TOOLBAR" == "1" ]]; then
+    info "Login toolbar launcher was left unchanged (CSA_IEM_DISABLE_LOGIN_TOOLBAR=1)."
+  else
+    info "Installed login toolbar launcher: ~/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist"
+  fi
 
   if [[ "$OPEN_GUI_APP" -eq 1 ]]; then
     open -gj "$target_app" >/dev/null 2>&1 || open "$target_app" >/dev/null 2>&1 || true

@@ -11,7 +11,6 @@ trap 'rm -rf -- "$TEST_ROOT"' EXIT
 INSTALL_ROOT="$TEST_ROOT/install-root"
 BIN_DIR="$TEST_ROOT/bin"
 APP_DIR="$TEST_ROOT/apps"
-DIST_DIR="$TEST_ROOT/dist"
 BUILD_DIR="$TEST_ROOT/build"
 SCRATCH_DIR="$TEST_ROOT/swiftpm"
 SENTINEL="$INSTALL_ROOT/keep-me.txt"
@@ -24,7 +23,10 @@ export CSA_IEM_BIN_DIR="$BIN_DIR"
 export CSA_IEM_NPM_PREFIX="$TEST_ROOT/npm"
 export CSA_IEM_APP_INSTALL_DIR="$APP_DIR"
 export CSA_IEM_DISABLE_LOGIN_TOOLBAR=1
+export CSA_IEM_DISABLE_PROCESS_STOP=1
 export CSA_IEM_AUTO_CONFIRM_TERMINAL_GATES=1
+export CSA_IEM_SCRATCH_PATH="$SCRATCH_DIR"
+export CSA_IEM_GUI_BUILD_DIR="$BUILD_DIR"
 
 echo "[1/7] isolated CLI install"
 bash "$ROOT_DIR/install-remote.sh" --version >/dev/null
@@ -61,22 +63,23 @@ bash "$ROOT_DIR/install.sh" \
   --install-root "$INSTALL_ROOT" \
   --bin-dir "$BIN_DIR" \
   --no-deps \
-  --no-gui-app \
   --no-open \
   --no-shell-profile \
   --force
 test -L "$INSTALL_ROOT/current"
 test -x "$BIN_DIR/csa-ilem"
 test -f "$SENTINEL"
+test -d "$APP_DIR/CSA-iEM.app"
+test ! -e "$INSTALL_ROOT/current/dist/CSA-iEM.app"
+if find "$INSTALL_ROOT" -type d -name 'CSA-iEM.app' -print -quit | grep -q .; then
+  echo "FAIL: installer retained a duplicate runnable app in the versioned install tree" >&2
+  exit 1
+fi
 
-echo "[4/7] isolated GUI bundle build and signature"
-CSA_IEM_SCRATCH_PATH="$SCRATCH_DIR" \
-CSA_IEM_GUI_BUILD_DIR="$BUILD_DIR" \
-CSA_IEM_DIST_DIR="$DIST_DIR" \
-  bash "$ROOT_DIR/build-gui-app.sh"
-test -d "$DIST_DIR/CSA-iEM.app"
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DIST_DIR/CSA-iEM.app/Contents/Info.plist")" = "$(sed -n '1p' "$ROOT_DIR/VERSION")"
-codesign --verify --deep --strict "$DIST_DIR/CSA-iEM.app"
+echo "[4/7] canonical GUI bundle identity and signature"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_DIR/CSA-iEM.app/Contents/Info.plist")" = "com.waynetechlab.csa-iem"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DIR/CSA-iEM.app/Contents/Info.plist")" = "$(sed -n '1p' "$ROOT_DIR/VERSION")"
+codesign --verify --deep --strict "$APP_DIR/CSA-iEM.app"
 
 echo "[5/7] isolated uninstall"
 bash "$ROOT_DIR/uninstall.sh" --install-root "$INSTALL_ROOT" --bin-dir "$BIN_DIR"
@@ -89,7 +92,9 @@ echo "[6/7] sentinel preservation"
 test -f "$SENTINEL"
 
 echo "[7/7] no real-target references"
-test ! -e "/Applications/CSA-iEM.app" || true
-test ! -e "$HOME/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist" || true
+case "$INSTALL_ROOT:$BIN_DIR:$APP_DIR" in
+  "$TEST_ROOT"/*:"$TEST_ROOT"/*:"$TEST_ROOT"/*) ;;
+  *) echo "FAIL: lifecycle smoke escaped its temporary root" >&2; exit 1 ;;
+esac
 
-echo "PASS: isolated install/update/uninstall and GUI bundle lifecycle smoke"
+echo "PASS: isolated install/update/uninstall, canonical-only GUI, and signature lifecycle smoke"

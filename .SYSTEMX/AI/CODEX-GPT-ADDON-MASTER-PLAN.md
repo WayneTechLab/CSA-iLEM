@@ -466,3 +466,23 @@ The current branch has direct evidence for each local milestone gate:
 These checks were rerun on the merged `main` commit and the hosted `main`
 workflow passed for the exact same SHA. The 0.8.0 local milestone is closed.
 Any remaining items belong to the explicitly deferred roadmap phases above.
+
+## Phase 13.45 native hardening update
+
+This post-milestone pass closes four local production defects without changing
+the protected CSA-iLEM repository boundary:
+
+- installer builds use disposable distribution staging and must leave no
+  runnable `CSA-iEM.app` under the versioned install tree;
+- a per-user process lock prevents stale app copies from creating duplicate
+  windows or menu-bar toolbars and activates the existing app instead;
+- settings migrate by key, Privacy-First Mode purges saved GitHub contexts at
+  save time, cleanup starts in dry-run, and hidden terminal gates fail closed;
+- SQLite catalog output drains before process wait, and macOS publication
+  requires an existing exact `vX.Y.Z` tag at checked-out `HEAD` plus GitHub
+  CLI verified-tag release creation.
+
+The acceptance lane adds regressions for lock ownership, partial settings,
+large catalog output, release-tag identity, and canonical-only isolated app
+installation. It does not create a tag, a GitHub release, or notarization
+evidence.

@@ -2,7 +2,7 @@
 
 `CSA-iEM` means `Container Setup & Action Import Engine Manager`.
 
-Version: `0.7.0`
+Version: `0.8.0`
 Canonical version source: [`VERSION`](./VERSION)
 Provided by `Wayne Tech Lab LLC`  
 Website: [www.WayneTechLab.com](https://www.WayneTechLab.com)  
@@ -24,7 +24,7 @@ Notice: `Use at your own risk.`
 - external-drive Default workspace controls that can save a stable `DRIVE/CSA-iEM` layout without moving data, or stage and relocate all `Code`, `Import`, and `Runtime` roots after explicit confirmation
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
-- auto-confirm support for simple terminal yes/no gates while pausing on sudo/password/security prompts
+- opt-in auto-confirm support for simple terminal yes/no gates; with auto-confirm off, or whenever a sudo/password/security prompt appears, the native job stops safely and directs the user to a visible Terminal instead of hanging on hidden input
 - an opt-in Administrator Terminal mode that requests `sudo` authorization in a visible Terminal without capturing or storing passwords
 - terminal installers for macOS
 - a Windows 11 admin-shell PowerShell backend with matching install/update scripts
@@ -395,7 +395,8 @@ The GUI is a SwiftUI macOS app that:
 - two-way sync uses rsync metadata candidates, timestamps for the fast path, targeted manifests for one-sided updates, optional deep content audit, and `_temp` conflict quarantine with `Conflict_Report.MD` when both sides changed the same file
 - detects mounted external drives, shows capacity, and lets you choose one for a timestamped full-workspace or selected-project backup/move bundle
 - can make a mounted drive the saved Default workspace, prepare a full collision-aware relocation preview, move all current roots only after a separate confirmation, reveal the new workspace, or restore internal Default paths without moving files
-- macOS upgrades keep one canonical `/Applications/CSA-iEM.app`, stop the prior app before replacement, remove stale CSA-iEM/CSA-iLEM backup bundles, and refresh the single toolbar login launcher
+- macOS upgrades build in disposable staging, keep one canonical `/Applications/CSA-iEM.app`, remove the legacy runnable bundle from the versioned install tree, stop the prior app before replacement, remove stale CSA-iEM/CSA-iLEM backup bundles, and refresh the single toolbar login launcher
+- the app also holds a per-user process lock, so launching a stale copy activates the existing native app instead of creating a second menu-bar toolbar
 - adds native backup presets, previews, snapshots, restore actions, storage insights, sync status, per-project task templates, and local port monitoring
 - lets the native local project library feed cleanup and local-file targeting directly
 - treats custom-drive setups as auto-detected workspace examples instead of exposing internal preset names

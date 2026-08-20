@@ -52,9 +52,12 @@ The `.app` bundle includes:
 ## Public release gate
 
 The repository's `CSA-iLEM macOS release` workflow is intentionally separate
-from the normal native preflight. It accepts a `vX.Y.Z` tag only when the tag
-matches the first line of `VERSION`, runs the full non-destructive preflight,
-then stops unless Apple Developer distribution credentials are configured.
+from the normal native preflight. It accepts an existing exact `vX.Y.Z` tag
+only when the tag matches the first line of `VERSION` and resolves to the exact
+checked-out commit. Manual dispatch checks out the requested tag rather than
+the default branch, and release creation uses GitHub CLI's verified-tag gate.
+It then runs the full non-destructive preflight and stops unless Apple
+Developer distribution credentials are configured.
 
 When the required repository secrets are present, the workflow signs with a
 Developer ID Application identity, notarizes and staples the app, verifies it
@@ -127,6 +130,13 @@ CSA-iEM --version
 - build a standalone `.app` later with `csa-iem-build-gui`
 - update later with `csa-iem-update` or rerun the shipped `install-remote.sh` from the installed copy if needed
 - install `@devcontainers/cli` into a user-local npm prefix automatically if the machine blocks system-wide npm global installs
+
+During installation, the native app is built into a disposable temporary
+directory, verified, and atomically moved to the canonical Applications
+location. The temporary bundle is removed, and older install-tree bundles are
+not retained as runnable copies. A per-user runtime lock provides a second
+defense: if an old copy is opened, it activates the existing app and exits
+before creating another menu-bar toolbar.
 
 ## Workspace Setup
 

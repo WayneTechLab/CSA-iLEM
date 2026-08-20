@@ -849,9 +849,59 @@ struct AppSettings: Codable, Hashable {
   var autoLoadWorkflowRuns = true
   var showAdvancedTools = false
   var keepTerminalFallbacksVisible = false
-  var autoConfirmTerminalGates = true
+  var autoConfirmTerminalGates = false
   var privacyFirstMode = true
   var firstRunComplete = false
+
+  private enum CodingKeys: String, CodingKey {
+    case defaultGitHubHost
+    case preferDetectedWorkspace
+    case preferVSCodeCLI
+    case preferredEditorPath
+    case runDockerChecksOnRefresh
+    case autoLoadRepoHealth
+    case autoLoadWorkflowRuns
+    case showAdvancedTools
+    case keepTerminalFallbacksVisible
+    case autoConfirmTerminalGates
+    case privacyFirstMode
+    case firstRunComplete
+  }
+
+  init() {}
+
+  init(from decoder: Decoder) throws {
+    let defaults = AppSettings()
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    defaultGitHubHost = try container.decodeIfPresent(String.self, forKey: .defaultGitHubHost) ?? defaults.defaultGitHubHost
+    preferDetectedWorkspace = try container.decodeIfPresent(Bool.self, forKey: .preferDetectedWorkspace) ?? defaults.preferDetectedWorkspace
+    preferVSCodeCLI = try container.decodeIfPresent(Bool.self, forKey: .preferVSCodeCLI) ?? defaults.preferVSCodeCLI
+    preferredEditorPath = try container.decodeIfPresent(String.self, forKey: .preferredEditorPath) ?? defaults.preferredEditorPath
+    runDockerChecksOnRefresh = try container.decodeIfPresent(Bool.self, forKey: .runDockerChecksOnRefresh) ?? defaults.runDockerChecksOnRefresh
+    autoLoadRepoHealth = try container.decodeIfPresent(Bool.self, forKey: .autoLoadRepoHealth) ?? defaults.autoLoadRepoHealth
+    autoLoadWorkflowRuns = try container.decodeIfPresent(Bool.self, forKey: .autoLoadWorkflowRuns) ?? defaults.autoLoadWorkflowRuns
+    showAdvancedTools = try container.decodeIfPresent(Bool.self, forKey: .showAdvancedTools) ?? defaults.showAdvancedTools
+    keepTerminalFallbacksVisible = try container.decodeIfPresent(Bool.self, forKey: .keepTerminalFallbacksVisible) ?? defaults.keepTerminalFallbacksVisible
+    autoConfirmTerminalGates = try container.decodeIfPresent(Bool.self, forKey: .autoConfirmTerminalGates) ?? defaults.autoConfirmTerminalGates
+    privacyFirstMode = try container.decodeIfPresent(Bool.self, forKey: .privacyFirstMode) ?? defaults.privacyFirstMode
+    firstRunComplete = try container.decodeIfPresent(Bool.self, forKey: .firstRunComplete) ?? defaults.firstRunComplete
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(defaultGitHubHost, forKey: .defaultGitHubHost)
+    try container.encode(preferDetectedWorkspace, forKey: .preferDetectedWorkspace)
+    try container.encode(preferVSCodeCLI, forKey: .preferVSCodeCLI)
+    try container.encode(preferredEditorPath, forKey: .preferredEditorPath)
+    try container.encode(runDockerChecksOnRefresh, forKey: .runDockerChecksOnRefresh)
+    try container.encode(autoLoadRepoHealth, forKey: .autoLoadRepoHealth)
+    try container.encode(autoLoadWorkflowRuns, forKey: .autoLoadWorkflowRuns)
+    try container.encode(showAdvancedTools, forKey: .showAdvancedTools)
+    try container.encode(keepTerminalFallbacksVisible, forKey: .keepTerminalFallbacksVisible)
+    try container.encode(autoConfirmTerminalGates, forKey: .autoConfirmTerminalGates)
+    try container.encode(privacyFirstMode, forKey: .privacyFirstMode)
+    try container.encode(firstRunComplete, forKey: .firstRunComplete)
+  }
 }
 
 struct SavedGitHubContext: Identifiable, Hashable, Codable {
@@ -1707,7 +1757,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var deleteArtifacts = true
   @Published var deleteCaches = true
   @Published var deleteCodespaces = false
-  @Published var dryRun = false
+  @Published var dryRun = true
   @Published var runTarget = ""
   @Published var runFilter = ""
   @Published var safetyArmEnabled = false
@@ -3676,7 +3726,23 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func persistContexts() {
+    if appSettings.privacyFirstMode {
+      do {
+        try purgeSavedContextsForPrivacy()
+      } catch {
+        settingsStatus = "Privacy-First Mode could not purge saved contexts: \(error.localizedDescription)"
+      }
+      return
+    }
     writeJSON(savedContexts, to: contextsFile)
+  }
+
+  private func purgeSavedContextsForPrivacy() throws {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: contextsFile) {
+      try fileManager.removeItem(atPath: contextsFile)
+    }
+    savedContexts.removeAll()
   }
 
   private func persistTasks() {
@@ -5351,8 +5417,8 @@ final class CleanupViewModel: ObservableObject {
     }
 
     process.terminationHandler = { [weak self] terminated in
-      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       pipe.fileHandleForReading.readabilityHandler = nil
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       let tailText = String(data: tail, encoding: .utf8) ?? ""
       DispatchQueue.main.async {
         guard let self else { return }
@@ -6909,9 +6975,19 @@ final class CleanupViewModel: ObservableObject {
   func saveSettings() {
     appSettings.defaultGitHubHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host.trimmingCharacters(in: .whitespacesAndNewlines)
     appSettings.firstRunComplete = true
+    if appSettings.privacyFirstMode {
+      do {
+        try purgeSavedContextsForPrivacy()
+      } catch {
+        settingsStatus = "Settings were not saved because Privacy-First Mode could not purge saved contexts: \(error.localizedDescription)"
+        return
+      }
+    }
     persistSettings()
     UserDefaults.standard.set(administratorTerminalMode, forKey: administratorTerminalModeKey)
-    settingsStatus = "Settings saved."
+    settingsStatus = appSettings.privacyFirstMode
+      ? "Settings saved. Privacy-First Mode purged saved GitHub contexts."
+      : "Settings saved."
   }
 
   func markLaunchWarningAccepted() {
@@ -7156,8 +7232,8 @@ final class CleanupViewModel: ObservableObject {
     }
 
     process.terminationHandler = { [weak self] process in
-      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       pipe.fileHandleForReading.readabilityHandler = nil
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       let tailText = String(data: tail, encoding: .utf8) ?? ""
       DispatchQueue.main.async {
         guard let self else { return }
@@ -8209,8 +8285,8 @@ final class CleanupViewModel: ObservableObject {
     }
 
     process.terminationHandler = { [weak self] terminated in
-      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       pipe.fileHandleForReading.readabilityHandler = nil
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       let tailText = String(data: tail, encoding: .utf8) ?? ""
 
       DispatchQueue.main.async {
@@ -8439,8 +8515,8 @@ final class CleanupViewModel: ObservableObject {
     }
 
     process.terminationHandler = { [weak self] terminated in
-      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       pipe.fileHandleForReading.readabilityHandler = nil
+      let tail = pipe.fileHandleForReading.readDataToEndOfFile()
       let tailText = String(data: tail, encoding: .utf8) ?? ""
 
       DispatchQueue.main.async {
@@ -8522,25 +8598,27 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func handleTerminalGate(_ chunk: String, stdinPipe: Pipe, jobID: String?) {
-    guard Self.looksLikeTerminalGate(chunk) else {
+    guard !cancellationRequested, Self.looksLikeTerminalGate(chunk) else {
       return
     }
 
     if Self.looksLikeCredentialGate(chunk) {
-      let message = "[gui] Security gate detected. This looks like a sudo/password/auth prompt, so CSA-iEM paused for manual approval instead of auto-typing credentials.\n"
-      appendLog(message)
-      if let jobID {
-        updateJob(id: jobID, state: .running, detail: "Waiting for manual security approval.", appendLog: message)
-      }
+      stopForTerminalGate(
+        "[gui] Security gate detected. The operation was stopped because the native app cannot securely accept sudo, password, or authentication input. Rerun the action in a visible Terminal when credentials are required.\n",
+        detail: "Stopped at a credential gate; use a visible Terminal.",
+        stdinPipe: stdinPipe,
+        jobID: jobID
+      )
       return
     }
 
     guard appSettings.autoConfirmTerminalGates else {
-      let message = "[gui] Confirmation gate detected. Auto-confirm is off, so answer the terminal prompt manually or enable Auto-confirm terminal gates in Settings.\n"
-      appendLog(message)
-      if let jobID {
-        updateJob(id: jobID, state: .running, detail: "Waiting for manual confirmation.", appendLog: message)
-      }
+      stopForTerminalGate(
+        "[gui] Confirmation gate detected. The operation was stopped because Auto-confirm terminal gates is off and the native app has no interactive terminal input. Review the action, then enable Auto-confirm or rerun it in a visible Terminal.\n",
+        detail: "Stopped at a confirmation gate; review before retrying.",
+        stdinPipe: stdinPipe,
+        jobID: jobID
+      )
       return
     }
 
@@ -8554,6 +8632,16 @@ final class CleanupViewModel: ObservableObject {
     if let jobID {
       updateJob(id: jobID, appendLog: message)
     }
+  }
+
+  private func stopForTerminalGate(_ message: String, detail: String, stdinPipe: Pipe, jobID: String?) {
+    cancellationRequested = true
+    appendLog(message)
+    if let jobID {
+      updateJob(id: jobID, state: .running, detail: detail, appendLog: message)
+    }
+    try? stdinPipe.fileHandleForWriting.close()
+    runningProcess?.terminate()
   }
 
   private func appendLog(_ text: String) {
@@ -14307,8 +14395,8 @@ struct PanelCard<Content: View>: View {
 private struct ModuleMatrixStrip: View {
   let destination: AppDestination?
 
-  private var primaryCount: Int {
-    CSAiEMModuleTag.catalog.filter { $0.state == "primary" }.count
+  private var taggedModuleCount: Int {
+    CSAiEMModuleTag.catalog.count
   }
 
   var body: some View {
@@ -14318,7 +14406,7 @@ private struct ModuleMatrixStrip: View {
       Text("Unified module matrix")
         .font(.system(size: 12, weight: .bold, design: .rounded))
         .foregroundStyle(DashboardTheme.text)
-      Text("v\(appVersion) · \(CSAiEMModuleTag.matrixVersion) · \(primaryCount) tagged modules")
+      Text("v\(appVersion) · \(CSAiEMModuleTag.matrixVersion) · \(taggedModuleCount) tagged modules")
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundStyle(DashboardTheme.muted)
         .lineLimit(1)
@@ -22230,16 +22318,41 @@ struct CSAiEMMacApp: App {
 
 @MainActor
 final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
+  private static let bundleIdentifier = "com.waynetechlab.csa-iem"
   private var statusItem: NSStatusItem?
   private weak var model: CleanupViewModel?
+  private let instanceLock = CSAiEMSingleInstanceLock()
+  private var isDuplicateInstance = false
+
+  func applicationWillFinishLaunching(_ notification: Notification) {
+    guard ProcessInfo.processInfo.environment["CSA_IEM_ALLOW_MULTIPLE_INSTANCES"] != "1" else {
+      return
+    }
+
+    switch instanceLock.acquire() {
+    case .acquired:
+      break
+    case .alreadyRunning:
+      isDuplicateInstance = true
+      activateExistingInstance()
+      DispatchQueue.main.async {
+        NSApp.terminate(nil)
+      }
+    case .unavailable(let reason):
+      let warning = "CSA-iEM could not create its single-instance lock and will continue without it: \(reason)\n"
+      FileHandle.standardError.write(Data(warning.utf8))
+    }
+  }
 
   func attach(model: CleanupViewModel) {
+    guard !isDuplicateInstance else { return }
     self.model = model
     installStatusItemIfNeeded()
     rebuildStatusMenu()
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    guard !isDuplicateInstance else { return }
     NSApp.setActivationPolicy(.regular)
 
     if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
@@ -22252,6 +22365,14 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
         self.configure(window)
       }
     }
+  }
+
+  private func activateExistingInstance() {
+    let currentPID = ProcessInfo.processInfo.processIdentifier
+    let existing = NSRunningApplication
+      .runningApplications(withBundleIdentifier: Self.bundleIdentifier)
+      .first { $0.processIdentifier != currentPID }
+    _ = existing?.activate(options: [.activateAllWindows])
   }
 
   private func installStatusItemIfNeeded() {

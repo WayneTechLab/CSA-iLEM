@@ -7,43 +7,46 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "[1/11] Swift regression tests"
+echo "[1/13] Swift regression tests"
 swift test
 
-echo "[2/11] Swift release build"
+echo "[2/13] Swift release build"
 swift build -c release
 
-echo "[3/11] SYSTEMX plan validation"
+echo "[3/13] SYSTEMX plan validation"
 node .SYSTEMX/scripts/validate-10000-task-plan.mjs
 
-echo "[4/11] Shell syntax"
-bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh build-gui-app.sh ".SYSTEMX/scripts/release-manifest-smoke.sh" ".SYSTEMX/scripts/github-live-readonly-smoke.sh" ".SYSTEMX/scripts/powershell-parse-smoke.sh" ".SYSTEMX/scripts/remote-install-live-smoke.sh"
+echo "[4/13] Shell syntax"
+bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh build-gui-app.sh ".SYSTEMX/scripts/release-manifest-smoke.sh" ".SYSTEMX/scripts/github-live-readonly-smoke.sh" ".SYSTEMX/scripts/powershell-parse-smoke.sh" ".SYSTEMX/scripts/remote-install-live-smoke.sh" ".SYSTEMX/scripts/validate-macos-release-tag.sh" ".SYSTEMX/scripts/macos-release-tag-smoke.sh"
 
-echo "[4b/11] PowerShell static syntax"
+echo "[5/13] PowerShell static syntax"
 bash .SYSTEMX/scripts/powershell-parse-smoke.sh
 
-echo "[5/11] SHA-256 manifest"
+echo "[6/13] SHA-256 manifest"
 shasum -a 256 -c --strict SHA256SUMS
 
-echo "[6/11] Git whitespace"
+echo "[7/13] Git whitespace"
 git diff --check
 
-echo "[7/11] Repository boundary"
+echo "[8/13] Repository boundary"
 if git grep -n -i -E 'webapp[-_ ]?stack[-_ ]?g1|webstack[-_ ]?g1|webapp stack' HEAD -- ':!.github/workflows/csa-ilem-preflight.yml' ':!.SYSTEMX/scripts/release-preflight.sh'; then
   echo "FAIL: unrelated project boundary reference detected" >&2
   exit 1
 fi
 
-echo "[8/11] Release manifest smoke"
+echo "[9/13] Release manifest smoke"
 bash .SYSTEMX/scripts/release-manifest-smoke.sh
 
-echo "[9/11] Disposable lifecycle smoke"
+echo "[10/13] macOS release tag smoke"
+bash .SYSTEMX/scripts/macos-release-tag-smoke.sh
+
+echo "[11/13] Disposable lifecycle smoke"
 bash .SYSTEMX/scripts/install-lifecycle-smoke.sh
 
-echo "[10/11] Recovery safety smoke"
+echo "[12/13] Recovery safety smoke"
 bash .SYSTEMX/scripts/recovery-safety-smoke.sh
 
-echo "[11/11] GitHub identity-scope smoke"
+echo "[13/13] GitHub identity-scope smoke"
 bash .SYSTEMX/scripts/github-identity-scope-smoke.sh
 
 echo "PASS: CSA-iLEM release preflight"

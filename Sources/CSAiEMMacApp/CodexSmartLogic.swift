@@ -1874,15 +1874,19 @@ final class CodexCatalogStore: @unchecked Sendable {
     process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
     process.arguments = ["-batch", databasePath]
     let input = Pipe()
-    let error = Pipe()
+    let output = Pipe()
     process.standardInput = input
-    process.standardError = error
+    process.standardOutput = output
+    process.standardError = output
     try process.run()
     input.fileHandleForWriting.write(Data(sql.utf8))
     input.fileHandleForWriting.closeFile()
+    // Drain before waiting. Waiting first can deadlock when sqlite3 fills the
+    // pipe while writing a large diagnostic or query response.
+    let response = output.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     guard process.terminationStatus == 0 else {
-      let message = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "sqlite3 failed"
+      let message = String(data: response, encoding: .utf8) ?? "sqlite3 failed"
       throw NSError(domain: "CSAiEM.CodexCatalog", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message.trimmingCharacters(in: .whitespacesAndNewlines)])
     }
   }
@@ -1895,13 +1899,17 @@ final class CodexCatalogStore: @unchecked Sendable {
     let output = Pipe()
     process.standardInput = input
     process.standardOutput = output
+    process.standardError = output
     do {
       try process.run()
       input.fileHandleForWriting.write(Data(sql.utf8))
       input.fileHandleForWriting.closeFile()
+      // Read to EOF before waitUntilExit so result sets larger than the pipe
+      // buffer cannot stall the catalog and freeze a scan or resume action.
+      let response = output.fileHandleForReading.readDataToEndOfFile()
       process.waitUntilExit()
       guard process.terminationStatus == 0 else { return nil }
-      return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+      return String(data: response, encoding: .utf8)
     } catch {
       return nil
     }

@@ -1,7 +1,7 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-08-13`
+Updated: `2026-08-19`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
@@ -11,7 +11,19 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Next phase: Phase 13.44 baseline-audit rejection recovery is in progress. The native app now
+Current hardening phase: Phase 13.45 protects the native lifecycle and local
+state without widening repository scope. The installer now builds the app in
+disposable staging and retains one canonical application bundle, the app holds
+a per-user single-instance lock to prevent duplicate menu-bar toolbars, and the
+publication workflow accepts only an existing exact version tag at the checked-
+out commit. Settings decode older partial payloads without resetting known
+preferences, Privacy-First Mode purges saved contexts when enabled, terminal
+gates stop safely when the GUI cannot answer them, cleanup defaults to dry-run,
+and SQLite catalog output is drained before process wait to prevent large-scan
+pipe stalls. These are local and CI gates; no notarized public 0.8.0 release is
+claimed by this status.
+
+Phase 13.44 baseline-audit rejection recovery is implemented. The native app now
 groups repeated failures by operation, lifecycle stage, source, and
 destination, retains GitHub issue labels, and provides explicitly armed
 comment, close, reopen, add-label, and remove-label actions through `gh`.

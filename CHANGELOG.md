@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added Phase 13.45 native runtime and publication hardening: one process-level app instance, disposable installer staging with no runnable install-tree duplicate, exact release-tag-to-HEAD validation, and a verified-tag GitHub release boundary.
+- Made cleanup preview-first on fresh launches, changed terminal auto-confirm to opt-in, and stopped credential or unapproved confirmation gates safely instead of leaving a hidden process waiting for GUI-inaccessible input.
+- Added field-by-field settings migration, immediate Privacy-First saved-context purging, and a large-result SQLite regression so older preferences survive new fields and large local catalogs cannot block on a full process pipe.
+- Updated the dashboard to matrix 1.1 with 20 stable module tags, including settings/privacy and publication modules, and corrected the strip to report all tagged modules.
 - Added Phase 13.25 compatibility states for retained evidence imports, distinguishing complete profile metadata from partial metadata and legacy exports in the native inspection UI.
 - Added Phase 13.26 deterministic Smart Logic route plans showing metadata triage, targeted verification, and deep-scan avoidance before an operation is run.
 - Added Phase 13.27 SQLite-backed per-source route receipts with planned, skipped, completed, interrupted, and failed states so stopped operations retain resumable route evidence.

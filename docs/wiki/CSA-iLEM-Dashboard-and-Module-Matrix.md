@@ -2,8 +2,8 @@
 
 Status: primary native macOS dashboard contract
 Version: 0.8.0
-Matrix revision: matrix-1.0
-Updated: 2026-08-13
+Matrix revision: matrix-1.1
+Updated: 2026-08-19
 
 ## Purpose
 
@@ -51,6 +51,16 @@ When an operator reports a broken surface:
 3. Record the fixed bottom status and active job/session identifier.
 4. Compare the relevant receipt, index, or runtime log.
 5. Update the module entry and CHANGELOG only after the fix is verified.
+
+## Phase 13.45 runtime and publication hardening
+
+Matrix 1.1 tracks settings/privacy persistence and the macOS publication gate
+as first-class modules. The matrix strip reports the full catalog count,
+including phased modules, rather than counting only entries whose state string
+is `primary`. The installer builds into disposable staging and retains one
+canonical app bundle, while the runtime lock prevents a second copy from
+creating another toolbar. Publication requires an existing exact `vX.Y.Z` tag
+that matches `VERSION` and resolves to the checked-out commit.
 
 ## Phase 13.4 research and security boundary
 

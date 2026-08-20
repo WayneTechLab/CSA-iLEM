@@ -4,6 +4,63 @@ import XCTest
 final class SmartLogicTests: XCTestCase {
   private let observedDate = Date(timeIntervalSince1970: 1_754_931_600)
 
+  func testAppSettingsDecodeLegacyPartialPayloadWithoutResettingKnownValues() throws {
+    let data = Data(#"{"defaultGitHubHost":"github.example.test","privacyFirstMode":false}"#.utf8)
+    let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+
+    XCTAssertEqual(settings.defaultGitHubHost, "github.example.test")
+    XCTAssertFalse(settings.privacyFirstMode)
+    XCTAssertTrue(settings.preferDetectedWorkspace)
+    XCTAssertTrue(settings.autoLoadRepoHealth)
+    XCTAssertFalse(settings.autoConfirmTerminalGates)
+    XCTAssertFalse(settings.firstRunComplete)
+  }
+
+  func testAppSettingsRoundTripPreservesEveryPreference() throws {
+    var settings = AppSettings()
+    settings.defaultGitHubHost = "github.enterprise.test"
+    settings.preferDetectedWorkspace = false
+    settings.preferVSCodeCLI = false
+    settings.preferredEditorPath = "/Applications/Test Editor.app"
+    settings.runDockerChecksOnRefresh = false
+    settings.autoLoadRepoHealth = false
+    settings.autoLoadWorkflowRuns = false
+    settings.showAdvancedTools = true
+    settings.keepTerminalFallbacksVisible = true
+    settings.autoConfirmTerminalGates = true
+    settings.privacyFirstMode = false
+    settings.firstRunComplete = true
+
+    let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+    XCTAssertEqual(restored, settings)
+  }
+
+  func testSingleInstanceLockRejectsSecondOwnerAndCanBeReacquired() throws {
+    let lockPath = FileManager.default.temporaryDirectory
+      .appendingPathComponent("csa-iem-instance-\(UUID().uuidString).lock").path
+    defer { try? FileManager.default.removeItem(atPath: lockPath) }
+
+    let first = CSAiEMSingleInstanceLock(lockPath: lockPath)
+    let second = CSAiEMSingleInstanceLock(lockPath: lockPath)
+    XCTAssertEqual(first.acquire(), .acquired)
+    XCTAssertEqual(second.acquire(), .alreadyRunning)
+
+    let child = Process()
+    child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    child.arguments = ["1"]
+    try child.run()
+    defer {
+      if child.isRunning {
+        child.terminate()
+        child.waitUntilExit()
+      }
+    }
+
+    first.release()
+    XCTAssertEqual(second.acquire(), .acquired)
+    second.release()
+  }
+
   func testIncidentClassifierSeparatesRecoverableWarningsFromFatalBlockers() {
     XCTAssertEqual(CSAiEMIncidentClassifier.severity(for: "One source scan timed out; unrelated sources may continue."), .recoverable)
     XCTAssertEqual(CSAiEMIncidentClassifier.severity(for: "Fatal identity conflict: destination conflict requires operator review."), .fatal)
@@ -374,6 +431,39 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: databasePath))
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.json").path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(".SYSTEMX/Index/Exports/session-test-decisions.csv").path))
+  }
+
+  func testCatalogStoreDrainsRouteReceiptResultsLargerThanPipeBuffer() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("csa-iem-large-catalog-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = CodexScanSession(
+      id: "large-route-session",
+      profile: "fast-index",
+      sourceRoots: ["/tmp"],
+      createdAt: observedDate,
+      ruleVersion: CodexSmartLogicEngine.ruleVersion,
+      decisionCount: 0
+    )
+    let detail = String(repeating: "bounded-route-detail-", count: 128)
+    let receipts = (0..<256).map { index in
+      CodexScanRouteReceipt(
+        sessionID: session.id,
+        sourcePath: String(format: "/tmp/large-route-%03d", index),
+        route: .metadataTriage,
+        state: .planned,
+        attemptCount: index % 3,
+        updatedAt: observedDate,
+        detail: "\(index):\(detail)"
+      )
+    }
+
+    let store = CodexCatalogStore(rootPath: root.path)
+    try store.save(session: session, decisions: [], routeReceipts: receipts)
+    let restored = store.routeReceipts(for: session.id)
+
+    XCTAssertEqual(restored.count, receipts.count)
+    XCTAssertEqual(restored.first?.detail, receipts.first?.detail)
+    XCTAssertEqual(restored.last?.detail, receipts.last?.detail)
   }
 
   func testRouteReceiptsPersistStateAndSummarizePendingWorkAcrossRestart() throws {
@@ -1137,8 +1227,8 @@ final class SmartLogicTests: XCTestCase {
 
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
-    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.0")
-    XCTAssertEqual(catalog.count, 18)
+    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.1")
+    XCTAssertEqual(catalog.count, 20)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
     XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
@@ -1146,6 +1236,8 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
+    XCTAssertTrue(catalog.contains { $0.tag == "runtime.release" && $0.version == "release-gate-v1.1" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.settings" && $0.version == "settings-v1.1" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.4" })

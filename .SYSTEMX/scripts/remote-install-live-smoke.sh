@@ -47,9 +47,10 @@ test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/$(sed -n '1p' "$ROOT
 (cd "$INSTALL_ROOT/current" && shasum -a 256 -c --strict SHA256SUMS >/dev/null)
 export CSA_IEM_SCRATCH_PATH="$TEST_ROOT/swiftpm"
 export CSA_IEM_GUI_BUILD_DIR="$TEST_ROOT/build"
-export CSA_IEM_DIST_DIR="$INSTALL_ROOT/current/dist"
+export CSA_IEM_DIST_DIR="$TEST_ROOT/dist"
 "$INSTALL_ROOT/current/build-gui-app.sh"
-test -d "$INSTALL_ROOT/current/dist/CSA-iEM.app"
-codesign --verify --deep --strict "$INSTALL_ROOT/current/dist/CSA-iEM.app"
+test -d "$TEST_ROOT/dist/CSA-iEM.app"
+test ! -e "$INSTALL_ROOT/current/dist/CSA-iEM.app"
+codesign --verify --deep --strict "$TEST_ROOT/dist/CSA-iEM.app"
 
 echo "PASS: networked remote-install, installed-payload, and GUI-build smoke"
