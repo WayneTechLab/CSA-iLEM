@@ -422,6 +422,11 @@ has_project_evidence() {
 
 is_staging_artifact_name() {
   local name="$1"
+  # Native transaction backups are recovery evidence, not ordinary projects.
+  # Recognition only excludes them from reconciliation; cleanup verifies them.
+  if [[ "$name" =~ ^.+\.csa-iem-(stage|backup)-[[:xdigit:]]{8}(-[[:xdigit:]]{4}){3}-[[:xdigit:]]{12}$ ]]; then
+    return 0
+  fi
   case "$name" in
     *.csa-iem-stage-*|*.migrate-*|*.moved-*|*.partial-*|*.transfer-candidate|*.admin-verified|*.data-copy)
       return 0

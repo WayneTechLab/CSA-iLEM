@@ -1,6 +1,6 @@
 CSA-iEM
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.3.5
+Version: 0.8.0
 
 Provided by Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
@@ -13,6 +13,7 @@ Notice:
 - It can install developer tooling, clone repositories, build devcontainers, register self-hosted runners, build a local GUI app bundle, and modify workflow files.
 - Review the included Terms of Service, Privacy Notice, and Disclaimer before use or redistribution.
 - Third-party tools and services used by this app, including GitHub CLI, Git, Docker, Homebrew, Node.js, npm, Swift Package Manager, and Visual Studio Code, are governed by their own terms and policies.
+- The native macOS binary links Firebase Apple SDK 12.18.0 `FirebaseCore` and its GoogleUtilities dependencies. Every `.app` packages the pinned SDK's complete CoreOnly third-party notice and license aggregation as `Contents/Resources/Firebase-Apple-SDK-NOTICES.txt`; the builder verifies that notice payload by SHA-256.
 
 Included legal and release documents:
 - LICENSE.txt

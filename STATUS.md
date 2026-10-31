@@ -1,9 +1,55 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-08-19`
+Updated: `2026-10-31`
 
 This file is the current production-status snapshot for `CSA-iEM`.
+
+Source-update acceptance (2026-10-31): the matrix 1.4 update passed 148 Swift
+regression tests, the complete 15-stage local release preflight, and all 145
+payload checksum entries. Installed-app navigation was checked across all 21
+pages. Native cleanup acceptance preserved and removed 15 transaction folders,
+including two folders completed by the saved-policy retry; independent full
+file and metadata verification confirmed every recovery archive and all 14
+unchanged canonical folders. Restart retained the enabled policy and recovery
+history, and a subsequent zero-entry run finished Succeeded. These are local
+workflow checks; public distribution still requires its separate signed,
+notarized release acceptance.
+
+Transfer artifact cleanup (2026-10-31): matrix 1.4 exposes all staging/backup
+rows in Projects and Local Files. Review saves complete per-tree manifests and
+small batch summaries. Apply preserves whole folders under
+Runtime/Recovery/TransferArtifacts, verifies full recovery and canonical trees,
+and records prepared receipts plus a pending ledger before moves. Interrupted
+verification never starts new source moves. The saved, opt-in policy runs only
+after eligible successful in-app writes and an idle barrier; parent jobs remain
+pending until the artifact step resolves. Startup, read-only work, dry runs,
+failed/cancelled jobs, and restore/undo do not trigger automatic cleanup.
+Native rollback now tracks actual promotions, preserves partial stages and
+old destinations, and avoids removing originals when snapshot backup fails.
+
+Checkout review hardening (2026-10-31): Projects and Local Files expose a native
+comparison of two physical checkouts, sanitized Git origins, live GitHub IDs,
+immutable default-branch file hashes, local changes, and separate ancestry
+evidence. Similar names and different repository IDs remain explicit review
+findings. A reviewed checkout can be retired through an exclusive same-volume
+rename into Runtime/Recovery/RetiredCheckouts, with complete manifest read-back,
+durable receipts, and a guarded restore action. The keeper and GitHub stay
+unchanged. Protected/active/shared-worktree paths, stale evidence, unreadable
+content, cloud placeholders, incomplete provider trees, and changed recovery
+parents block unsafe operations. Exact native staging and backup artifacts are
+preserved separately from active projects. This hardens the local workflow;
+the public signing, notarization, publication, and release gates below remain.
+
+Local migration repair (2026-10-31): Local Files and Jobs expose an Old Source
+Leftovers scan independent of normal project discovery. It inventories hidden
+and dependency entries without reading file contents or following symlinks,
+reports cloud placeholders and scan limits, and saves source-specific evidence
+in Application Support/CSA-iEM/source-residuals.json. Native move completion
+rechecks the physical source and marks retained roots Cleanup incomplete rather
+than reporting a fully successful move. Copy Backup keeps its expected source
+retention. The scanner is detection evidence; checksum preservation and explicit
+cleanup authority are required before deleting any old source.
 
 Milestone status: the local macOS 0.8.0 CODEX ~ GPT Add-on milestone is
 closed on `main`. The merged commit has complete local and hosted acceptance
@@ -11,11 +57,35 @@ evidence, recorded in `.SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md`. The
 remaining production gaps listed below are post-milestone work, not evidence
 that the implemented local dashboard slice is incomplete.
 
-Current hardening phase: Phase 13.46 pins the checkout dependency in both
-native macOS workflows to the immutable `actions/checkout` v7.0.1 commit and
-disables persisted checkout credentials. The local release preflight now
-rejects a floating checkout major, the wrong commit, or missing credential
-isolation before any release build can be accepted. This removes the hosted
+Local crash repair (2026-10-30): catalog reads and writes now use the system
+SQLite library instead of launching sqlite3 processes. This removes the
+Process.waitUntilExit nested-run-loop path observed during SwiftUI portal
+rendering, while preserving catalog schemas and receipt formats. Focused
+regressions cover main-run-loop re-entry, corrupt databases, and bounded lock
+contention. The app builder also makes only the staged Firebase license
+notice owner-writable before attribute cleanup and signing. These repairs do
+not create a public distribution signature or change workspace data.
+
+Current hardening phase: Phase 13.47 registers the native macOS app with the
+Firebase `csa-ilem` project using bundle ID `com.waynetechlab.csa-iem`. The
+app pins Firebase Apple SDK 12.18.0, initializes FirebaseCore only through the
+existing AppKit delegate, validates the packaged plist before configuration,
+and shows a safe ready/failure label in the menu-bar status surface. The app
+does not add Analytics, Auth, Firestore, Storage, Hosting, a web runtime, or a
+port. SwiftPM resource bundles and privacy manifests are copied into the signed
+Resources envelope of the standalone app so installed execution cannot depend
+on a build-cache path.
+GitHub Actions workflows have been removed for the Firebase/Google Cloud
+project direction. The local 15-stage preflight rejects a mismatched Firebase
+client file or any reintroduced GitHub Actions workflow. This source update
+includes the native FirebaseCore setup and local verification gates; a signed
+public release remains a separate publication step.
+
+Historical Phase 13.46 pinned the checkout dependency in both
+native macOS workflows (removed on 2026-10-07) to the immutable `actions/checkout` v7.0.1 commit and
+disables persisted checkout credentials. The former workflow dependency gate checked the checkout commit and
+credential isolation; the current local gate instead requires no GitHub
+Actions workflows. This removes the hosted
 Node.js 20 deprecation path without granting publication authority.
 
 Phase 13.45 protects the native lifecycle and local
@@ -260,9 +330,9 @@ These major product areas are built into the app now:
   module matrix contracts, review semantics, and backup-medium policy labels
 - the native catalog suite now proves a later `stage2-reconcile=interrupted`
   checkpoint remains the visible resume state after a fresh catalog restart
-- non-destructive native release preflight is now repeatable locally and in
-  GitHub Actions through `.SYSTEMX/scripts/release-preflight.sh` and the
-  macOS `CSA-iLEM native preflight` workflow
+- non-destructive native release preflight remains repeatable locally through
+  `.SYSTEMX/scripts/release-preflight.sh`; repository GitHub Actions workflows
+  have been removed
 - CODEX transfer progress/status callbacks use explicit Swift 6 main-actor
   boundaries and pass the hosted macOS Swift 6 compiler gate locally
 - remote-installer argument inspection plus isolated install/update/uninstall
@@ -360,7 +430,9 @@ These are the known production gaps or weak spots still open:
 - some advanced GUI actions still rely on Terminal fallback helpers instead of staying fully native end to end
 - the native desktop GUI is still macOS-only; Windows currently ships as a PowerShell-first admin-shell experience
 - the public remote install path still relies on a GitHub source archive and does not yet provide signed releases or a checksum retrieved from an independent trust source; the local manifest contract now has deterministic tamper-rejection coverage
-- a fail-closed `CSA-iLEM macOS release` workflow now validates `vX.Y.Z` against `VERSION` and contains the signed/notarized/stapled artifact path; it will not create a public release until all Apple Developer distribution secrets are present
+- the GitHub Actions macOS publication workflow has been removed; public
+  distribution still needs an explicitly configured signing, notarization,
+  and artifact-publication process outside GitHub Actions
 - the current Mac host has a valid Apple Development signing identity; an
   isolated current-branch bundle was signed with the hardened runtime and
   passed strict verification, but public distribution signing, notarization,
@@ -420,8 +492,9 @@ These are the next production-hardening tasks with the best return:
 - extend rollback/recovery coverage to injected failures across every move,
   export, restore, and cross-device operation boundary; the native snapshot
   restore and cross-root relocation boundaries are now covered
-- keep the release manifest smoke in the hosted gate and add a separately
-  published trust anchor before calling public distribution signed
+- keep the release manifest smoke in the local gate and any separately
+  configured Google Cloud build process, and add a published trust anchor
+  before calling public distribution signed
 - add an end-to-end production smoke suite for:
   - install
   - remote install

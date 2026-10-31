@@ -1,6 +1,6 @@
 CSA-iEM Privacy Notice
 Full name: Container Setup & Action Import Engine Manager
-Version: 0.3.5
+Version: 0.8.0
 Provider: Wayne Tech Lab LLC
 Website: https://www.WayneTechLab.com
 
@@ -31,6 +31,28 @@ Depending on the selected edition and actions taken, CSA-iEM may write to:
 - %LOCALAPPDATA%\CSA-iEM\
 - build output such as .build/ and dist/
 
+An explicitly requested Checkout Review saves sanitized Git origins, live
+GitHub repository IDs and commit/tree comparison results, local paths, file
+hashes, link targets, permissions, timestamps, and extended attributes under
+the configured Runtime/Reports/CheckoutReviews directory. It reads GitHub
+metadata through the existing CLI session; local file payloads are not uploaded
+for comparison. Raw origin credentials are omitted from review records.
+Recoverable retirement preserves the complete selected checkout, including
+hidden files, dependencies, Git data, and any secrets already present, under
+Runtime/Recovery/RetiredCheckouts. Review and recovery evidence is created with
+owner-only access. The most recent recovery receipt and the Old Source
+Leftovers metadata report also persist in ~/Library/Application Support/CSA-iEM
+so the app can show them after restart.
+
+Staging/Backup Cleanup uses the same local preservation boundary. Complete
+per-tree manifests and raw extended attributes are stored under
+Runtime/Reports/TransferArtifacts; whole recovered folders, prepared receipts,
+pending ledgers, and completed results are stored under
+Runtime/Recovery/TransferArtifacts. Application Support retains small session
+pointers and recent batch history so interrupted preservation remains visible.
+The automatic-cleanup preference is saved locally and takes effect only for
+eligible completed in-app operations; it does not upload project content.
+
 3. Network Activity
 
 CSA-iEM may initiate network activity through the tools it invokes, including GitHub CLI, Git, Docker, Homebrew, npm, Swift Package Manager, and related package or registry systems. That network activity may involve:
@@ -41,6 +63,14 @@ CSA-iEM may initiate network activity through the tools it invokes, including Gi
 - container image pulls
 - package downloads
 - Swift package dependency resolution and build traffic
+- Firebase Apple SDK startup and future Firebase service traffic when the user enables a feature that uses such a service
+
+The current native setup initializes FirebaseCore for the registered CSA-iLEM
+Apple app. It does not add Firebase Analytics, Authentication, Firestore,
+Realtime Database, Cloud Storage, Messaging, or Hosting. Firebase client
+configuration identifies the app and project and is packaged with the app; it
+is not a user password or a server credential. Future Firebase products require
+a separate privacy and security review before they are enabled.
 
 4. Credentials, Tokens, And GitHub Identity
 

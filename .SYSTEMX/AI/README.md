@@ -18,3 +18,7 @@ The native dashboard/module identity contract is maintained in
 `../../docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md` and implemented by
 `Sources/CSAiEMMacApp/CSAiEMModuleMatrix.swift`. UI, engine, bridge, runtime,
 and install/update work should update that matrix after verification.
+
+Phase 13.47 adds the native `bridge.firebase` contract. FirebaseCore setup must
+remain bundle-identity validated, client-value redacted, Analytics-free, and
+separate from any future Firebase data-service or web-hosting work.

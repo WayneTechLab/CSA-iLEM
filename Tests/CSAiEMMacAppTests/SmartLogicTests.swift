@@ -1227,24 +1227,33 @@ final class SmartLogicTests: XCTestCase {
 
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
-    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.1")
-    XCTAssertEqual(catalog.count, 20)
+    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.4")
+    XCTAssertEqual(catalog.count, 24)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
-    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == "smart-logic-v5.0" })
+    XCTAssertTrue(catalog.contains { $0.tag == "engine.smart-logic" && $0.version == CodexSmartLogicEngine.ruleVersion })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.checkout-review" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.source-residuals" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.transfer-artifacts" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.receipts" && $0.version == "receipt-v3.17" })
     XCTAssertTrue(catalog.contains { $0.tag == "engine.recovery" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.install" })
     XCTAssertTrue(catalog.contains { $0.tag == "runtime.toolbar" })
     XCTAssertTrue(catalog.contains {
       $0.tag == "runtime.release"
-        && $0.version == "release-gate-v1.2"
-        && $0.state == "phase-13.46"
-        && $0.lastUpdated == "2026-08-19"
+        && $0.version == "release-gate-v1.3"
+        && $0.state == "phase-13.47"
+        && $0.lastUpdated == "2026-08-22"
     })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.settings" && $0.version == "settings-v1.1" })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
+    XCTAssertTrue(catalog.contains {
+      $0.tag == "bridge.firebase"
+        && $0.version == "firebase-apple-v1.0"
+        && $0.state == "phase-13.47"
+        && $0.lastUpdated == "2026-08-22"
+    })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.research" && $0.version == "research-v3.4" })
   }
 

@@ -16,6 +16,8 @@ It can:
 - run cleanup for workflows, runs, artifacts, caches, and Codespaces
 - review projects one at a time for cost control
 - discover and transfer local Codex projects with verified backups and handoff notes
+- compare local checkouts against live GitHub identity and file evidence, then preserve a reviewed extra checkout in recoverable storage
+- detect old source leftovers, including dependency-only folders, hidden files, and incomplete cleanup
 
 ## Safe First Run
 
@@ -31,6 +33,87 @@ It can:
 
 - `Default`: portable `Code`, `Import`, and `Runtime` roots under `~/CSA-iEM`
 - `Custom`: operator-selected roots, including mounted external drives
+
+## Checkout Review & Recovery
+
+Open **Projects** or **Local Files** to find **Checkout Review & Recovery**.
+Choose the keeper and other checkout, or use a selected local project and a
+similar-name suggestion, then select **Compare with GitHub**. The review shows
+sanitized configured origins, live GitHub repository IDs and default-branch
+file evidence, local Git changes, and a comparison of all physical entries.
+Similar folder names may belong to different GitHub repositories. A configured
+origin is a local identity claim; the live provider result is shown separately.
+Matching working-file bytes do not establish matching commit history, so the
+history status remains a separate finding.
+
+After reviewing the evidence, arm **Retire Other Checkout to Recovery** to move
+the complete other checkout into the configured Runtime recovery area on the
+same volume. Hidden files, dependencies, Git metadata, links, and extended
+attributes remain in the preserved checkout. Fresh verification, protected-root,
+active-use, and shared-worktree checks can block retirement. The keeper and
+GitHub repositories remain unchanged. The recovery path and receipt survive a
+restart; **Restore Retired Checkout** verifies the preserved tree and refuses
+to overwrite an existing original path.
+
+Exact native transaction staging and backup names are listed separately from
+active projects. Use Staging & Backup Cleanup for their own comparison and
+recoverable preservation. Their names alone do not authorize cleanup.
+
+## Staging & Backup Cleanup
+
+Open **Projects** or **Local Files** and select **Review Staging / Backup
+Folders**. Every reviewed row remains visible, including blocked items and
+their reasons. The app recognizes exact transaction-shaped stage and backup
+names, then compares complete source and canonical manifests. This includes
+file hashes, hidden and generated content, links, and extended attributes.
+Matching names or working bytes alone do not establish which historical run
+left a folder behind. Older workflows, including the 0.2.3-era naming form,
+can leave recognizable folders without proving a particular failure cause.
+
+**Preserve & Clean Reviewed Folders** removes eligible entries from active
+repository locations by moving each complete tree into same-volume
+`Runtime/Recovery/TransferArtifacts` storage. The canonical checkout is checked
+again and remains unchanged; unique or different source content stays in the
+preserved tree. Active use, shared Git storage, cloud placeholders, unreadable
+entries, and protected source paths block the affected item. A protected
+canonical checkout may be read for verification but is never overwritten.
+Each successful item has a verified receipt and its own restore action;
+restoration refuses to overwrite an existing original path. Partial failures
+remain visible and do not discard successful preservation receipts.
+
+The toggle **Automatically preserve and clean staging / backup folders after
+successful local runs** is off by default. Enable it to request the same
+verified workflow after eligible non-dry-run imports, native workspace
+migrations/exports, CODEX transfers or Full Auto, and applied GitHub cleanup.
+The pass waits for other mutating app jobs to finish. It never starts from
+startup, read-only scans, failed or cancelled runs, restore/undo, or another
+artifact pass. A migration cleanup warning can also receive this check;
+remaining original source paths still retain **Cleanup incomplete**. Standalone
+Terminal Stage 2/3 sessions are not observed completion triggers.
+
+Full manifests and per-item evidence are saved under
+`Runtime/Reports/TransferArtifacts`. A lightweight Application Support session
+pointer is saved before moves begin. After a crash or interruption, use
+**Verify Interrupted Cleanup** to verify prepared or archived receipts and
+recover the recorded results. This action starts no new moves. Items still in
+their original locations require a fresh review before another cleanup pass.
+
+## Old Source Leftovers
+
+Use **Scan Old Source Leftovers** in **Local Files** or **Jobs**. Leave the
+source field blank to scan known old roots, or enter one exact old folder.
+This read-only metadata scan includes hidden and dependency entries even when
+normal project discovery finds no repository or manifest. It does not read
+file payloads, follow directory symlinks, or download cloud placeholders.
+Unreadable entries and time, depth, or entry limits remain explicitly unverified.
+
+Native moves recheck the physical old source after cleanup. Any retained root
+is reported as **Cleanup incomplete**, with a saved source-specific report in
+`Application Support/CSA-iEM/source-residuals.json`. A warning survives an app
+restart; scan again after recovery or removal to verify the current state.
+**Verified absent** requires a successful fresh check of that exact path.
+The scan does not prove that another copy preserves every file: checksum
+preservation and the appropriate cleanup confirmation are still required.
 
 ## CODEX Dashboard Quick Start
 
@@ -76,11 +159,12 @@ Each source scan also writes a versioned Smart Logic decision table to the
 selected output root under `.SYSTEMX/Index/catalog.sqlite`. JSON and CSV
 exports are written beside the catalog for manual review. The catalog records
 source evidence, identity classification, confidence, reasons, session ID, and
-Stage 1 preflight checkpoints. A verified remote identity is required for
-automatic grouping; same-name, broken-metadata, shadow-copy, dirty, or
+Stage 1 preflight checkpoints. A normalized configured Git origin is required
+for origin-based grouping; live provider verification is a separate check.
+Same-name, broken-metadata, shadow-copy, dirty, or
 unknown-owner folders remain review-only.
 
-When multiple sources share one verified remote, Smart Logic presents an
+When multiple sources share one normalized configured origin, Smart Logic presents an
 explicit **Use as canonical** action for each identity group. Select exactly one
 source per group before a merge or move preflight. The choice is local to the
 current decision session, clears when the source selection changes, and never
@@ -133,7 +217,7 @@ Use the portal to:
 - generate `Transfer_Note.MD` and `Prompt_Inject.MD` for each project
 - save one Stage 1 receipt per verified project under `_temp/Transfer-Receipts`; later stages use these exact paths instead of treating every folder as disposable
 
-Only Sync and Move removes the source, and only after staged and final checksum verification succeeds. It always performs a full checksum comparison before source retirement, even when the fast index says no copy is needed. If Fast Mode discovers a rare same-size, same-date content change only during that final audit, it checksum-preserves the prior destination version, copies just the affected path, and repeats whole-tree verification before issuing any cleanup-capable receipt. A brand-new destination also needs one complete staged baseline mirror because there are no existing files to skip. The compatibility-link option keeps the old filesystem path pointing to the new destination. Backup Only, Copy to Output, Sync and Sync, and Scan & Backup retain recoverable originals.
+Among Stage 1 transfer modes, only Sync and Move retires the source, and only after staged and final checksum verification succeeds. It always performs a full checksum comparison before source retirement, even when the fast index says no copy is needed. If Fast Mode discovers a rare same-size, same-date content change only during that final audit, it checksum-preserves the prior destination version, copies just the affected path, and repeats whole-tree verification before issuing any cleanup-capable receipt. A brand-new destination also needs one complete staged baseline mirror because there are no existing files to skip. The compatibility-link option keeps the old filesystem path pointing to the new destination. Backup Only, Copy to Output, Sync and Sync, and Scan & Backup retain recoverable originals. Full Auto can separately request receipt-linked Stage 3 deletion; Checkout Review uses the reversible recovery workflow described above.
 
 ## Stage 2 Managed Workspace
 
@@ -214,7 +298,7 @@ From the project browser, the one-by-one cost-control review can:
 
 ## Stored Data
 
-Privacy-First Mode does not persist GitHub account identity, repository inventory, organizations, tokens, or API keys. Workspace paths, local UI preferences, task templates, favorites, saved views, and accepted onboarding state can be stored in the local application-support profile. Administrator Terminal mode is stored as a local boolean preference only.
+Privacy-First Mode does not persist background GitHub account identity, owner repository catalogs, organizations, tokens, or API keys. Workspace paths, local UI preferences, task templates, favorites, saved views, and accepted onboarding state can be stored in the local application-support profile. Explicit checkout reviews save sanitized repository identity, file metadata, hashes, and recovery receipts locally; the preserved checkout itself remains in the displayed recovery folder. Staging/backup cleanup stores complete manifests and receipts in the displayed Runtime report/recovery folders, with a small session pointer and automation preference in Application Support. Old-source scan reports save paths, metadata counts, and review status. Administrator Terminal mode is stored as a local boolean preference only.
 
 ## Support
 

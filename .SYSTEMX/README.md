@@ -4,8 +4,10 @@ This directory is the native `CSA-iEM` operator application's durable planning
 and safety layer. CSA-iLEM is not a website checkout and contains no website
 application code. Its
 product identity is SwiftUI/AppKit plus Bash/Python/PowerShell support.
-Web-oriented markers such as package.json, Firebase, or Vite are only bounded
-evidence for an imported project and do not change this repository's identity.
+Web-oriented markers such as package.json, Vite, or Firebase Hosting are only
+bounded evidence for an imported project and do not change this repository's
+identity. The tracked Firebase Apple plist and FirebaseCore bridge are native
+macOS client configuration; they introduce no website or local port.
 
 ## Source contracts
 
@@ -22,6 +24,8 @@ evidence for an imported project and do not change this repository's identity.
   interoperability, and Project Backups operating plan.
 - `../docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md` — the shared UI,
   engine, bridge, runtime, and install/update identity matrix.
+- `scripts/verify-firebase-apple-config.sh` — value-redacted native Firebase
+  bundle/project validation and explicit configuration import.
 
 ## Native-app scope
 

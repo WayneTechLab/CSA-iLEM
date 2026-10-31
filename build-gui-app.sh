@@ -17,6 +17,7 @@ SCRATCH_ID="$(printf '%s' "$SCRIPT_DIR" | shasum | awk '{print $1}')"
 SCRATCH_PATH="${CSA_IEM_SCRATCH_PATH:-${TMPDIR:-/tmp}/csa-iem-swiftpm-$SCRATCH_ID}"
 BUILD_ROOT="${CSA_IEM_GUI_BUILD_DIR:-${TMPDIR:-/tmp}/csa-iem-gui-$SCRATCH_ID}"
 APP_DIR="$BUILD_ROOT/$APP_NAME.app"
+FIREBASE_NOTICES_SHA256="58f4e26863cad96b7879783d031f767298cb2a9e15cfe0c56e06f4a8626bbdf0"
 
 CLI_FILES=(
   "VERSION"
@@ -50,6 +51,7 @@ CLI_FILES=(
 )
 
 RESOURCE_FILES=(
+  "GoogleService-Info.plist"
   "README.md"
   "LICENSE.txt"
   "NOTICE.md"
@@ -120,6 +122,10 @@ if ! command -v shasum >/dev/null 2>&1; then
   echo "shasum is required to verify the GUI build payload." >&2
   exit 1
 fi
+if ! bash "$SCRIPT_DIR/.SYSTEMX/scripts/verify-firebase-apple-config.sh"; then
+  echo "Firebase Apple configuration verification failed; refusing to package a mismatched native app." >&2
+  exit 1
+fi
 if ! (cd "$SCRIPT_DIR" && shasum -a 256 -c --strict SHA256SUMS >/dev/null); then
   echo "Source checksum verification failed; refresh SHA256SUMS only after reviewing every payload change." >&2
   exit 1
@@ -136,6 +142,26 @@ if [[ ! -x "$BIN_PATH" ]]; then
   exit 1
 fi
 
+shopt -s nullglob
+SWIFTPM_RESOURCE_BUNDLES=("$BIN_DIR"/*.bundle)
+shopt -u nullglob
+for required_bundle in Firebase_FirebaseCore.bundle Firebase_FirebaseCoreInternal.bundle; do
+  if [[ ! -d "$BIN_DIR/$required_bundle" ]]; then
+    echo "Missing required Firebase SwiftPM resource bundle: $required_bundle" >&2
+    exit 1
+  fi
+done
+FIREBASE_NOTICES_PATH="$SCRATCH_PATH/checkouts/firebase-ios-sdk/CoreOnly/NOTICES"
+if [[ ! -f "$FIREBASE_NOTICES_PATH" ]]; then
+  echo "Missing Firebase Apple SDK third-party notices." >&2
+  exit 1
+fi
+firebase_notices_hash="$(shasum -a 256 "$FIREBASE_NOTICES_PATH" | awk '{print $1}')"
+if [[ "$firebase_notices_hash" != "$FIREBASE_NOTICES_SHA256" ]]; then
+  echo "Firebase Apple SDK third-party notices do not match the pinned 12.18.0 payload." >&2
+  exit 1
+fi
+
 rm -rf "$BUILD_ROOT"
 mkdir -p "$BUILD_ROOT"
 rm -rf "$APP_DIR"
@@ -147,6 +173,13 @@ mkdir -p \
 
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
+
+# FirebaseCore's current SwiftPM bundles contain the Apple privacy manifests.
+# Keep them in the signed macOS Resources envelope; placing nested bundles in
+# the .app root makes strict code signing reject unsealed root content.
+for bundle_path in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do
+  cp -R "$bundle_path" "$APP_DIR/Contents/Resources/$(basename "$bundle_path")"
+done
 
 for file_name in "${CLI_FILES[@]}"; do
   if [[ ! -f "$SCRIPT_DIR/$file_name" ]]; then
@@ -163,6 +196,10 @@ for file_name in "${RESOURCE_FILES[@]}"; do
   fi
   cp -f "$SCRIPT_DIR/$file_name" "$APP_DIR/Contents/Resources/$(basename "$file_name")"
 done
+cp -f "$FIREBASE_NOTICES_PATH" "$APP_DIR/Contents/Resources/Firebase-Apple-SDK-NOTICES.txt"
+# SwiftPM checkouts can make SDK license files read-only. Only the staged
+# bundle copy needs to be writable for xattr cleanup before code signing.
+chmod u+w "$APP_DIR/Contents/Resources/Firebase-Apple-SDK-NOTICES.txt"
 
 for file_name in "${HELP_FILES[@]}"; do
   if [[ ! -f "$SCRIPT_DIR/$file_name" ]]; then
@@ -296,6 +333,32 @@ if command -v codesign >/dev/null 2>&1; then
     echo "Published GUI bundle signature verification failed: $DIST_APP_DIR" >&2
     exit 1
   fi
+fi
+
+for required_bundle in Firebase_FirebaseCore.bundle Firebase_FirebaseCoreInternal.bundle; do
+  if [[ ! -d "$DIST_APP_DIR/Contents/Resources/$required_bundle" ]]; then
+    echo "Published GUI bundle is missing Firebase resource bundle: $required_bundle" >&2
+    exit 1
+  fi
+done
+for bundle_path in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do
+  bundle_name="$(basename "$bundle_path")"
+  if [[ ! -d "$DIST_APP_DIR/Contents/Resources/$bundle_name" ]]; then
+    echo "Published GUI bundle is missing SwiftPM resource bundle: $bundle_name" >&2
+    exit 1
+  fi
+done
+if [[ ! -f "$DIST_APP_DIR/Contents/Resources/GoogleService-Info.plist" ]]; then
+  echo "Published GUI bundle is missing GoogleService-Info.plist." >&2
+  exit 1
+fi
+if [[ ! -f "$DIST_APP_DIR/Contents/Resources/Firebase-Apple-SDK-NOTICES.txt" ]]; then
+  echo "Published GUI bundle is missing Firebase Apple SDK third-party notices." >&2
+  exit 1
+fi
+if [[ "$(shasum -a 256 "$DIST_APP_DIR/Contents/Resources/Firebase-Apple-SDK-NOTICES.txt" | awk '{print $1}')" != "$FIREBASE_NOTICES_SHA256" ]]; then
+  echo "Published Firebase Apple SDK notices failed checksum verification." >&2
+  exit 1
 fi
 
 echo

@@ -112,6 +112,8 @@ function Test-SkippedFolder {
     param([string]$Name)
     if ($Name.StartsWith(".")) { return $true }
     if ($Name -in @("_temp", "_backup", "_backups")) { return $true }
+    # Preserve native transaction stage/backup evidence for verified cleanup.
+    if ($Name -cmatch '^.+\.csa-iem-(stage|backup)-[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$') { return $true }
     return $Name -match '(\.csa-iem-stage-|\.migrate-|\.moved-|\.partial-|\.transfer-candidate$|\.admin-verified$|\.data-copy$)'
 }
 

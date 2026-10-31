@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 import Darwin
+import CryptoKit
 
 private func readFirstLine(from path: String) -> String? {
   guard !path.isEmpty,
@@ -45,6 +46,11 @@ private let appTitle = "CSA-iEM"
 private let appFullName = "Container Setup & Action Import Engine Manager"
 private let appSubtitle = "Codespaces & Actions -> Into Local Environment Mac"
 let appVersion = resolvedAppVersion()
+private let installedBuildID: String = {
+  guard let resource = Bundle.main.resourceURL?.appendingPathComponent("SHA256SUMS"),
+        let data = try? Data(contentsOf: resource) else { return "source/debug" }
+  return "payload-" + SHA256.hash(data: data).prefix(8).map { String(format: "%02x", $0) }.joined()
+}()
 private let companyName = "Wayne Tech Lab LLC"
 private let companyWebsite = "www.WayneTechLab.com"
 private let companyWebsiteURL = "https://www.WayneTechLab.com"
@@ -60,6 +66,11 @@ private let appSupportDir = NSString(string: "~/Library/Application Support/CSA-
 private let lastSessionFile = (appSupportDir as NSString).appendingPathComponent("last-session.env")
 private let settingsFile = (appSupportDir as NSString).appendingPathComponent("settings.json")
 private let incidentsFile = (appSupportDir as NSString).appendingPathComponent("incidents.json")
+private let sourceResidualsFile = (appSupportDir as NSString).appendingPathComponent("source-residuals.json")
+private let checkoutRetirementFile = (appSupportDir as NSString).appendingPathComponent("last-checkout-retirement.json")
+private let artifactCleanupSessionFile = (appSupportDir as NSString).appendingPathComponent("transfer-artifact-cleanup-session.json")
+private let artifactCleanupHistoryFile = (appSupportDir as NSString).appendingPathComponent("transfer-artifact-cleanup-history.json")
+private let automaticArtifactCleanupKey = "com.waynetechlab.csa-iem.automatic-transfer-artifact-cleanup"
 private let issueTemplatesFile = (appSupportDir as NSString).appendingPathComponent("issue-templates.json")
 private let issueMutationRetriesFile = (appSupportDir as NSString).appendingPathComponent("issue-mutation-retries.json")
 private let codexScanRootsFile = (appSupportDir as NSString).appendingPathComponent("codex-scan-roots.json")
@@ -803,22 +814,24 @@ struct LegacyWorkspaceCandidate: Identifiable, Hashable {
   }
 }
 
-enum BackgroundJobState: String, Codable, CaseIterable, Identifiable {
+enum BackgroundJobState: String, Codable, CaseIterable, Identifiable, Sendable {
   case queued
   case running
   case succeeded
+  case cleanupIncomplete
   case failed
   case cancelled
 
   var id: String { rawValue }
 
-  var label: String { rawValue.capitalized }
+  var label: String { self == .cleanupIncomplete ? "Cleanup incomplete" : rawValue.capitalized }
 
   var statusKind: StatusKind {
     switch self {
     case .queued: return .warning
     case .running: return .running
     case .succeeded: return .ready
+    case .cleanupIncomplete: return .warning
     case .failed: return .error
     case .cancelled: return .warning
     }
@@ -1191,6 +1204,25 @@ struct LocalTransferOperation: Hashable {
 
 struct LocalTransferOutcome {
   let warnings: [String]
+  var residualSources: [LocalSourceResidualRecord] = []
+  var summary = ""
+}
+
+struct TransferArtifactCleanupSession: Codable, Sendable {
+  let reviewID: String
+  let reviewPath: String
+  let recoveryRoot: String
+  let resultPath: String
+  let allowedRepositoryRoots: [String]
+  let createdAt: Date
+  var phase: String
+}
+
+private struct PendingArtifactParentJob: Sendable {
+  let id: String
+  let state: BackgroundJobState
+  let detail: String
+  let residualSources: [LocalSourceResidualRecord]
 }
 
 enum LocalOperationKind: String, Hashable {
@@ -1289,6 +1321,7 @@ enum WorkspaceRelocationResult {
 struct WorkspaceRelocationOutcome {
   let result: WorkspaceRelocationResult
   let warnings: [String]
+  var residualSources: [LocalSourceResidualRecord] = []
 }
 
 enum StatusKind {
@@ -1758,6 +1791,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var deleteCaches = true
   @Published var deleteCodespaces = false
   @Published var dryRun = true
+  private var cleanupRunWasDryRun = true
   @Published var runTarget = ""
   @Published var runFilter = ""
   @Published var safetyArmEnabled = false
@@ -1774,6 +1808,36 @@ final class CleanupViewModel: ObservableObject {
   @Published var legacyWorkspaceCandidates: [LegacyWorkspaceCandidate] = []
   @Published var selectedLegacyWorkspaceID = ""
   @Published var legacyWorkspaceScanStatus = "Scan for older CSA-iEM workspace roots before migrating projects."
+  @Published var sourceResiduals: [LocalSourceResidualRecord] = []
+  @Published var sourceResidualScanPath = ""
+  @Published var sourceResidualStatus = "Scan old sources for dependency-only folders, hidden files, and incomplete cleanup."
+  @Published var isScanningSourceResiduals = false
+  @Published var sourceResidualReportHasWarnings = false
+  @Published var checkoutKeeperPath = "" {
+    didSet { if checkoutKeeperPath != oldValue { checkoutPairReview = nil; checkoutRetirementArmed = false } }
+  }
+  @Published var checkoutOtherPath = "" {
+    didSet { if checkoutOtherPath != oldValue { checkoutPairReview = nil; checkoutRetirementArmed = false } }
+  }
+  @Published var checkoutPairReview: CheckoutPairReview?
+  @Published var checkoutLastRetirement: CheckoutRetirementReceipt?
+  @Published var checkoutRetirementArmed = false
+  @Published var isRunningCheckoutOperation = false
+  @Published var checkoutReviewStatus = "Choose two checkout folders to compare their live GitHub identity, local files, and Git state."
+  @Published var checkoutReviewStatusKind: StatusKind = .warning
+  @Published var artifactCleanupReview: TransferArtifactCleanupReview?
+  @Published var artifactCleanupResult: TransferArtifactCleanupResult?
+  @Published var artifactCleanupSession: TransferArtifactCleanupSession?
+  @Published var artifactCleanupHistory: [TransferArtifactCleanupSession] = []
+  @Published var artifactCleanupArmed = false
+  @Published var isRunningArtifactCleanup = false
+  @Published var artifactCleanupStatus = "Review all staging and backup folders before preserving and removing their extra entries."
+  @Published var artifactCleanupStatusKind: StatusKind = .warning
+  @Published var artifactCleanupProgress = 0.0
+  @Published var automaticallyCleanTransferArtifacts = UserDefaults.standard.bool(forKey: automaticArtifactCleanupKey) {
+    didSet { UserDefaults.standard.set(automaticallyCleanTransferArtifacts, forKey: automaticArtifactCleanupKey) }
+  }
+  private var pendingArtifactParentJobs: [String: PendingArtifactParentJob] = [:]
   @Published var recoverySourcePath = ""
   @Published var recoverySourceStatus = "Choose an old or partially moved workspace to scan before recovering files."
   @Published var recoveryCandidate: LegacyWorkspaceCandidate?
@@ -1783,6 +1847,7 @@ final class CleanupViewModel: ObservableObject {
   @Published var availableAccounts: [String] = []
   @Published var availableRepos: [RepoCatalogEntry] = []
   @Published var localProjects: [LocalProjectEntry] = []
+  @Published var localProjectTransferArtifacts: [String] = []
   @Published var codexProjects: [CodexProjectEntry] = []
   @Published var selectedCodexProjectPaths: Set<String> = [] {
     didSet {
@@ -2071,11 +2136,12 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var bundleIdentitySummary: String {
-    "\(Bundle.main.bundleIdentifier ?? "com.waynetechlab.csaiem") · Version \(appVersion)"
+    "\(Bundle.main.bundleIdentifier ?? "com.waynetechlab.csaiem") · Version \(appVersion) · \(installedBuildID)"
   }
 
   var canRunCleanup: Bool {
     !isRunning &&
+      !isRunningArtifactCleanup && !isRunningCheckoutOperation &&
       cliPath != nil &&
       ghPath != nil &&
       isAuthenticated &&
@@ -2089,6 +2155,7 @@ final class CleanupViewModel: ObservableObject {
 
   var canRunImport: Bool {
     !isRunning &&
+      !isRunningArtifactCleanup && !isRunningCheckoutOperation &&
       cliPath != nil &&
       ghPath != nil &&
       isAuthenticated &&
@@ -2153,6 +2220,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var activeOperationLabel: String? {
+    if isRunningArtifactCleanup { return artifactCleanupStatus }
+    if isRunningCheckoutOperation { return checkoutReviewStatus }
     if isRunningLocalFileOperation { return "Moving or exporting local files…" }
     if isLoadingLocalProjects { return "Scanning local folders for Git and Docker projects…" }
     if isLoadingLiveServices { return "Checking Docker containers and runner services…" }
@@ -2213,6 +2282,21 @@ final class CleanupViewModel: ObservableObject {
 
   var isCodexPortalBusy: Bool {
     isScanningCodexProjects || isBuildingCodexTransferPlan || isRunningCodexTransfer
+      || isRunningArtifactCleanup || isRunningCheckoutOperation || isRunningLocalFileOperation || isRunningTask || isRunning
+  }
+
+  var hasLocalMutationInProgress: Bool {
+    isRunningArtifactCleanup || isRunningCheckoutOperation || isRunningLocalFileOperation
+      || isRunningCodexTransfer || isRunningCodexLocalDev || isRunningTask || isRunning
+      || hasActiveLocalWriterJob
+  }
+
+  private var hasActiveLocalWriterJob: Bool {
+    let waitingIDs = Set(pendingArtifactParentJobs.keys)
+    let mutatingKinds: Set<String> = ["Import", "Migration", "Codex", "Recovery", "Snapshot", "Task", "Cleanup", "Devcontainer", "Runner"]
+    return backgroundJobs.contains {
+      !waitingIDs.contains($0.id) && ($0.state == .running || $0.state == .queued) && mutatingKinds.contains($0.kind)
+    }
   }
 
   var stage2SelectedProjects: [CodexProjectEntry] {
@@ -2656,7 +2740,8 @@ final class CleanupViewModel: ObservableObject {
     }
     let successCount = backgroundJobs.filter { $0.state == .succeeded }.count
     let failedCount = backgroundJobs.filter { $0.state == .failed }.count
-    return "\(backgroundJobs.count) jobs · \(runningJobCount) active · \(successCount) succeeded · \(failedCount) failed"
+    let incompleteCount = backgroundJobs.filter { $0.state == .cleanupIncomplete }.count
+    return "\(backgroundJobs.count) jobs · \(runningJobCount) active · \(successCount) succeeded · \(failedCount) failed · \(incompleteCount) cleanup incomplete"
   }
 
   var areAllVisibleLocalProjectsSelected: Bool {
@@ -2777,25 +2862,15 @@ final class CleanupViewModel: ObservableObject {
     codexSourceDeltas = deltas
     let changedPaths = Set(deltas.filter { $0.kind != .unchanged }.map(\.sourcePath))
     let evaluateAll = codexSmartDecisions.isEmpty || previousFingerprints.isEmpty
-    let changedGroupKeys = Set(projects.filter { changedPaths.contains($0.path) }.map { project in
-      if let remote = project.remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty {
-        return "remote:\(remote.lowercased().hasSuffix(".git") ? String(remote.dropLast(4)) : remote.lowercased())"
-      }
-      return "name:\(project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
-    })
+      || codexSmartDecisions.contains { $0.ruleVersion != CodexSmartLogicEngine.ruleVersion }
+    let changedGroupKeys = Set(projects.filter { changedPaths.contains($0.path) }.map { CodexSmartLogicEngine.groupKey(for: $0) })
     let projectsToEvaluate: [CodexProjectEntry]
     if evaluateAll {
       projectsToEvaluate = projects
       codexScanDeltaStatus = "Initial baseline: evaluated all (projects.count) discovered source row(s)."
     } else {
       projectsToEvaluate = projects.filter { project in
-        changedPaths.contains(project.path) || changedGroupKeys.contains { key in
-          if let remote = project.remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty {
-            let normalized = remote.lowercased().hasSuffix(".git") ? String(remote.dropLast(4)) : remote.lowercased()
-            return key == "remote:\(normalized)"
-          }
-          return key == "name:\(project.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
-        }
+        changedPaths.contains(project.path) || changedGroupKeys.contains(CodexSmartLogicEngine.groupKey(for: project))
       }
       codexScanDeltaStatus = changedPaths.isEmpty
         ? "No source fingerprints changed: retained (codexSmartDecisions.count) saved decision row(s) without re-evaluation."
@@ -3512,6 +3587,52 @@ final class CleanupViewModel: ObservableObject {
     try? fm.createDirectory(atPath: appSupportDir, withIntermediateDirectories: true, attributes: nil)
     try? fm.createDirectory(atPath: snapshotsDirectory, withIntermediateDirectories: true, attributes: nil)
 
+    do {
+      if try LocalSourceResidualScanner.entryExistsNoFollow(atPath: sourceResidualsFile) {
+        sourceResiduals = try LocalSourceResidualStore.load(from: URL(fileURLWithPath: sourceResidualsFile))
+      }
+      if !sourceResiduals.isEmpty {
+        sourceResidualStatus = "Loaded \(sourceResiduals.filter { $0.summary.cleanupIncomplete }.count) unresolved source folder(s). Scan again to verify current files."
+      }
+    } catch {
+      sourceResidualStatus = "Saved leftover report could not be read: \(error.localizedDescription)"
+      sourceResidualReportHasWarnings = true
+    }
+
+    if FileManager.default.fileExists(atPath: checkoutRetirementFile) {
+      do {
+        checkoutLastRetirement = try JSONDecoder().decode(CheckoutRetirementReceipt.self, from: Data(contentsOf: URL(fileURLWithPath: checkoutRetirementFile)))
+        checkoutReviewStatus = "Loaded the last recoverable checkout retirement. Its source, preserved location, and restore action are shown below."
+        checkoutReviewStatusKind = .ready
+      } catch {
+        checkoutReviewStatus = "The saved checkout retirement receipt could not be read: \(error.localizedDescription)"
+        checkoutReviewStatusKind = .error
+      }
+    }
+
+    do {
+      if FileManager.default.fileExists(atPath: artifactCleanupHistoryFile) {
+        artifactCleanupHistory = try JSONDecoder().decode([TransferArtifactCleanupSession].self, from: Data(contentsOf: URL(fileURLWithPath: artifactCleanupHistoryFile)))
+      }
+      if FileManager.default.fileExists(atPath: artifactCleanupSessionFile) {
+        let session = try JSONDecoder().decode(TransferArtifactCleanupSession.self, from: Data(contentsOf: URL(fileURLWithPath: artifactCleanupSessionFile)))
+        artifactCleanupSession = session
+        if FileManager.default.fileExists(atPath: session.resultPath) {
+          artifactCleanupResult = try JSONDecoder().decode(TransferArtifactCleanupResult.self, from: Data(contentsOf: URL(fileURLWithPath: session.resultPath)))
+        }
+        if session.phase == "reviewed", FileManager.default.fileExists(atPath: session.reviewPath) {
+          artifactCleanupReview = try JSONDecoder().decode(TransferArtifactCleanupReview.self, from: Data(contentsOf: URL(fileURLWithPath: session.reviewPath)))
+        }
+        artifactCleanupStatus = session.phase == "applying"
+          ? "An interrupted cleanup has saved recovery evidence. Use Verify Interrupted Cleanup before starting another batch."
+          : "Saved cleanup evidence loaded. Review again for current staging/backup entries; preserved folders remain available below."
+        artifactCleanupStatusKind = session.phase == "applying" || !(artifactCleanupResult?.failures.isEmpty ?? true) ? .warning : .ready
+      }
+    } catch {
+      artifactCleanupStatus = "Saved artifact cleanup evidence could not be read: \(error.localizedDescription)"
+      artifactCleanupStatusKind = .error
+    }
+
     if let loadedSettings: AppSettings = readJSON(AppSettings.self, from: settingsFile) {
       appSettings = loadedSettings
     }
@@ -4039,6 +4160,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func migrateSelectedLegacyWorkspace() {
+    guard !hasLocalMutationInProgress else { localFilesStatus = "Wait for the active local operation to finish."; return }
     guard let candidate = legacyWorkspaceCandidates.first(where: { $0.id == selectedLegacyWorkspaceID }) else {
       legacyWorkspaceScanStatus = "Select a scanned old workspace before migrating."
       return
@@ -4049,13 +4171,14 @@ final class CleanupViewModel: ObservableObject {
     let overwrite = overwriteLocalFileDestination
     let environment = baseEnvironment()
     let jobID = createJob(kind: "Migration", title: "Import old workspace", target: candidate.label, detail: "Migrating old workspace into current roots…", initialState: .running)
+    isRunningLocalFileOperation = true
     legacyWorkspaceScanStatus = "\(mode.label) in progress from \(candidate.label)..."
     appendLog("[gui] \(mode.label) old workspace \(candidate.label) into current roots.\n")
 
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
       do {
-        let summary = try Self.migrateLegacyWorkspace(
+        let outcome = try Self.migrateLegacyWorkspace(
           candidate: candidate,
           destinationRoots: roots,
           mode: mode,
@@ -4063,19 +4186,733 @@ final class CleanupViewModel: ObservableObject {
           environment: environment
         )
         DispatchQueue.main.async {
+          let summary = outcome.summary
+          self.isRunningLocalFileOperation = false
           self.legacyWorkspaceScanStatus = summary
           self.localFilesStatus = summary
           self.appendLog("[gui] \(summary)\n")
-          self.finishJob(id: jobID, state: .succeeded, detail: summary)
+          self.recordSourceResiduals(outcome.residualSources)
+          self.finishJob(id: jobID, state: outcome.residualSources.isEmpty ? .succeeded : .cleanupIncomplete, detail: summary, residualSources: outcome.residualSources)
           self.refreshOperatorState()
           self.scanLegacyWorkspaces()
         }
       } catch {
         DispatchQueue.main.async {
+          self.isRunningLocalFileOperation = false
+          self.recordNativeTransferFailure(error)
           self.legacyWorkspaceScanStatus = error.localizedDescription
           self.appendLog("[gui] Old workspace migration failed: \(error.localizedDescription)\n")
           self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
         }
+      }
+    }
+  }
+
+  private func artifactRepositoryRoots() -> [String] {
+    let roots = resolvedProfileRoots()
+    return [(roots.codeRoot as NSString).appendingPathComponent("Repos"),
+            (roots.runtimeRoot as NSString).appendingPathComponent("Repos"),
+            (roots.runtimeRoot as NSString).appendingPathComponent("Runners")]
+  }
+
+  private nonisolated static func discoverTransferArtifacts(in roots: [String]) throws -> [String] {
+    let fm = FileManager.default
+    let deadline = ProcessInfo.processInfo.systemUptime + 15
+    var found = Set<String>()
+    var inspected = 0
+    func children(_ path: String) throws -> [String] {
+      var info = stat()
+      guard lstat(path, &info) == 0 else {
+        if errno == ENOENT { return [] }
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot inspect artifact container: \(path)"])
+      }
+      guard info.st_mode & S_IFMT == S_IFDIR else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Artifact container must be a real directory: \(path)"])
+      }
+      guard info.st_flags & 0x40000000 == 0 else {
+        throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Download the artifact container before scanning: \(path)"])
+      }
+      return try fm.contentsOfDirectory(atPath: path).sorted()
+    }
+    for root in Set(roots) {
+      for owner in try children(root) {
+        guard inspected < 20_000, ProcessInfo.processInfo.systemUptime < deadline else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Artifact discovery reached its time or entry limit; cleanup was not started."])
+        }
+        inspected += 1
+        let ownerPath = (root as NSString).appendingPathComponent(owner)
+        var ownerInfo = stat()
+        guard lstat(ownerPath, &ownerInfo) == 0 else { throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot inspect \(ownerPath)"]) }
+        guard ownerInfo.st_mode & S_IFMT == S_IFDIR else { continue }
+        if CheckoutDiscoveryRules.isTransferArtifactName(owner) { found.insert(ownerPath); continue }
+        for name in try children(ownerPath) {
+          inspected += 1
+          guard inspected < 20_000, ProcessInfo.processInfo.systemUptime < deadline else {
+            throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Artifact discovery was incomplete; cleanup was not started."])
+          }
+          if CheckoutDiscoveryRules.isTransferArtifactName(name) { found.insert((ownerPath as NSString).appendingPathComponent(name)) }
+        }
+      }
+    }
+    return found.sorted()
+  }
+
+  private nonisolated static func saveArtifactSession(_ session: TransferArtifactCleanupSession) throws {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: appSupportDir, withIntermediateDirectories: true)
+    var history: [TransferArtifactCleanupSession] = []
+    if fm.fileExists(atPath: artifactCleanupHistoryFile) {
+      history = try JSONDecoder().decode([TransferArtifactCleanupSession].self, from: Data(contentsOf: URL(fileURLWithPath: artifactCleanupHistoryFile)))
+    }
+    history.removeAll { $0.reviewID == session.reviewID }
+    history.insert(session, at: 0)
+    let encoder = JSONEncoder()
+    try encoder.encode(Array(history.prefix(50))).write(to: URL(fileURLWithPath: artifactCleanupHistoryFile), options: .atomic)
+    try encoder.encode(session).write(to: URL(fileURLWithPath: artifactCleanupSessionFile), options: .atomic)
+    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: artifactCleanupHistoryFile)
+    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: artifactCleanupSessionFile)
+  }
+
+  private func acceptArtifactSession(_ session: TransferArtifactCleanupSession) {
+    artifactCleanupSession = session
+    artifactCleanupHistory.removeAll { $0.reviewID == session.reviewID }
+    artifactCleanupHistory.insert(session, at: 0)
+    artifactCleanupHistory = Array(artifactCleanupHistory.prefix(50))
+  }
+
+  private func artifactProgressHandler(jobID: String) -> TransferArtifactCleanupEngine.Progress {
+    { [weak self] message, index, total in
+      Task { @MainActor [weak self] in
+        guard let self, self.isRunningArtifactCleanup,
+              self.backgroundJobs.contains(where: { $0.id == jobID && $0.state == .running }) else { return }
+        self.artifactCleanupProgress = total > 0 ? Double(index) / Double(total) : 1
+        self.artifactCleanupStatus = "\(message) · \(index)/\(total)"
+        self.updateJob(id: jobID, progressText: self.artifactCleanupStatus)
+      }
+    }
+  }
+
+  func reviewTransferArtifacts() {
+    guard !hasLocalMutationInProgress else {
+      artifactCleanupStatus = "Wait for active local operations before reviewing transaction folders."
+      artifactCleanupStatusKind = .warning
+      return
+    }
+    guard artifactCleanupSession?.phase != "applying" else {
+      artifactCleanupStatus = "Verify Interrupted Cleanup before starting a new batch; its preserved locations must remain indexed."
+      artifactCleanupStatusKind = .warning
+      return
+    }
+    let roots = artifactRepositoryRoots()
+    let protected = protectedCheckoutRoots()
+    let runtime = resolvedProfileRoots().runtimeRoot
+    let evidenceRoot = (runtime as NSString).appendingPathComponent("Reports/TransferArtifacts")
+    let recoveryRoot = (runtime as NSString).appendingPathComponent("Recovery/TransferArtifacts")
+    let jobID = createJob(kind: "Artifact Review", title: "Review staging and backup folders", target: "Current workspace", detail: "Finding every transaction folder…", initialState: .running)
+    isRunningArtifactCleanup = true
+    artifactCleanupArmed = false
+    artifactCleanupReview = nil
+    artifactCleanupStatusKind = .running
+    artifactCleanupStatus = "Discovering and hashing all staging/backup folders and their canonical siblings…"
+    let progress = artifactProgressHandler(jobID: jobID)
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        let paths = try Self.discoverTransferArtifacts(in: roots)
+        let review = try TransferArtifactCleanupEngine.review(paths: paths, allowedRepositoryRoots: roots, protectedRootPaths: protected, evidenceRoot: evidenceRoot, progress: progress)
+        let session = TransferArtifactCleanupSession(reviewID: review.id, reviewPath: review.evidencePath, recoveryRoot: recoveryRoot,
+          resultPath: ((recoveryRoot as NSString).appendingPathComponent(review.id) as NSString).appendingPathComponent("result.json"),
+          allowedRepositoryRoots: roots, createdAt: review.createdAt, phase: "reviewed")
+        try Self.saveArtifactSession(session)
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupReview = review
+          self.acceptArtifactSession(session)
+          self.artifactCleanupProgress = 1
+          self.artifactCleanupStatus = review.items.isEmpty ? "Fresh scan verified: no staging or backup entries remain." : "Reviewed all \(review.items.count) folders: \(review.readyCount) ready, \(review.blockedCount) blocked. Missing and different content will be preserved in full."
+          self.artifactCleanupStatusKind = review.blockedCount == 0 ? .ready : .warning
+          self.localProjectTransferArtifacts = paths
+          self.finishJob(id: jobID, state: review.blockedCount == 0 ? .succeeded : .cleanupIncomplete, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupStatusKind = .error
+          self.artifactCleanupStatus = "Review stopped without moving files: \(error.localizedDescription)"
+          self.finishJob(id: jobID, state: .failed, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+        }
+      }
+    }
+  }
+
+  func cleanReviewedTransferArtifacts() {
+    guard !hasLocalMutationInProgress, artifactCleanupArmed, let review = artifactCleanupReview,
+          let saved = artifactCleanupSession, saved.phase == "reviewed", saved.reviewID == review.id, review.canApply else { return }
+    let jobID = createJob(kind: "Artifact Cleanup", title: "Preserve and clean staging folders", target: "\(review.items.count) folders", detail: "Saving recovery pointers before preservation…", initialState: .running)
+    var session = saved
+    session.phase = "applying"
+    runArtifactApply(review: review, session: session, jobID: jobID, recovering: false)
+  }
+
+  func verifyInterruptedArtifactCleanup() {
+    guard !hasLocalMutationInProgress, let session = artifactCleanupSession,
+          session.phase == "applying" || (artifactCleanupResult?.reviewID == session.reviewID && artifactCleanupResult?.failures.isEmpty == false) else { return }
+    let jobID = createJob(kind: "Artifact Cleanup", title: "Verify interrupted artifact cleanup", target: session.reviewID, detail: "Verifying saved recovery locations without starting new moves…", initialState: .running)
+    runArtifactApply(review: nil, session: session, jobID: jobID, recovering: true)
+  }
+
+  private func runArtifactApply(review: TransferArtifactCleanupReview?, session: TransferArtifactCleanupSession, jobID: String, recovering: Bool) {
+    let environment = baseEnvironment()
+    let protected = protectedCheckoutRoots()
+    let scanRoots = artifactRepositoryRoots()
+    let progress = artifactProgressHandler(jobID: jobID)
+    isRunningArtifactCleanup = true
+    artifactCleanupArmed = false
+    artifactCleanupStatusKind = .running
+    artifactCleanupStatus = recovering ? "Verifying interrupted recovery records; no new source moves will start…" : "Preserving every reviewed file and verifying the recovery copies…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        // This pointer is durable before the engine can rename any source.
+        try Self.saveArtifactSession(session)
+        Task { @MainActor [weak self] in self?.acceptArtifactSession(session) }
+        let checkedReview = try review ?? JSONDecoder().decode(TransferArtifactCleanupReview.self, from: Data(contentsOf: URL(fileURLWithPath: session.reviewPath)))
+        let result: TransferArtifactCleanupResult
+        if recovering {
+          result = try TransferArtifactCleanupEngine.recoverPending(review: checkedReview, recoveryRoot: session.recoveryRoot, allowedRepositoryRoots: session.allowedRepositoryRoots, protectedRootPaths: protected, environment: environment, progress: progress)
+        } else {
+          result = try TransferArtifactCleanupEngine.apply(review: checkedReview, recoveryRoot: session.recoveryRoot, allowedRepositoryRoots: session.allowedRepositoryRoots, protectedRootPaths: protected, environment: environment, progress: progress)
+        }
+        var completed = session
+        completed.phase = "completed"
+        try Self.saveArtifactSession(completed)
+        let completedSession = completed
+        var remaining = try Self.discoverTransferArtifacts(in: scanRoots)
+        for item in checkedReview.items where try LocalSourceResidualScanner.entryExistsNoFollow(atPath: item.artifactPath) { remaining.append(item.artifactPath) }
+        remaining = Array(Set(remaining)).sorted()
+        let remainingPaths = remaining
+        let resolved = result.receipts.map { LocalSourceResidualRecord(sourcePath: $0.originalPath, destinationPath: $0.archivePath, summary: LocalSourceResidualScanner.postCleanupSummary(rootPath: $0.originalPath), scannedAt: Date()) }
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupReview = checkedReview
+          self.artifactCleanupResult = result
+          self.acceptArtifactSession(completedSession)
+          self.artifactCleanupProgress = 1
+          self.localProjectTransferArtifacts = remainingPaths
+          self.recordSourceResiduals(resolved)
+          self.artifactCleanupStatus = "\(result.receipts.count) folders preserved and removed from active entries; \(result.failures.count) need attention; \(remainingPaths.count) current transaction folders remain."
+          self.artifactCleanupStatusKind = result.completedAll && remainingPaths.isEmpty ? .ready : .warning
+          self.finishJob(id: jobID, state: result.completedAll && remainingPaths.isEmpty ? .succeeded : .cleanupIncomplete, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+          self.refreshLocalProjects()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupStatusKind = .error
+          self.artifactCleanupStatus = "Cleanup stopped: \(error.localizedDescription) Verify Interrupted Cleanup to reconcile any saved recovery records."
+          self.finishJob(id: jobID, state: .failed, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+        }
+      }
+    }
+  }
+
+  func inspectArtifactCleanupSession(_ session: TransferArtifactCleanupSession) {
+    guard !hasLocalMutationInProgress else { return }
+    isRunningArtifactCleanup = true
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      do {
+        let result = try JSONDecoder().decode(TransferArtifactCleanupResult.self, from: Data(contentsOf: URL(fileURLWithPath: session.resultPath)))
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupResult = result
+          self.artifactCleanupStatus = "Saved batch \(session.createdAt.formatted()): \(result.receipts.count) preserved folders, \(result.failures.count) findings."
+          self.artifactCleanupStatusKind = result.failures.isEmpty ? .ready : .warning
+        }
+      } catch {
+        DispatchQueue.main.async {
+          self?.isRunningArtifactCleanup = false
+          self?.artifactCleanupStatus = "Saved batch could not be read: \(error.localizedDescription)"
+          self?.artifactCleanupStatusKind = .error
+        }
+      }
+    }
+  }
+
+  func restoreTransferArtifact(_ receipt: TransferArtifactCleanupReceipt) {
+    guard !hasLocalMutationInProgress else { return }
+    let environment = baseEnvironment(), protected = protectedCheckoutRoots()
+    let jobID = createJob(kind: "Recovery", title: "Restore preserved transfer artifact", target: receipt.originalPath, detail: "Checking the full recovery tree…", initialState: .running)
+    isRunningArtifactCleanup = true
+    artifactCleanupStatusKind = .running
+    artifactCleanupStatus = "Verifying the preserved tree before restoring its original path…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        _ = try TransferArtifactCleanupEngine.restore(receipt: receipt, protectedRootPaths: protected, environment: environment)
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupStatus = "Restored and verified \(receipt.originalPath). This undo does not trigger automatic cleanup."
+          self.artifactCleanupStatusKind = .ready
+          self.finishJob(id: jobID, state: .succeeded, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+          self.refreshLocalProjects()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupStatus = "Restore stopped: \(error.localizedDescription)"
+          self.artifactCleanupStatusKind = .error
+          self.finishJob(id: jobID, state: .failed, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+        }
+      }
+    }
+  }
+
+  func revealArtifactPath(_ path: String) { revealPath(path) }
+
+  func runSavedArtifactCleanupPolicy() {
+    guard automaticallyCleanTransferArtifacts, !hasLocalMutationInProgress else {
+      artifactCleanupStatus = "Enable automatic cleanup and wait for active local operations before running the saved policy."
+      artifactCleanupStatusKind = .warning
+      return
+    }
+    startAutomaticArtifactCleanup(parents: [])
+  }
+
+  private func tryStartQueuedArtifactCleanup() {
+    guard !pendingArtifactParentJobs.isEmpty, !hasLocalMutationInProgress else { return }
+    if !automaticallyCleanTransferArtifacts {
+      let cancelledPolicy = Array(pendingArtifactParentJobs.values)
+      pendingArtifactParentJobs.removeAll()
+      cancelledPolicy.forEach { finishJob(id: $0.id, state: $0.state, detail: $0.detail + " Automatic artifact cleanup was disabled before it started.", allowArtifactCleanup: false) }
+      return
+    }
+    let parents = Array(pendingArtifactParentJobs.values)
+    pendingArtifactParentJobs.removeAll()
+    startAutomaticArtifactCleanup(parents: parents)
+  }
+
+  private func startAutomaticArtifactCleanup(parents: [PendingArtifactParentJob]) {
+    guard artifactCleanupSession?.phase != "applying" else {
+      artifactCleanupStatus = "Verify Interrupted Cleanup before another automatic batch can start."
+      artifactCleanupStatusKind = .warning
+      parents.forEach { finishJob(id: $0.id, state: .cleanupIncomplete, detail: $0.detail + " " + artifactCleanupStatus, allowArtifactCleanup: false) }
+      return
+    }
+    let scanRoots = artifactRepositoryRoots()
+    let extraPaths = parents.flatMap(\.residualSources).map(\.sourcePath).filter { CheckoutDiscoveryRules.isTransferArtifactName(($0 as NSString).lastPathComponent) }
+    let approvedRoots = Array(Set(scanRoots + extraPaths.map { ($0 as NSString).deletingLastPathComponent })).sorted()
+    let protected = protectedCheckoutRoots()
+    let environment = baseEnvironment()
+    let runtime = resolvedProfileRoots().runtimeRoot
+    let evidenceRoot = (runtime as NSString).appendingPathComponent("Reports/TransferArtifacts")
+    let recoveryRoot = (runtime as NSString).appendingPathComponent("Recovery/TransferArtifacts")
+    let jobID = createJob(kind: "Artifact Cleanup", title: "Automatic staging and backup cleanup", target: "Successful local runs", detail: "Rescanning live transaction folders after local writes finished…", initialState: .running)
+    let progress = artifactProgressHandler(jobID: jobID)
+    isRunningArtifactCleanup = true
+    artifactCleanupArmed = false
+    artifactCleanupStatusKind = .running
+    artifactCleanupStatus = "Applying the saved cleanup policy after all local write operations have finished…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        var paths = try Self.discoverTransferArtifacts(in: scanRoots)
+        for path in extraPaths where try LocalSourceResidualScanner.entryExistsNoFollow(atPath: path) { paths.append(path) }
+        let review = try TransferArtifactCleanupEngine.review(paths: Array(Set(paths)).sorted(), allowedRepositoryRoots: approvedRoots, protectedRootPaths: protected, evidenceRoot: evidenceRoot, progress: progress)
+        // A routine clean run must not displace restorable batches with empty history entries.
+        if review.items.isEmpty {
+          let residuals = parents.flatMap(\.residualSources).map { record in
+            LocalSourceResidualRecord(sourcePath: record.sourcePath, destinationPath: record.destinationPath, summary: LocalSourceResidualScanner.postCleanupSummary(rootPath: record.sourcePath), scannedAt: Date())
+          }
+          DispatchQueue.main.async {
+            guard let self else { return }
+            self.isRunningArtifactCleanup = false
+            self.artifactCleanupProgress = 1
+            self.localProjectTransferArtifacts = []
+            self.recordSourceResiduals(residuals)
+            self.artifactCleanupStatus = "Saved policy run verified: zero staging or backup entries remain. Preserved batches remain available below."
+            self.artifactCleanupStatusKind = .ready
+            self.finishJob(id: jobID, state: .succeeded, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+            for parent in parents {
+              let parentPaths = Set(parent.residualSources.map(\.sourcePath))
+              let sourcesRemain = residuals.contains { parentPaths.contains($0.sourcePath) && $0.summary.cleanupIncomplete }
+              let state = TransferArtifactAutomation.completionState(requested: parent.state, artifactFailures: false, originalResidualsRemain: sourcesRemain)
+              self.finishJob(id: parent.id, state: state, detail: parent.detail + " " + self.artifactCleanupStatus, allowArtifactCleanup: false)
+            }
+            self.localFilesStatus = self.artifactCleanupStatus
+          }
+          return
+        }
+        var session = TransferArtifactCleanupSession(reviewID: review.id, reviewPath: review.evidencePath, recoveryRoot: recoveryRoot,
+          resultPath: ((recoveryRoot as NSString).appendingPathComponent(review.id) as NSString).appendingPathComponent("result.json"),
+          allowedRepositoryRoots: approvedRoots, createdAt: review.createdAt, phase: "applying")
+        try Self.saveArtifactSession(session)
+        let pendingSession = session
+        Task { @MainActor [weak self] in self?.acceptArtifactSession(pendingSession) }
+        let result = try TransferArtifactCleanupEngine.apply(review: review, recoveryRoot: recoveryRoot, allowedRepositoryRoots: approvedRoots, protectedRootPaths: protected, environment: environment, progress: progress)
+        session.phase = "completed"
+        try Self.saveArtifactSession(session)
+        let completedSession = session
+        var remaining = try Self.discoverTransferArtifacts(in: scanRoots)
+        for path in extraPaths where try LocalSourceResidualScanner.entryExistsNoFollow(atPath: path) { remaining.append(path) }
+        remaining = Array(Set(remaining)).sorted()
+        let remainingPaths = remaining
+        let originalResiduals = parents.flatMap(\.residualSources).map { record in
+          LocalSourceResidualRecord(sourcePath: record.sourcePath, destinationPath: record.destinationPath, summary: LocalSourceResidualScanner.postCleanupSummary(rootPath: record.sourcePath), scannedAt: Date())
+        }
+        let resolvedArtifacts = result.receipts.map { LocalSourceResidualRecord(sourcePath: $0.originalPath, destinationPath: $0.archivePath, summary: LocalSourceResidualScanner.postCleanupSummary(rootPath: $0.originalPath), scannedAt: Date()) }
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupReview = review
+          self.artifactCleanupResult = result
+          self.acceptArtifactSession(completedSession)
+          self.artifactCleanupProgress = 1
+          self.localProjectTransferArtifacts = remainingPaths
+          self.recordSourceResiduals(originalResiduals + resolvedArtifacts)
+          let hasFailures = !result.failures.isEmpty || result.receipts.count != review.items.count || !remainingPaths.isEmpty
+          self.artifactCleanupStatus = review.items.isEmpty
+            ? "Saved policy run verified: zero staging or backup entries remain."
+            : "Automatic cleanup preserved and removed \(result.receipts.count) folders; \(result.failures.count) findings; \(remainingPaths.count) current entries remain."
+          self.artifactCleanupStatusKind = hasFailures ? .warning : .ready
+          self.finishJob(id: jobID, state: hasFailures ? .cleanupIncomplete : .succeeded, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+          for parent in parents {
+            let parentPaths = Set(parent.residualSources.map(\.sourcePath))
+            let sourcesRemain = originalResiduals.contains { parentPaths.contains($0.sourcePath) && $0.summary.cleanupIncomplete }
+            let state = TransferArtifactAutomation.completionState(requested: parent.state, artifactFailures: hasFailures, originalResidualsRemain: sourcesRemain)
+            self.finishJob(id: parent.id, state: state, detail: parent.detail + " " + self.artifactCleanupStatus, allowArtifactCleanup: false)
+          }
+          self.localFilesStatus = self.artifactCleanupStatus
+          self.refreshLocalProjects()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningArtifactCleanup = false
+          self.artifactCleanupStatusKind = .error
+          self.artifactCleanupStatus = "Automatic artifact cleanup stopped: \(error.localizedDescription) Check the saved recovery session before another run."
+          self.finishJob(id: jobID, state: .failed, detail: self.artifactCleanupStatus, allowArtifactCleanup: false)
+          parents.forEach { self.finishJob(id: $0.id, state: .cleanupIncomplete, detail: $0.detail + " " + self.artifactCleanupStatus, allowArtifactCleanup: false) }
+        }
+      }
+    }
+  }
+
+  private func recordNativeTransferFailure(_ error: Error) {
+    if let failure = error as? NativeTransferFailure { recordSourceResiduals(failure.residualSources) }
+  }
+
+  private func refuseDuringVerifiedMaintenance() -> Bool {
+    guard isRunningArtifactCleanup || isRunningCheckoutOperation else { return false }
+    localFilesStatus = "Wait for checkout or staging verification to finish before starting another local write."
+    appendLog("[gui] \(localFilesStatus)\n")
+    return true
+  }
+
+  var similarlyNamedCheckouts: [LocalProjectEntry] {
+    guard let keeper = primaryLocalProject else { return [] }
+    func words(_ name: String) -> [String] {
+      name.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).sorted()
+    }
+    let key = words(keeper.repo)
+    guard key.count > 1 else { return [] }
+    return localProjects.filter { $0.slug != keeper.slug && words($0.repo) == key }
+  }
+
+  func useSelectedCheckoutAsKeeper() {
+    guard let project = primaryLocalProject, let path = project.codePath ?? project.runtimePath else {
+      checkoutReviewStatus = "Select a local project with a checkout path first."
+      checkoutReviewStatusKind = .warning
+      return
+    }
+    checkoutKeeperPath = path
+  }
+
+  func prepareCheckoutComparison(with other: LocalProjectEntry) {
+    useSelectedCheckoutAsKeeper()
+    checkoutOtherPath = other.codePath ?? other.runtimePath ?? ""
+    checkoutReviewStatus = "Similar names need identity review. Compare the actual Git origins and live repository IDs before choosing a checkout to retire."
+    checkoutReviewStatusKind = .warning
+  }
+
+  func chooseCheckoutFolder(keeper: Bool) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = keeper ? "Keep This Checkout" : "Review This Checkout"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    if keeper { checkoutKeeperPath = url.path } else { checkoutOtherPath = url.path }
+  }
+
+  private func protectedCheckoutRoots() -> [String] {
+    var paths = [Bundle.main.bundlePath]
+    let current = FileManager.default.currentDirectoryPath
+    if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent("Sources/CSAiEMMacApp/main.swift")) { paths.append(current) }
+    for project in localProjects where ["csa-ilem", "csa-iem"].contains(project.repo.lowercased()) {
+      paths += [project.codePath, project.runtimePath].compactMap { $0 }
+    }
+    return paths
+  }
+
+  func compareCheckoutPair() {
+    guard !hasLocalMutationInProgress else { return }
+    let first = normalizeWorkspacePath(checkoutKeeperPath)
+    let second = normalizeWorkspacePath(checkoutOtherPath)
+    guard !first.isEmpty, !second.isEmpty else {
+      checkoutReviewStatus = "Choose both checkout folders before comparing."
+      checkoutReviewStatusKind = .warning
+      return
+    }
+    let environment = baseEnvironment()
+    let gh = ghPath
+    let protectedRoots = protectedCheckoutRoots()
+    let evidenceRoot = (resolvedProfileRoots().runtimeRoot as NSString).appendingPathComponent("Reports/CheckoutReviews")
+    let jobID = createJob(kind: "Audit", title: "Compare checkout identities", target: second, detail: "Reading all local files and live GitHub metadata…", initialState: .running)
+    checkoutPairReview = nil
+    checkoutRetirementArmed = false
+    isRunningCheckoutOperation = true
+    checkoutReviewStatusKind = .running
+    checkoutReviewStatus = "Comparing every physical entry, local Git state, and live GitHub files. Large dependency trees can take longer."
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        let review = try CheckoutPairReviewEngine.review(firstPath: first, secondPath: second, ghExecutable: gh, environment: environment, evidenceRoot: evidenceRoot, protectedRootPaths: protectedRoots)
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          guard self.normalizeWorkspacePath(self.checkoutKeeperPath) == first, self.normalizeWorkspacePath(self.checkoutOtherPath) == second else {
+            self.finishJob(id: jobID, state: .cancelled, detail: "Checkout selection changed. Compare the current selection again.")
+            return
+          }
+          self.checkoutPairReview = review
+          self.checkoutReviewStatus = review.canRetire
+            ? "Comparison complete. Review both repository IDs, local changes, and file differences. The other checkout can be preserved in recovery after you arm retirement."
+            : "Comparison needs attention: " + review.blockers.joined(separator: " ")
+          self.checkoutReviewStatusKind = review.canRetire ? .ready : .warning
+          self.finishJob(id: jobID, state: review.canRetire ? .succeeded : .failed, detail: self.checkoutReviewStatus)
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          self.checkoutReviewStatusKind = .error
+          self.checkoutReviewStatus = "Comparison stopped: \(error.localizedDescription)"
+          self.finishJob(id: jobID, state: .failed, detail: self.checkoutReviewStatus)
+        }
+      }
+    }
+  }
+
+  func retireReviewedCheckout() {
+    guard !hasLocalMutationInProgress, checkoutRetirementArmed, let review = checkoutPairReview, review.canRetire else { return }
+    let keeper = normalizeWorkspacePath(checkoutKeeperPath)
+    let other = normalizeWorkspacePath(checkoutOtherPath)
+    let environment = baseEnvironment()
+    let protectedRoots = protectedCheckoutRoots()
+    let recoveryRoot = (resolvedProfileRoots().runtimeRoot as NSString).appendingPathComponent("Recovery/RetiredCheckouts")
+    let jobID = createJob(kind: "Migration", title: "Retire reviewed checkout", target: other, detail: "Rechecking the source and preserving the entire checkout…", initialState: .running)
+    isRunningCheckoutOperation = true
+    checkoutRetirementArmed = false
+    checkoutReviewStatusKind = .running
+    checkoutReviewStatus = "Rechecking all files before moving the complete other checkout into recoverable storage…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        let receipt = try CheckoutPairReviewEngine.retire(review: review, keepingPath: keeper, retiringPath: other, recoveryRoot: recoveryRoot, protectedRootPaths: protectedRoots, environment: environment)
+        var persistenceWarning: String?
+        do {
+          let data = try JSONEncoder().encode(receipt)
+          try data.write(to: URL(fileURLWithPath: checkoutRetirementFile), options: .atomic)
+        } catch { persistenceWarning = "The recovery receipt is saved at \(receipt.receiptPath), but the app's recent-receipt shortcut could not be saved: \(error.localizedDescription)" }
+        let shortcutWarning = persistenceWarning
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          self.checkoutLastRetirement = receipt
+          self.checkoutPairReview = nil
+          if let origin = review.second.git.origin { self.selectedRepos.remove("\(origin.owner)/\(origin.repository)") }
+          self.checkoutReviewStatus = "Other checkout retired and verified: \(receipt.fileCount) files preserved at \(receipt.archivePath). Keeper unchanged; original entry removed."
+          if let shortcutWarning { self.checkoutReviewStatus += " " + shortcutWarning }
+          self.checkoutReviewStatusKind = shortcutWarning == nil ? .ready : .warning
+          self.finishJob(id: jobID, state: shortcutWarning == nil ? .succeeded : .cleanupIncomplete, detail: self.checkoutReviewStatus)
+          self.refreshLocalProjects()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          self.checkoutReviewStatusKind = .error
+          self.checkoutReviewStatus = "Retirement stopped safely: \(error.localizedDescription)"
+          self.finishJob(id: jobID, state: .failed, detail: self.checkoutReviewStatus)
+        }
+      }
+    }
+  }
+
+  func restoreLastRetiredCheckout() {
+    guard !hasLocalMutationInProgress, let receipt = checkoutLastRetirement else { return }
+    let environment = baseEnvironment()
+    let protectedRoots = protectedCheckoutRoots()
+    let jobID = createJob(kind: "Recovery", title: "Restore retired checkout", target: receipt.originalPath, detail: "Verifying the recovery tree before restoration…", initialState: .running)
+    isRunningCheckoutOperation = true
+    checkoutReviewStatusKind = .running
+    checkoutReviewStatus = "Verifying all preserved files before restoring the original checkout path…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do {
+        _ = try CheckoutPairReviewEngine.restore(receipt: receipt, protectedRootPaths: protectedRoots, environment: environment)
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          self.checkoutReviewStatusKind = .ready
+          self.checkoutReviewStatus = "Preserved checkout restored and verified at \(receipt.originalPath)."
+          self.finishJob(id: jobID, state: .succeeded, detail: self.checkoutReviewStatus)
+          self.refreshLocalProjects()
+        }
+      } catch {
+        DispatchQueue.main.async {
+          guard let self else { return }
+          self.isRunningCheckoutOperation = false
+          self.checkoutReviewStatusKind = .error
+          self.checkoutReviewStatus = "Restore stopped: \(error.localizedDescription)"
+          self.finishJob(id: jobID, state: .failed, detail: self.checkoutReviewStatus)
+        }
+      }
+    }
+  }
+
+  func revealCheckoutReviewEvidence() {
+    if let path = checkoutPairReview?.evidencePath ?? checkoutLastRetirement?.receiptPath { revealPath(path) }
+  }
+
+  func revealRetiredCheckout() {
+    if let receipt = checkoutLastRetirement { revealPath(receipt.archivePath) }
+  }
+
+  func revealTransferArtifact(_ path: String) {
+    guard localProjectTransferArtifacts.contains(path) else { return }
+    revealPath(path)
+  }
+
+  private func recordSourceResiduals(_ records: [LocalSourceResidualRecord]) {
+    guard !records.isEmpty else { return }
+    var merged = Dictionary(sourceResiduals.map { ($0.sourcePath, $0) }, uniquingKeysWith: { _, newest in newest })
+    records.forEach { merged[$0.sourcePath] = $0 }
+    sourceResiduals = merged.values.sorted { $0.sourcePath < $1.sourcePath }
+    do {
+      try LocalSourceResidualStore.save(sourceResiduals, to: URL(fileURLWithPath: sourceResidualsFile))
+      sourceResidualStatus = "Report saved. \(sourceResiduals.filter { $0.summary.cleanupIncomplete }.count) source folder(s) need review."
+    } catch {
+      sourceResidualStatus = "Leftovers detected, but the report could not be saved: \(error.localizedDescription)"
+      sourceResidualReportHasWarnings = true
+      appendLog("[gui] \(sourceResidualStatus)\n")
+    }
+  }
+
+  func chooseSourceResidualFolder() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Scan Leftovers"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    sourceResidualScanPath = url.path
+    scanOldSourceLeftovers()
+  }
+
+  func revealSourceResidual(_ record: LocalSourceResidualRecord) {
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: record.sourcePath)])
+  }
+
+  func scanOldSourceLeftovers() {
+    guard !isScanningSourceResiduals else { return }
+    let explicitPath = normalizeWorkspacePath(sourceResidualScanPath)
+    let previous = sourceResiduals
+    let active = resolvedProfileRoots()
+    let activeRoots = [active.codeRoot, active.importRoot, active.runtimeRoot].map { Self.normalizedPath($0) }
+    var parents = parsedCodexScanRoots()
+    parents.append(NSString(string: "~/Documents/ChatGPT").expandingTildeInPath)
+    parents.append(NSString(string: "~/CSA-iEM").expandingTildeInPath)
+    parents.append(NSString(string: "~/CSA-iLEM").expandingTildeInPath)
+    for base in [profileConfigDir, legacyProfileConfigDir] {
+      for profile in ["diamond", "wtl", "public", "default", "custom"] {
+        let values = Self.readEnvFile((base as NSString).appendingPathComponent("\(profile).env"))
+        parents += ["SAVED_DEFAULT_ROOT", "SAVED_CODE_ROOT", "SAVED_IMPORT_ROOT", "SAVED_RUNTIME_ROOT"].compactMap { values[$0] }
+      }
+    }
+    isScanningSourceResiduals = true
+    sourceResidualStatus = "Scanning old sources, including hidden and dependency entries…"
+    let jobID = createJob(kind: "Audit", title: "Scan old source leftovers", target: explicitPath.isEmpty ? "Old local source roots" : explicitPath, detail: sourceResidualStatus, initialState: .running)
+    let scanParents = Array(Set(parents.map { Self.normalizedPath($0) }.filter { !$0.isEmpty }))
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let fm = FileManager.default
+      var paths = Set(previous.map(\.sourcePath))
+      var discoveryWarnings: [String] = []
+      let scanDeadline = ProcessInfo.processInfo.systemUptime + 20
+      if !explicitPath.isEmpty {
+        paths = [explicitPath]
+      } else {
+        // Only named source roots are searched. Walking the shallow containers
+        // reaches Code/Repos/owner/project without entering dependency trees.
+        var visited = 0
+        func discover(_ path: String, depth: Int) {
+          guard visited < 5_000, paths.count < 200, ProcessInfo.processInfo.systemUptime < scanDeadline else {
+            if discoveryWarnings.isEmpty { discoveryWarnings.append("Source discovery reached its time, 5,000-entry, or 200-source limit; select a specific old source to continue.") }
+            return
+          }
+          visited += 1
+          guard !activeRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return }
+          var info = stat()
+          guard lstat(path, &info) == 0 else {
+            if errno != ENOENT { discoveryWarnings.append("Could not inspect source container: \(path)") }
+            return
+          }
+          guard info.st_mode & S_IFMT == S_IFDIR else { return }
+          if LocalSourceResidualScanner.isDatalessFile(flags: info.st_flags) {
+            paths.insert(path)
+            return
+          }
+          let names: [String]
+          do { names = try fm.contentsOfDirectory(atPath: path).sorted() }
+          catch { discoveryWarnings.append("Could not list source container: \(path)"); paths.insert(path); return }
+          let projectMarkers: Set<String> = [".git", "package.json", "Package.swift", "pyproject.toml", "Cargo.toml", "go.mod"]
+          if !projectMarkers.isDisjoint(with: names) { return }
+          let generatedNames = names.filter { LocalSourceResidualScanner.isGeneratedDirectoryName($0) }
+          if !generatedNames.isEmpty && names.allSatisfy({ LocalSourceResidualScanner.isGeneratedDirectoryName($0) || LocalSourceResidualScanner.isFinderMetadataName($0) }) {
+            paths.insert(path)
+            return
+          }
+          guard depth > 0 else { return }
+          for name in names { discover((path as NSString).appendingPathComponent(name), depth: depth - 1) }
+        }
+        scanParents.forEach { discover($0, depth: 4) }
+      }
+      if paths.count > 200 { discoveryWarnings.append("Only the first 200 saved source paths can be scanned at once. Choose an exact source to inspect additional paths.") }
+      var records: [LocalSourceResidualRecord] = []
+      for path in paths.sorted().prefix(200) {
+        guard ProcessInfo.processInfo.systemUptime < scanDeadline else {
+          discoveryWarnings.append("Scan reached its 20-second limit; unscanned saved records remain unresolved or retain their previous result. Select an exact source to continue.")
+          break
+        }
+        records.append(LocalSourceResidualRecord(
+          sourcePath: path,
+          destinationPath: previous.first(where: { $0.sourcePath == path })?.destinationPath,
+          summary: LocalSourceResidualScanner.inventory(rootPath: path, maxEntries: 100_000, maxDepth: 64),
+          scannedAt: Date()
+        ))
+      }
+      let completedRecords = records
+      let completedWarnings = discoveryWarnings
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.isScanningSourceResiduals = false
+        self.sourceResidualReportHasWarnings = !completedWarnings.isEmpty
+        self.recordSourceResiduals(completedRecords)
+        let unresolved = self.sourceResiduals.filter { $0.summary.cleanupIncomplete }.count
+        let summary = "Scan finished: \(unresolved) unresolved source folder(s), \(completedRecords.filter { $0.summary.cleanupComplete }.count) removed source(s) verified absent."
+        if completedRecords.isEmpty { self.sourceResidualStatus = summary }
+        if !completedWarnings.isEmpty { self.sourceResidualStatus += " " + completedWarnings.prefix(5).joined(separator: " ") }
+        self.finishJob(id: jobID, state: unresolved > 0 || !completedWarnings.isEmpty ? .cleanupIncomplete : .succeeded, detail: summary + " " + completedWarnings.prefix(5).joined(separator: " "))
       }
     }
   }
@@ -4122,6 +4959,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func recoverSelectedSource() {
+    guard !hasLocalMutationInProgress else { localFilesStatus = "Wait for the active local operation to finish."; return }
     guard let candidate = recoveryCandidate else {
       recoverySourceStatus = "Scan a recovery source before starting."
       return
@@ -4136,8 +4974,9 @@ final class CleanupViewModel: ObservableObject {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
       do {
-        let summary = try Self.migrateLegacyWorkspace(candidate: candidate, destinationRoots: roots, mode: mode, overwrite: false, environment: environment)
+        let outcome = try Self.migrateLegacyWorkspace(candidate: candidate, destinationRoots: roots, mode: mode, overwrite: false, environment: environment)
         DispatchQueue.main.async {
+          let summary = outcome.summary
           self.isRunningLocalFileOperation = false
           self.recoverySourceStatus = summary
           self.localFilesStatus = summary
@@ -4158,6 +4997,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func relocateWorkspace(_ scope: WorkspaceRelocationScope) {
+    guard !hasLocalMutationInProgress else { localFilesStatus = "Wait for the active local operation to finish."; return }
     let baseDestination = normalizeWorkspacePath(workspaceMoveDestinationDraft)
     guard !baseDestination.isEmpty else {
       localFilesStatus = "Choose a destination folder before moving workspace files."
@@ -4169,6 +5009,7 @@ final class CleanupViewModel: ObservableObject {
     let environment = baseEnvironment()
     let overwrite = overwriteLocalFileDestination
 
+    let jobID = createJob(kind: "Migration", title: "Move workspace", target: baseDestination, detail: "Moving workspace files…", initialState: .running)
     isRunningLocalFileOperation = true
     localFilesStatus = "Moving workspace files..."
     appendLog("[gui] Starting workspace move to \(baseDestination)\n")
@@ -4207,26 +5048,31 @@ final class CleanupViewModel: ObservableObject {
           self.syncWorkspaceDraftsFromResolvedRoots()
           self.isRunningLocalFileOperation = false
           self.localOperationPreview = nil
-          if outcome.warnings.isEmpty {
+          self.recordSourceResiduals(outcome.residualSources)
+          if outcome.residualSources.isEmpty {
             self.localFilesStatus = "Workspace move finished."
           } else {
-            self.localFilesStatus = "Workspace move finished with cleanup warnings."
+            self.localFilesStatus = "Destination ready; cleanup incomplete for \(outcome.residualSources.count) old source folder(s). Review Old Source Leftovers."
             outcome.warnings.forEach { self.appendLog("[gui] \($0)\n") }
           }
-          self.appendLog("[gui] Workspace move finished.\n")
+          self.finishJob(id: jobID, state: outcome.residualSources.isEmpty ? .succeeded : .cleanupIncomplete, detail: self.localFilesStatus, residualSources: outcome.residualSources)
+          self.appendLog("[gui] \(self.localFilesStatus)\n")
           self.refreshLocalProjects()
         }
       } catch {
         DispatchQueue.main.async {
           self.isRunningLocalFileOperation = false
           self.localFilesStatus = error.localizedDescription
+          self.recordNativeTransferFailure(error)
           self.appendLog("[gui] Workspace move failed: \(error.localizedDescription)\n")
+          self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
         }
       }
     }
   }
 
   func runLocalExport() {
+    guard !hasLocalMutationInProgress else { localFilesStatus = "Wait for the active local operation to finish."; return }
     let destination = normalizeWorkspacePath(localExportDestinationDraft)
     guard !destination.isEmpty else {
       localFilesStatus = "Choose an export destination before running a backup or export."
@@ -4254,6 +5100,7 @@ final class CleanupViewModel: ObservableObject {
       return
     }
 
+    let jobID = createJob(kind: "Migration", title: "Export local files", target: destination, detail: "Exporting local files…", initialState: .running)
     isRunningLocalFileOperation = true
     localFilesStatus = "Running local file export..."
     appendLog("[gui] Starting \(exportMode.label.lowercased()) to \(destination)\n")
@@ -4262,7 +5109,7 @@ final class CleanupViewModel: ObservableObject {
       guard let self else { return }
 
       do {
-        let summary = try Self.exportLocalFiles(
+        let outcome = try Self.exportLocalFiles(
           scope: exportScope,
           mode: exportMode,
           destinationBase: destination,
@@ -4277,11 +5124,14 @@ final class CleanupViewModel: ObservableObject {
         )
 
         DispatchQueue.main.async {
+          let summary = outcome.summary
           self.isRunningLocalFileOperation = false
           self.localExportPreparedStamp = ""
           self.localOperationPreview = nil
           self.localFilesStatus = summary
           self.appendLog("[gui] \(summary)\n")
+          self.recordSourceResiduals(outcome.residualSources)
+          self.finishJob(id: jobID, state: outcome.residualSources.isEmpty ? .succeeded : .cleanupIncomplete, detail: summary, residualSources: outcome.residualSources)
           self.refreshLocalProjects()
         }
       } catch {
@@ -4289,7 +5139,9 @@ final class CleanupViewModel: ObservableObject {
           self.isRunningLocalFileOperation = false
           self.localExportPreparedStamp = ""
           self.localFilesStatus = error.localizedDescription
+          self.recordNativeTransferFailure(error)
           self.appendLog("[gui] Local file export failed: \(error.localizedDescription)\n")
+          self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
         }
       }
     }
@@ -4380,6 +5232,7 @@ final class CleanupViewModel: ObservableObject {
         }
         self.isLoadingLocalProjects = false
         self.localProjects = result.projects
+        self.localProjectTransferArtifacts = result.transferArtifacts
         self.localProjectStatus = result.status
         self.refreshLiveServices()
       }
@@ -4525,17 +5378,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func copyPrimaryLocalProjectURL() {
-    guard let slug = primaryLocalProject?.slug else {
-      appendLog("[gui] No loaded local project is available to copy.\n")
-      return
-    }
-
-    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host
-    guard let url = URL(string: "https://\(normalizedHost)/\(slug)") else {
-      appendLog("[gui] Could not build a repository URL for \(slug).\n")
-      return
-    }
-    copyToClipboard(url.absoluteString, label: "repository URL")
+    usePrimaryCheckoutOrigin(openBrowser: false)
   }
 
   func openPrimaryLocalProjectInTerminal() {
@@ -4552,18 +5395,34 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func openPrimaryLocalProjectInBrowser() {
-    guard let slug = primaryLocalProject?.slug else {
-      appendLog("[gui] No loaded local project is available to open in the browser.\n")
-      return
-    }
+    usePrimaryCheckoutOrigin(openBrowser: true)
+  }
 
-    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? appSettings.defaultGitHubHost : host
-    guard let url = URL(string: "https://\(normalizedHost)/\(slug)") else {
-      appendLog("[gui] Could not build a browser URL for \(slug).\n")
+  private func usePrimaryCheckoutOrigin(openBrowser: Bool) {
+    guard let project = primaryLocalProject, let path = project.codePath ?? project.runtimePath else {
+      appendLog("[gui] Select a loaded checkout before opening its Git origin.\n")
       return
     }
-    NSWorkspace.shared.open(url)
-    appendLog("[gui] Opening repository in browser: \(url.absoluteString)\n")
+    var environment = baseEnvironment()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    let inspectionEnvironment = environment
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let result = Self.runCommand(executable: "/usr/bin/git", arguments: ["-C", path, "config", "--get", "remote.origin.url"], environment: inspectionEnvironment)
+      let identity = result.status == 0 ? CheckoutRemoteIdentity.parse(result.output) : nil
+      DispatchQueue.main.async {
+        guard let self else { return }
+        guard let identity, let url = URL(string: identity.browserURL) else {
+          self.appendLog("[gui] No recognized Git origin is available for \(project.slug). Inspect the checkout identity before opening a repository URL.\n")
+          return
+        }
+        if openBrowser {
+          NSWorkspace.shared.open(url)
+          self.appendLog("[gui] Opening checkout origin: \(identity.browserURL)\n")
+        } else {
+          self.copyToClipboard(identity.browserURL, label: "checkout origin URL")
+        }
+      }
+    }
   }
 
   func revealCodeRoot() {
@@ -4967,6 +5826,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func runDevcontainerCommand(for project: LocalProjectEntry, title: String, arguments: [String]) {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard let workspacePath = project.runtimePath ?? project.codePath else {
       appendLog("[gui] No local workspace was found for \(project.slug)\n")
       return
@@ -5363,6 +6223,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func runCodexLocalDev(_ project: CodexProjectEntry) {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard !isRunningCodexLocalDev else {
       codexLocalDevStatus = "A local development session is already running. Stop it before starting another project."
       return
@@ -5575,6 +6436,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func runStage3InTerminal(action: String) {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard !isCodexPortalBusy else {
       codexLifecycleStatus = "Wait for the active project scan, preflight, or lifecycle run to finish before starting Stage 3."
       return
@@ -5645,6 +6507,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   private func runStage2InTerminal(action: String, fullAuto: Bool) {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard !isCodexPortalBusy else {
       stage2Status = "Wait for the active project scan, preflight, or lifecycle run to finish before starting Stage 2."
       return
@@ -6249,6 +7112,9 @@ final class CleanupViewModel: ObservableObject {
             transferPlan: plan,
             environment: environment
           )
+          // Keep the committed transfer outcome even if writing its receipt
+          // fails, so a parked original still reaches the residual audit.
+          outcomes.append(outcome)
           outcome.receiptPath = try Self.writeCodexStage1Receipt(
             project: project,
             outcome: outcome,
@@ -6259,7 +7125,7 @@ final class CleanupViewModel: ObservableObject {
             includeFinderMetadata: includeFinderMetadata,
             includeDependencies: includeDependencies
           )
-          outcomes.append(outcome)
+          outcomes[outcomes.count - 1] = outcome
           processedPaths.insert(project.path)
         } catch {
           failure = error
@@ -6304,9 +7170,16 @@ final class CleanupViewModel: ObservableObject {
         }
       }
 
+      let residualRecords: [LocalSourceResidualRecord] = (mode == .syncAndMove || (runLifecycle && lifecycleDeleteStage1)) ? outcomes.compactMap { outcome in
+        guard let source = outcome.currentSourcePath else { return nil }
+        let summary = LocalSourceResidualScanner.postCleanupSummary(rootPath: source)
+        guard summary.cleanupIncomplete else { return nil }
+        return LocalSourceResidualRecord(sourcePath: source, destinationPath: outcome.destinationPath, summary: summary, scannedAt: Date())
+      } : []
       Task { @MainActor [weak self] in
         guard let self else { return }
         self.isRunningCodexTransfer = false
+        self.recordSourceResiduals(residualRecords)
         if let failure {
           let allPaths = Set(projects.map(\.path))
           let failedPaths = failedPath.map { Set([$0]) } ?? Set<String>()
@@ -6342,7 +7215,10 @@ final class CleanupViewModel: ObservableObject {
             ? "Verified \(mode.label.lowercased()) completed for \(outcomes.count) project(s).\(resumeSummary)\(conflictSummary) \(lifecycleSummary)"
             : "Completed with \(warningCount) preservation warning(s).\(resumeSummary)\(conflictSummary) \(lifecycleSummary)"
           if runLifecycle { self.codexLifecycleStatus = self.codexPortalStatus }
-          self.updateJob(id: jobID, state: .succeeded, detail: self.codexPortalStatus, progressText: self.codexPortalProgressText)
+          if !residualRecords.isEmpty {
+            self.codexPortalStatus += " Cleanup incomplete: \(residualRecords.count) retained source folder(s) require review in Old Source Leftovers."
+          }
+          self.finishJob(id: jobID, state: residualRecords.isEmpty ? .succeeded : .cleanupIncomplete, detail: self.codexPortalStatus, residualSources: residualRecords)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
         }
         self.restoreCodexResumeSelection()
@@ -7071,6 +7947,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func createSnapshot() {
+    guard !hasLocalMutationInProgress else { return }
     let roots = resolvedProfileRoots()
     let selectedProjects = selectedLocalProjects
     let snapshotID = UUID().uuidString
@@ -7132,6 +8009,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func restoreSnapshot(_ entry: SnapshotEntry) {
+    guard !hasLocalMutationInProgress else { return }
+    isRunningLocalFileOperation = true
     let roots = resolvedProfileRoots()
     let payloadPath = entry.destinationPath
     let environment = baseEnvironment()
@@ -7144,12 +8023,14 @@ final class CleanupViewModel: ObservableObject {
       do {
         try Self.restoreSnapshotPayload(payloadPath: payloadPath, roots: roots, environment: environment)
         DispatchQueue.main.async {
+          self.isRunningLocalFileOperation = false
           self.snapshotStatus = "Snapshot restored."
           self.finishJob(id: jobID, state: .succeeded, detail: "Snapshot restored.")
           self.refreshLocalProjects()
         }
       } catch {
         DispatchQueue.main.async {
+          self.isRunningLocalFileOperation = false
           self.snapshotStatus = error.localizedDescription
           self.finishJob(id: jobID, state: .failed, detail: error.localizedDescription)
         }
@@ -7194,6 +8075,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func runTaskTemplate(_ task: ProjectTaskTemplate) {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard let project = localProjects.first(where: { $0.slug == task.slug }) else {
       taskStatus = "Project for task \(task.name) was not found."
       return
@@ -8154,6 +9036,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func runImport() {
+    guard !refuseDuringVerifiedMaintenance() else { return }
     guard let cliPath else {
       statusKind = .error
       statusTitle = "CLI Engine Missing"
@@ -8376,6 +9259,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func runCleanup() {
+    guard !refuseDuringVerifiedMaintenance() else { return }
+    cleanupRunWasDryRun = dryRun
     guard let cliPath else {
       statusKind = .error
       statusTitle = "CLI Engine Missing"
@@ -8595,6 +9480,11 @@ final class CleanupViewModel: ObservableObject {
     totalRepoTargets = 0
     cancellationRequested = false
     reloadAuthInventory()
+    if !cancelled, failedCount == 0,
+       TransferArtifactAutomation.shouldRun(enabled: automaticallyCleanTransferArtifacts, kind: "Cleanup", title: "Applied GitHub cleanup", state: .succeeded, isDryRun: cleanupRunWasDryRun) {
+      let jobID = createJob(kind: "Cleanup", title: "Applied GitHub cleanup", target: "Completed targets", detail: summary, initialState: .running)
+      finishJob(id: jobID, state: .succeeded, detail: summary)
+    }
   }
 
   private func handleTerminalGate(_ chunk: String, stdinPipe: Pipe, jobID: String?) {
@@ -8691,7 +9581,7 @@ final class CleanupViewModel: ObservableObject {
       if state == .running, backgroundJobs[index].startedAt == nil {
         backgroundJobs[index].startedAt = Date()
       }
-      if state == .succeeded || state == .failed || state == .cancelled {
+      if state == .succeeded || state == .cleanupIncomplete || state == .failed || state == .cancelled {
         backgroundJobs[index].finishedAt = Date()
       }
     }
@@ -8710,9 +9600,17 @@ final class CleanupViewModel: ObservableObject {
     jobCenterStatus = recentJobSummary
   }
 
-  private func finishJob(id: String, state: BackgroundJobState, detail: String) {
+  private func finishJob(id: String, state: BackgroundJobState, detail: String, allowArtifactCleanup: Bool = true, residualSources: [LocalSourceResidualRecord] = []) {
+    if allowArtifactCleanup, let job = backgroundJobs.first(where: { $0.id == id }),
+       TransferArtifactAutomation.shouldRun(enabled: automaticallyCleanTransferArtifacts, kind: job.kind, title: job.title, state: state) {
+      pendingArtifactParentJobs[id] = PendingArtifactParentJob(id: id, state: state, detail: detail, residualSources: residualSources)
+      updateJob(id: id, state: .running, detail: detail + " Waiting for verified staging/backup cleanup.", progressText: "Waiting for all local writes to finish before artifact cleanup…")
+      DispatchQueue.main.async { [weak self] in self?.tryStartQueuedArtifactCleanup() }
+      return
+    }
     updateJob(id: id, state: state, detail: detail, progressText: detail)
-    guard state == .failed || state == .cancelled,
+    DispatchQueue.main.async { [weak self] in self?.tryStartQueuedArtifactCleanup() }
+    guard state == .failed || state == .cleanupIncomplete || state == .cancelled,
           let job = backgroundJobs.first(where: { $0.id == id }) else { return }
     recordIncident(for: job)
   }
@@ -8782,7 +9680,17 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func retryJob(_ job: BackgroundJobEntry) {
+    if job.title == "Retire reviewed checkout" || job.title == "Restore retired checkout" {
+      jobCenterStatus = "Review the preserved checkout and recovery receipt in Projects or Local Files. A new comparison and explicit retirement selection are required before moving another checkout."
+      return
+    }
+    if job.state == .cleanupIncomplete {
+      scanOldSourceLeftovers()
+      return
+    }
     switch (job.kind, job.title) {
+    case ("Audit", "Compare checkout identities"):
+      compareCheckoutPair()
     case ("GitHub", "Repo health scan"):
       if selectedRepos.isEmpty {
         loadRepoHealthForVisibleRepos()
@@ -8834,6 +9742,11 @@ final class CleanupViewModel: ObservableObject {
     } else {
       jobCenterStatus = "This job cannot be cancelled because it is no longer active."
     }
+  }
+
+  var canCancelSelectedJob: Bool {
+    guard let job = selectedJob else { return false }
+    return job.state == .running && activeJobID == job.id
   }
 
   private func loadLastSession() -> [String: String] {
@@ -9219,15 +10132,23 @@ final class CleanupViewModel: ObservableObject {
     workspaceLabel: String,
     codeRoot: String,
     runtimeRoot: String
-  ) -> (projects: [LocalProjectEntry], status: String) {
+  ) -> (projects: [LocalProjectEntry], status: String, transferArtifacts: [String]) {
     let fm = FileManager.default
     let codeReposRoot = (codeRoot as NSString).appendingPathComponent("Repos")
     let runtimeReposRoot = (runtimeRoot as NSString).appendingPathComponent("Repos")
     let runnersRoot = (runtimeRoot as NSString).appendingPathComponent("Runners")
 
     var merged: [String: LocalProjectEntry] = [:]
+    var transferArtifacts: [String] = []
+    var transferDiscoveryWarning = ""
+    do { transferArtifacts = try discoverTransferArtifacts(in: [codeReposRoot, runtimeReposRoot, runnersRoot]) }
+    catch { transferDiscoveryWarning = " Artifact discovery needs attention: \(error.localizedDescription)" }
 
     for item in repoDirectories(in: codeReposRoot) {
+      if CheckoutDiscoveryRules.isTransferArtifactName(item.repo) {
+        transferArtifacts.append(item.path)
+        continue
+      }
       let slug = "\(item.owner)/\(item.repo)"
       let existing = merged[slug]
       merged[slug] = LocalProjectEntry(
@@ -9243,6 +10164,10 @@ final class CleanupViewModel: ObservableObject {
     }
 
     for item in repoDirectories(in: runtimeReposRoot) {
+      if CheckoutDiscoveryRules.isTransferArtifactName(item.repo) {
+        transferArtifacts.append(item.path)
+        continue
+      }
       let slug = "\(item.owner)/\(item.repo)"
       let devcontainerPath = (item.path as NSString).appendingPathComponent(".devcontainer/devcontainer.json")
       let generatedMarker = (item.path as NSString).appendingPathComponent(".devcontainer/.csa-ilem-generated")
@@ -9270,6 +10195,10 @@ final class CleanupViewModel: ObservableObject {
       let repos = (try? fm.contentsOfDirectory(atPath: ownerPath))?.sorted() ?? []
       for repo in repos {
         let runnerPath = (ownerPath as NSString).appendingPathComponent(repo)
+        if CheckoutDiscoveryRules.isTransferArtifactName(repo) {
+          transferArtifacts.append(runnerPath)
+          continue
+        }
         let runnerConfigPath = (runnerPath as NSString).appendingPathComponent(".runner")
         guard fm.fileExists(atPath: runnerConfigPath) else {
           continue
@@ -9298,6 +10227,10 @@ final class CleanupViewModel: ObservableObject {
       let documentsRoot = NSString(string: "~/Documents").expandingTildeInPath
       let discoveryRoots = Array(Set([codeParent, runtimeParent, documentsRoot])).filter { !$0.isEmpty }
       for item in discoveredProjectDirectories(in: discoveryRoots) {
+        if CheckoutDiscoveryRules.isTransferArtifactName(item.repo) {
+          transferArtifacts.append(item.path)
+          continue
+        }
         let slug = "\(item.owner)/\(item.repo)"
         merged[slug] = LocalProjectEntry(
           slug: slug,
@@ -9316,7 +10249,9 @@ final class CleanupViewModel: ObservableObject {
     let status = projects.isEmpty
       ? "No local Git or Docker projects were found. Check macOS Files and Folders access, then refresh."
       : "Loaded \(projects.count) local projects from the current workspace and nearby sync folders."
-    return (projects, status)
+    let artifacts = Array(Set(transferArtifacts)).sorted()
+    let artifactStatus = artifacts.isEmpty ? "" : " \(artifacts.count) transfer staging or backup folder(s) are preserved separately for review."
+    return (projects, status + artifactStatus + transferDiscoveryWarning, artifacts)
   }
 
   private func repoHostOverride(from target: String) -> String? {
@@ -9822,7 +10757,8 @@ final class CleanupViewModel: ObservableObject {
     environment: [String: String]
   ) throws {
     let fm = FileManager.default
-    let transactionRoot = fm.temporaryDirectory.appendingPathComponent("csa-iem-restore-\(UUID().uuidString)").path
+    let transactionID = UUID().uuidString
+    let transactionRoot = fm.temporaryDirectory.appendingPathComponent("csa-iem-restore-\(transactionID)").path
     let candidateRoots = [roots.codeRoot, roots.importRoot, roots.runtimeRoot].map { NSString(string: $0).standardizingPath }
     var targets: [String] = []
     var seenTargets: Set<String> = []
@@ -9830,15 +10766,23 @@ final class CleanupViewModel: ObservableObject {
       targets.append(target)
     }
     var backups: [(target: String, backup: String)] = []
+    var mergeBegan = false
     try fm.createDirectory(atPath: transactionRoot, withIntermediateDirectories: true, attributes: nil)
 
     do {
       for (index, target) in targets.enumerated() where fm.fileExists(atPath: target) {
         let backup = (transactionRoot as NSString).appendingPathComponent("root-\(index)")
+        if environment["CSA_IEM_TEST_FAIL_SNAPSHOT_BACKUP_INDEX"] == String(index) {
+          try fm.createDirectory(atPath: backup, withIntermediateDirectories: true)
+          try Data("Partial backup fixture".utf8).write(to: URL(fileURLWithPath: backup).appendingPathComponent("partial-copy.fixture"))
+          throw nativeTransactionError("Injected snapshot backup creation failure.")
+        }
         try transferItem(from: target, to: backup, mode: .copyBackup, overwrite: false, environment: environment)
         backups.append((target: target, backup: backup))
       }
 
+      // No original target has changed until every required backup exists.
+      mergeBegan = true
       try restoreSnapshotPayloadMerge(
         payloadPath: payloadPath,
         roots: roots,
@@ -9848,18 +10792,47 @@ final class CleanupViewModel: ObservableObject {
       if environment["CSA_IEM_TEST_FAIL_DURING_SNAPSHOT_RESTORE"] == "1" {
         throw NSError(domain: appTitle, code: 97, userInfo: [NSLocalizedDescriptionKey: "Injected snapshot restore failure for rollback verification."])
       }
-      try? fm.removeItem(atPath: transactionRoot)
     } catch {
-      for target in targets where fm.fileExists(atPath: target) {
-        try? fm.removeItem(atPath: target)
+      guard mergeBegan else {
+        let summary = LocalSourceResidualScanner.postCleanupSummary(rootPath: transactionRoot)
+        throw NativeTransferFailure(detail: "Snapshot restore never began; every original workspace root is unchanged. Preparatory backup data is preserved at \(transactionRoot). \(error.localizedDescription)",
+          residualSources: [LocalSourceResidualRecord(sourcePath: transactionRoot, destinationPath: nil, summary: summary, scannedAt: Date())])
       }
+      var notes: [String] = []
+      var preserved: [LocalTransferOperation] = []
+      // Preserve failed merged trees rather than recursively deleting them.
+      for target in targets where nativeTransactionPathExists(target) {
+        let failedTree = target + ".csa-iem-stage-\(transactionID)"
+        do {
+          try nativeTransactionMove(target, to: failedTree)
+          preserved.append(LocalTransferOperation(source: failedTree, destination: target))
+        } catch { notes.append("Changed target remains at \(target): \(error.localizedDescription)") }
+      }
+      var restoreStages: [String] = []
       for backup in backups {
-        if fm.fileExists(atPath: backup.backup) {
-          try? transferItem(from: backup.backup, to: backup.target, mode: .copyBackup, overwrite: true, environment: environment)
+        guard !nativeTransactionPathExists(backup.target) else {
+          notes.append("Original backup remains at \(backup.backup); target is occupied.")
+          continue
         }
+        do {
+          let stage = try stagingPath(for: backup.target, transactionID: transactionID)
+          restoreStages.append(stage)
+          try transferItem(from: backup.backup, to: stage, mode: .copyBackup, overwrite: false, environment: environment)
+          try nativeTransactionMove(stage, to: backup.target)
+        } catch { notes.append("Original backup remains at \(backup.backup): \(error.localizedDescription)") }
       }
-      try? fm.removeItem(atPath: transactionRoot)
-      throw error
+      preserved.append(LocalTransferOperation(source: transactionRoot, destination: roots.runtimeRoot))
+      let leftovers = nativeTransactionResiduals(preserved, reason: "Snapshot rollback data is retained for recovery.")
+      let emptyCleanup = removeEmptyNativeStagingContainers(restoreStages, transactionID: transactionID)
+      throw NativeTransferFailure(detail: "Snapshot restore stopped and rollback was attempted without deleting unbacked originals. \(error.localizedDescription) " + notes.joined(separator: " ")
+        + " Preserved recovery data: " + (leftovers.residualSources + emptyCleanup.residualSources).map(\.sourcePath).joined(separator: ", "),
+        residualSources: leftovers.residualSources + emptyCleanup.residualSources)
+    }
+    do {
+      try fm.removeItem(atPath: transactionRoot)
+    } catch {
+      let pending = nativeTransactionResiduals([LocalTransferOperation(source: transactionRoot, destination: roots.runtimeRoot)], reason: "Snapshot was restored, but preparatory backup cleanup remains incomplete.")
+      throw NativeTransferFailure(detail: "Snapshot restored; backup cleanup incomplete at \(transactionRoot): \(error.localizedDescription)", residualSources: pending.residualSources)
     }
   }
 
@@ -10413,7 +11386,7 @@ final class CleanupViewModel: ObservableObject {
     mode: LocalFileTransferMode,
     overwrite: Bool,
     environment: [String: String]
-  ) throws -> String {
+  ) throws -> LocalTransferOutcome {
     let fm = FileManager.default
     var operations: [LocalTransferOperation] = []
 
@@ -10453,17 +11426,18 @@ final class CleanupViewModel: ObservableObject {
     operations = operations.filter { seenDestinations.insert(normalizedPath($0.destination)).inserted }
 
     guard !operations.isEmpty else {
-      return "No movable projects or runners were found in \(candidate.label)."
+      return LocalTransferOutcome(warnings: [], summary: "No movable projects or runners were found in \(candidate.label). Use Scan Old Source Leftovers to inspect dependency-only remnants.")
     }
 
-    let outcome = try performTransactionalTransfers(
+    var outcome = try performTransactionalTransfers(
       operations: operations,
       mode: mode,
       overwrite: overwrite,
       environment: environment
     )
     let warnings = outcome.warnings.isEmpty ? "" : " Warnings: \(outcome.warnings.joined(separator: " "))"
-    return "\(mode.label) migrated \(operations.count) project/runner folders from \(candidate.label) into current workspace roots." + warnings
+    outcome.summary = "\(mode.label) migrated \(operations.count) project/runner folders from \(candidate.label) into current workspace roots." + warnings
+    return outcome
   }
 
   private nonisolated static func countOwnerRepoChildren(under root: String) -> Int {
@@ -10545,69 +11519,23 @@ final class CleanupViewModel: ObservableObject {
       if normalizedDestination == normalizedSource || normalizedDestination.hasPrefix(normalizedSource + "/") {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination cannot be the same as or inside the source path: \(normalizedDestination)"])
       }
-      if fm.fileExists(atPath: normalizedDestination), !overwrite {
+      if nativeTransactionPathExists(normalizedDestination), !overwrite {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination already exists: \(normalizedDestination)"])
       }
     }
 
-    var stagePathsByDestination: [String: String] = [:]
-    var backupPathsByDestination: [String: String] = [:]
-
-    do {
-      for operation in operations {
-        let stagePath = try stagingPath(for: operation.destination, transactionID: transactionID)
-        try? fm.removeItem(atPath: stagePath)
-        try transferItem(from: operation.source, to: stagePath, mode: .copyBackup, overwrite: true, environment: environment)
-        stagePathsByDestination[operation.destination] = stagePath
-      }
-
-      for operation in operations where fm.fileExists(atPath: operation.destination) {
-        let backupPath = operation.destination + ".csa-iem-backup-\(transactionID)"
-        try? fm.removeItem(atPath: backupPath)
-        try fm.moveItem(atPath: operation.destination, toPath: backupPath)
-        backupPathsByDestination[operation.destination] = backupPath
-      }
-
-      for operation in operations {
-        guard let stagePath = stagePathsByDestination[operation.destination] else { continue }
-        try fm.moveItem(atPath: stagePath, toPath: operation.destination)
-        stagePathsByDestination.removeValue(forKey: operation.destination)
-      }
-      if environment["CSA_IEM_TEST_FAIL_AFTER_WORKSPACE_PROMOTION"] == "1" {
-        throw NSError(domain: appTitle, code: 96, userInfo: [NSLocalizedDescriptionKey: "Injected workspace relocation failure for rollback verification."])
-      }
-    } catch {
-      for operation in operations {
-        if fm.fileExists(atPath: operation.destination) {
-          try? fm.removeItem(atPath: operation.destination)
-        }
-      }
-      for (destination, backupPath) in backupPathsByDestination {
-        if fm.fileExists(atPath: backupPath) {
-          try? fm.moveItem(atPath: backupPath, toPath: destination)
-        }
-      }
-      throw error
-    }
-
-    var cleanupWarnings: [String] = []
-    for operation in operations {
-      if fm.fileExists(atPath: operation.source) {
-        do {
-          try fm.removeItem(atPath: operation.source)
-        } catch {
-          cleanupWarnings.append("Source cleanup failed for \(operation.source). The new destination is ready, but the old path still needs manual cleanup.")
-        }
-      }
-    }
-    for backupPath in backupPathsByDestination.values {
-      try? fm.removeItem(atPath: backupPath)
-    }
+    let cleanup = try executeNativeTransferTransaction(
+      operations: operations.map { LocalTransferOperation(source: $0.source, destination: $0.destination) },
+      mode: .move,
+      environment: environment,
+      transactionID: transactionID,
+      promotionFailureKey: "CSA_IEM_TEST_FAIL_AFTER_WORKSPACE_PROMOTION"
+    )
 
     switch style {
     case .single:
       let target = operations.first?.destination ?? runtimeRoot
-      return WorkspaceRelocationOutcome(result: .single(target), warnings: cleanupWarnings)
+      return WorkspaceRelocationOutcome(result: .single(target), warnings: cleanup.warnings, residualSources: cleanup.residualSources)
     case .split:
       let newCodeRoot: String
       let newImportRoot: String
@@ -10626,7 +11554,7 @@ final class CleanupViewModel: ObservableObject {
         newImportRoot = importRoot
         newRuntimeRoot = operations.first?.destination ?? runtimeRoot
       }
-      return WorkspaceRelocationOutcome(result: .split(codeRoot: newCodeRoot, importRoot: newImportRoot, runtimeRoot: newRuntimeRoot), warnings: cleanupWarnings)
+      return WorkspaceRelocationOutcome(result: .split(codeRoot: newCodeRoot, importRoot: newImportRoot, runtimeRoot: newRuntimeRoot), warnings: cleanup.warnings, residualSources: cleanup.residualSources)
     }
   }
 
@@ -10642,7 +11570,7 @@ final class CleanupViewModel: ObservableObject {
     includeRunners: Bool,
     overwrite: Bool,
     environment: [String: String]
-  ) throws -> String {
+  ) throws -> LocalTransferOutcome {
     let stamp = preparedStamp ?? timestampStamp()
     let exportRoot = localExportRoot(destinationBase: destinationBase, stamp: stamp)
     let operations = try plannedLocalExportOperations(
@@ -10654,7 +11582,7 @@ final class CleanupViewModel: ObservableObject {
       includeRuntime: includeRuntime,
       includeRunners: includeRunners
     )
-    let outcome = try performTransactionalTransfers(
+    var outcome = try performTransactionalTransfers(
       operations: operations,
       mode: mode,
       overwrite: overwrite,
@@ -10667,16 +11595,17 @@ final class CleanupViewModel: ObservableObject {
 
     switch scope {
     case .workspaceBundle:
-      return "\(mode.label) finished for the full workspace bundle at \(exportRoot)." + warningSuffix
+      outcome.summary = "\(mode.label) finished for the full workspace bundle at \(exportRoot)." + warningSuffix
     case .codeWorkspace:
       let target = (exportRoot as NSString).appendingPathComponent("Code")
-      return "\(mode.label) finished for the code workspace at \(target)." + warningSuffix
+      outcome.summary = "\(mode.label) finished for the code workspace at \(target)." + warningSuffix
     case .runtimeWorkspace:
       let target = (exportRoot as NSString).appendingPathComponent("Runtime")
-      return "\(mode.label) finished for the runtime workspace at \(target)." + warningSuffix
+      outcome.summary = "\(mode.label) finished for the runtime workspace at \(target)." + warningSuffix
     case .selectedProjects:
-      return "\(mode.label) finished for \(selectedProjects.count) selected projects (\(operations.count) items) at \(exportRoot)." + warningSuffix
+      outcome.summary = "\(mode.label) finished for \(selectedProjects.count) selected projects (\(operations.count) items) at \(exportRoot)." + warningSuffix
     }
+    return outcome
   }
 
   private nonisolated static func plannedLocalExportOperations(
@@ -13995,75 +14924,176 @@ final class CleanupViewModel: ObservableObject {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Duplicate destination detected during export preparation: \(normalizedDestination)"])
       }
 
-      if fm.fileExists(atPath: normalizedDestination), !overwrite {
+      if nativeTransactionPathExists(normalizedDestination), !overwrite {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination already exists: \(normalizedDestination)"])
       }
 
       normalizedOperations.append(LocalTransferOperation(source: normalizedSource, destination: normalizedDestination))
     }
 
-    var stagePathsByDestination: [String: String] = [:]
-    var backupPathsByDestination: [String: String] = [:]
+    return try executeNativeTransferTransaction(
+      operations: normalizedOperations,
+      mode: mode,
+      environment: environment,
+      transactionID: transactionID,
+      promotionFailureKey: "CSA_IEM_TEST_FAIL_AFTER_TRANSACTION_PROMOTION"
+    )
+  }
 
+  struct NativeTransferFailure: LocalizedError {
+    let detail: String
+    let residualSources: [LocalSourceResidualRecord]
+    var errorDescription: String? { detail }
+  }
+
+  private nonisolated static func executeNativeTransferTransaction(
+    operations: [LocalTransferOperation], mode: LocalFileTransferMode,
+    environment: [String: String], transactionID: String, promotionFailureKey: String
+  ) throws -> LocalTransferOutcome {
+    let fm = FileManager.default
+    for operation in operations {
+      for source in operations.map(\.source) {
+        if operation.destination == source || operation.destination.hasPrefix(source + "/") {
+          throw nativeTransactionError("A destination overlaps a source in this transaction: \(operation.destination)")
+        }
+      }
+    }
+    var stages: [String: String] = [:]
+    var backups: [String: String] = [:]
+    var promoted: Set<String> = []
     do {
-      for operation in normalizedOperations {
-        let stagePath = try stagingPath(for: operation.destination, transactionID: transactionID)
-        try? fm.removeItem(atPath: stagePath)
-        try transferItem(
-          from: operation.source,
-          to: stagePath,
-          mode: .copyBackup,
-          overwrite: true,
-          environment: environment
-        )
-        stagePathsByDestination[operation.destination] = stagePath
+      for (index, operation) in operations.enumerated() {
+        let stage = try stagingPath(for: operation.destination, transactionID: transactionID)
+        guard !nativeTransactionPathExists(stage) else { throw nativeTransactionError("Staging path is already occupied: \(stage)") }
+        stages[operation.destination] = stage // Record before ditto can leave a partial copy.
+        if environment["CSA_IEM_TEST_FAIL_NATIVE_STAGE_INDEX"] == String(index) {
+          try fm.createDirectory(atPath: stage, withIntermediateDirectories: true)
+          try Data("Partial staged fixture".utf8).write(to: URL(fileURLWithPath: stage).appendingPathComponent("partial-copy.fixture"))
+          throw nativeTransactionError("Injected native staging failure.")
+        }
+        try transferItem(from: operation.source, to: stage, mode: .copyBackup, overwrite: false, environment: environment)
       }
-
-      for operation in normalizedOperations where fm.fileExists(atPath: operation.destination) {
-        let backupPath = operation.destination + ".csa-iem-backup-\(transactionID)"
-        try? fm.removeItem(atPath: backupPath)
-        try fm.moveItem(atPath: operation.destination, toPath: backupPath)
-        backupPathsByDestination[operation.destination] = backupPath
+      for (index, operation) in operations.enumerated() where nativeTransactionPathExists(operation.destination) {
+        if environment["CSA_IEM_TEST_FAIL_NATIVE_BACKUP_INDEX"] == String(index) { throw nativeTransactionError("Injected native backup failure.") }
+        let backup = operation.destination + ".csa-iem-backup-\(transactionID)"
+        try nativeTransactionMove(operation.destination, to: backup)
+        backups[operation.destination] = backup
       }
-
-      for operation in normalizedOperations {
-        guard let stagePath = stagePathsByDestination[operation.destination] else { continue }
-        try fm.moveItem(atPath: stagePath, toPath: operation.destination)
-        stagePathsByDestination.removeValue(forKey: operation.destination)
+      for operation in operations {
+        guard let stage = stages[operation.destination] else { continue }
+        try nativeTransactionMove(stage, to: operation.destination)
+        promoted.insert(operation.destination)
       }
-      if environment["CSA_IEM_TEST_FAIL_AFTER_TRANSACTION_PROMOTION"] == "1" {
-        throw NSError(domain: appTitle, code: 98, userInfo: [NSLocalizedDescriptionKey: "Injected transactional promotion failure for rollback verification."])
-      }
+      if environment[promotionFailureKey] == "1" { throw nativeTransactionError("Injected transactional promotion failure for rollback verification.") }
     } catch {
-      for operation in normalizedOperations {
-        if fm.fileExists(atPath: operation.destination) {
-          try? fm.removeItem(atPath: operation.destination)
-        }
+      var recoveryNotes: [String] = []
+      // Only destinations actually promoted by this transaction may move back.
+      // Untouched originals remain in place when staging or backup creation fails.
+      for operation in operations.reversed() where promoted.contains(operation.destination) {
+        guard let stage = stages[operation.destination], nativeTransactionPathExists(operation.destination) else { continue }
+        do { try nativeTransactionMove(operation.destination, to: stage) }
+        catch { recoveryNotes.append("Promoted data remains at \(operation.destination): \(error.localizedDescription)") }
       }
-      for (destination, backupPath) in backupPathsByDestination {
-        if fm.fileExists(atPath: backupPath) {
-          try? fm.moveItem(atPath: backupPath, toPath: destination)
-        }
+      for operation in operations.reversed() {
+        guard let backup = backups[operation.destination], nativeTransactionPathExists(backup) else { continue }
+        do { try nativeTransactionMove(backup, to: operation.destination) }
+        catch { recoveryNotes.append("Original destination remains preserved at \(backup): \(error.localizedDescription)") }
       }
-      throw error
-    }
-
-    var cleanupWarnings: [String] = []
-    if mode == .move {
-      for operation in normalizedOperations where fm.fileExists(atPath: operation.source) {
+      var preserved: [LocalTransferOperation] = []
+      for operation in operations {
+        guard let stage = stages[operation.destination], nativeTransactionPathExists(stage) else { continue }
+        let visibleStage = operation.destination + ".csa-iem-stage-\(transactionID)"
         do {
-          try fm.removeItem(atPath: operation.source)
+          try nativeTransactionMove(stage, to: visibleStage)
+          preserved.append(LocalTransferOperation(source: visibleStage, destination: operation.destination))
         } catch {
-          cleanupWarnings.append("Source cleanup failed for \(operation.source). The new destination is ready, but the old path still needs manual cleanup.")
+          preserved.append(LocalTransferOperation(source: stage, destination: operation.destination))
+          recoveryNotes.append("Partial stage remains preserved at \(stage): \(error.localizedDescription)")
         }
       }
+      preserved += backups.compactMap { destination, backup in
+        nativeTransactionPathExists(backup) ? LocalTransferOperation(source: backup, destination: destination) : nil
+      }
+      let pending = nativeTransactionResiduals(preserved, reason: "Failed transfer data is preserved for verified cleanup.")
+      let emptyCleanup = removeEmptyNativeStagingContainers(Array(stages.values), transactionID: transactionID)
+      let residuals = pending.residualSources + emptyCleanup.residualSources
+      let paths = residuals.map(\.sourcePath).joined(separator: ", ")
+      throw NativeTransferFailure(
+        detail: "Transfer stopped safely: \(error.localizedDescription) " + recoveryNotes.joined(separator: " ")
+          + (paths.isEmpty ? "" : " Preserved transaction data: \(paths)."),
+        residualSources: residuals
+      )
     }
+    let sourceCleanup = mode == .move ? cleanupMovedSources(operations, environment: environment) : LocalTransferOutcome(warnings: [])
+    let pending = nativeTransactionResiduals(backups.map { LocalTransferOperation(source: $0.value, destination: $0.key) }, reason: "Previous destination is preserved until staging/backup cleanup verifies its recovery copy.")
+    let emptyCleanup = removeEmptyNativeStagingContainers(Array(stages.values), transactionID: transactionID)
+    return LocalTransferOutcome(warnings: sourceCleanup.warnings + pending.warnings + emptyCleanup.warnings,
+      residualSources: sourceCleanup.residualSources + pending.residualSources + emptyCleanup.residualSources)
+  }
 
-    for backupPath in backupPathsByDestination.values {
-      try? fm.removeItem(atPath: backupPath)
+  private nonisolated static func nativeTransactionError(_ detail: String) -> NSError {
+    NSError(domain: appTitle, code: 98, userInfo: [NSLocalizedDescriptionKey: detail])
+  }
+
+  private nonisolated static func nativeTransactionPathExists(_ path: String) -> Bool {
+    var info = stat()
+    // Unknown inspection failures are not treated as an empty/vacant path.
+    return lstat(path, &info) == 0 || errno != ENOENT
+  }
+
+  private nonisolated static func nativeTransactionMove(_ source: String, to destination: String) throws {
+    guard renamex_np(source, destination, UInt32(RENAME_EXCL)) == 0 else {
+      let failure = errno
+      throw nativeTransactionError("Could not move \(source) to vacant \(destination): \(String(cString: strerror(failure)))")
     }
+  }
 
-    return LocalTransferOutcome(warnings: cleanupWarnings)
+  private nonisolated static func nativeTransactionResiduals(_ paths: [LocalTransferOperation], reason: String) -> LocalTransferOutcome {
+    let records = paths.filter { nativeTransactionPathExists($0.source) }.map { operation in
+      LocalSourceResidualRecord(sourcePath: operation.source, destinationPath: operation.destination,
+        summary: LocalSourceResidualScanner.postCleanupSummary(rootPath: operation.source), scannedAt: Date())
+    }
+    return LocalTransferOutcome(warnings: records.map { "\(reason) \($0.sourcePath)" }, residualSources: records)
+  }
+
+  private nonisolated static func removeEmptyNativeStagingContainers(_ stagePaths: [String], transactionID: String) -> LocalTransferOutcome {
+    var remaining: [LocalTransferOperation] = []
+    for container in Set(stagePaths.map { ($0 as NSString).deletingLastPathComponent }) {
+      guard (container as NSString).lastPathComponent == "CSA-iEM-staging-\(transactionID)",
+            ((container as NSString).deletingLastPathComponent as NSString).lastPathComponent == "_temp",
+            nativeTransactionPathExists(container) else { continue }
+      // rmdir is atomic and removes only an empty known transaction container.
+      if rmdir(container) != 0, errno != ENOENT {
+        let hasTrackedPayload = stagePaths.contains { ($0 as NSString).deletingLastPathComponent == container && nativeTransactionPathExists($0) }
+        if !hasTrackedPayload { remaining.append(LocalTransferOperation(source: container, destination: (container as NSString).deletingLastPathComponent)) }
+      }
+    }
+    return nativeTransactionResiduals(remaining, reason: "Transaction container remains and requires verified cleanup.")
+  }
+
+  private nonisolated static func cleanupMovedSources(_ operations: [LocalTransferOperation], environment: [String: String]) -> LocalTransferOutcome {
+    var warnings: [String] = []
+    var residuals: [LocalSourceResidualRecord] = []
+    for operation in operations {
+      var cleanupError: String?
+      do {
+        if try LocalSourceResidualScanner.entryExistsNoFollow(atPath: operation.source) {
+          let injection = environment["CSA_IEM_TEST_FAIL_SOURCE_CLEANUP"]
+          if injection == "1" || injection == operation.source {
+            throw NSError(domain: appTitle, code: 97, userInfo: [NSLocalizedDescriptionKey: "Injected source cleanup failure for verification."])
+          }
+          try FileManager.default.removeItem(atPath: operation.source)
+        }
+      } catch { cleanupError = error.localizedDescription }
+      // removeItem can fail after deleting only part of a tree. Always inspect
+      // the physical old root, independent of project discovery/exclusions.
+      let summary = LocalSourceResidualScanner.postCleanupSummary(rootPath: operation.source)
+      if summary.cleanupIncomplete {
+        residuals.append(LocalSourceResidualRecord(sourcePath: operation.source, destinationPath: operation.destination, summary: summary, scannedAt: Date()))
+        warnings.append("Cleanup incomplete for \(operation.source). Destination ready at \(operation.destination); \(summary.fileCount) remaining file(s) detected. Review Old Source Leftovers." + (cleanupError.map { " \($0)" } ?? ""))
+      }
+    }
+    return LocalTransferOutcome(warnings: warnings, residualSources: residuals)
   }
 
   private nonisolated static func transferItem(
@@ -16349,6 +17379,8 @@ struct ContentView: View {
         isMenuVisible.toggle()
       }
 
+      sourceResidualsPanel
+
       if width >= 1500 {
         HStack(alignment: .top, spacing: 18) {
           jobsCenterPanel
@@ -16741,6 +17773,8 @@ struct ContentView: View {
       }
 
       VStack(alignment: .leading, spacing: 18) {
+        transferArtifactCleanupPanel
+        checkoutReviewPanel
         if width >= 1400 {
           HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 18) {
@@ -18678,6 +19712,9 @@ struct ContentView: View {
       }
 
       VStack(alignment: .leading, spacing: 18) {
+        transferArtifactCleanupPanel
+        sourceResidualsPanel
+        checkoutReviewPanel
         if width >= 1500 {
           HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 18) {
@@ -18929,6 +19966,8 @@ struct ContentView: View {
         }
 
         FixedValueRow(label: "App Version", value: appVersion)
+        FixedValueRow(label: "Installed Build", value: installedBuildID)
+        FixedValueRow(label: "Feature Matrix", value: "\(CSAiEMModuleTag.matrixVersion) · \(CSAiEMModuleTag.catalog.count) tagged modules")
         FixedValueRow(label: "Product", value: appFullName)
         FixedValueRow(label: "Tagline", value: appSubtitle)
         FixedValueRow(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "com.waynetechlab.csaiem")
@@ -19320,7 +20359,13 @@ struct ContentView: View {
         }
       }
 
-      Text("Projects stays fully on-screen for browsing local workspaces, active devcontainers, and runner services. Jobs tracks long-running work, Cleanup runs the CLI engine in the background, and Workspace/Settings handle paths, onboarding, and advanced behavior.")
+      HStack(spacing: 10) {
+        Button("Compare & Recover Checkouts") { selectedDestination = .projects }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+        Button("Find Old Source Leftovers") { selectedDestination = .localFiles }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+      }
+      Text("Projects includes live GitHub checkout comparison and recoverable retirement. Local Files detects hidden and dependency-only leftovers. Jobs tracks progress and incomplete cleanup, Incidents retains failures, and Workspace/Settings manage paths and preferences.")
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
@@ -19365,12 +20410,13 @@ struct ContentView: View {
             model.retryJob(selectedJob)
           }
           .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          .disabled(selectedJob.state == .running || selectedJob.state == .queued)
 
           Button("Cancel") {
             model.cancelJob(selectedJob)
           }
           .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.danger, bordered: true))
-          .disabled(model.selectedJob?.state != .running)
+          .disabled(!model.canCancelSelectedJob)
         }
       }
 
@@ -20628,6 +21674,252 @@ struct ContentView: View {
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(DashboardTheme.muted)
         .lineSpacing(2)
+    }
+  }
+
+  private var transferArtifactCleanupPanel: some View {
+    PanelCard(title: "Staging & Backup Cleanup", subtitle: "Review every transaction folder, preserve all missing or different content in recovery, verify the complete trees, then remove the extra active entries.") {
+      Toggle("Automatically preserve and clean staging / backup folders after successful local runs", isOn: $model.automaticallyCleanTransferArtifacts)
+        .toggleStyle(.switch)
+        .disabled(model.isRunningArtifactCleanup)
+      Text("The saved policy runs after successful in-app transfers, imports, lifecycle runs, and applied cleanup, once other local writes finish. It does not run at startup, during read-only scans, after failed or cancelled runs, on dry runs, or immediately after restore.")
+        .font(.system(size: 12)).foregroundStyle(DashboardTheme.muted)
+      HStack(spacing: 10) {
+        Button("Review Staging / Backup Folders") { model.reviewTransferArtifacts() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+          .disabled(model.hasLocalMutationInProgress || model.artifactCleanupSession?.phase == "applying")
+        Button("Run Saved Cleanup Policy") { model.runSavedArtifactCleanupPolicy() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          .disabled(!model.automaticallyCleanTransferArtifacts || model.hasLocalMutationInProgress || model.artifactCleanupSession?.phase == "applying")
+      }
+      BannerCard(title: model.isRunningArtifactCleanup ? "Verifying transaction folders" : "\(model.localProjectTransferArtifacts.count) current staging / backup entries", detail: model.artifactCleanupStatus, kind: model.artifactCleanupStatusKind)
+      if model.isRunningArtifactCleanup {
+        ProgressView(value: model.artifactCleanupProgress).progressViewStyle(.linear)
+          .accessibilityLabel("Staging and backup cleanup progress")
+      }
+      if let session = model.artifactCleanupSession,
+         session.phase == "applying" || (model.artifactCleanupResult?.reviewID == session.reviewID && model.artifactCleanupResult?.failures.isEmpty == false) {
+        Button(session.phase == "applying" ? "Verify Interrupted Cleanup" : "Verify Saved Recovery Records") { model.verifyInterruptedArtifactCleanup() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+          .disabled(model.hasLocalMutationInProgress)
+        Button("Reveal Saved Recovery Folder") { model.revealArtifactPath((session.resultPath as NSString).deletingLastPathComponent) }
+        Text("Recovery pointers and full prepared receipts were saved before moves. Verification reconciles already-preserved folders; it does not start new moves. Review remaining sources again afterward.")
+          .font(.system(size: 12)).foregroundStyle(DashboardTheme.warning)
+      }
+      if let review = model.artifactCleanupReview {
+        Text("Reviewed all \(review.items.count) folders · \(review.readyCount) ready · \(review.blockedCount) blocked · \(review.items.reduce(0) { $0 + $1.fileCount }) files · \(ByteCountFormatter.string(fromByteCount: review.items.reduce(0) { $0 + $1.totalBytes }, countStyle: .file))")
+          .font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
+        ForEach(review.items) { item in
+          DisclosureGroup {
+            VStack(alignment: .leading, spacing: 5) {
+              Text("Artifact: \(item.artifactPath)\nCanonical: \(item.canonicalPath)")
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+              Text("\(item.fileCount) files · \(item.directoryCount) folders · \(item.symlinkCount) links · \(item.identicalFiles) identical files · \(item.missingCount) missing entries · \(item.differentCount) different entries · \(item.metadataDifferentCount) metadata differences")
+                .font(.system(size: 12)).textSelection(.enabled)
+              if !item.missingPaths.isEmpty { Text("Missing from canonical:\n" + item.missingPaths.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
+              if !item.differentPaths.isEmpty { Text("Different content:\n" + item.differentPaths.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
+              if !item.metadataDifferentPaths.isEmpty { Text("Different metadata:\n" + item.metadataDifferentPaths.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
+              ForEach(item.blockers, id: \.self) { Text($0).font(.system(size: 12)).foregroundStyle(DashboardTheme.warning) }
+              Button("Reveal Artifact") { model.revealArtifactPath(item.artifactPath) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+          } label: {
+            Text("\((item.canonicalPath as NSString).lastPathComponent) · \(item.artifactKind) \(item.transactionID.prefix(8)) · \(item.fileCount) files · \(item.canClean ? "Ready" : "Blocked")")
+              .font(.system(size: 12, weight: .semibold))
+          }
+        }
+        if model.artifactCleanupSession?.phase == "reviewed" {
+          Toggle("I reviewed the comparisons and want to preserve and remove these extra entries", isOn: $model.artifactCleanupArmed)
+            .toggleStyle(.switch)
+            .disabled(!review.canApply || model.hasLocalMutationInProgress)
+          Button("Preserve & Clean Reviewed Folders") { model.cleanReviewedTransferArtifacts() }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            .disabled(!review.canApply || !model.artifactCleanupArmed || model.hasLocalMutationInProgress)
+        }
+        Button("Reveal Review Report") { model.revealArtifactPath(review.evidencePath) }
+      } else if !model.localProjectTransferArtifacts.isEmpty {
+        DisclosureGroup("All \(model.localProjectTransferArtifacts.count) detected transaction folders") {
+          ForEach(model.localProjectTransferArtifacts, id: \.self) { path in
+            HStack(spacing: 10) {
+              Text(path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+              Button("Reveal") { model.revealArtifactPath(path) }
+            }
+          }
+        }
+      }
+      if let result = model.artifactCleanupResult {
+        Text("Saved cleanup result: \(result.receipts.count) preserved folders · \(result.failures.count) findings · \(result.createdAt.formatted())")
+          .font(.system(size: 13, weight: .semibold))
+        ForEach(result.receipts) { receipt in
+          DisclosureGroup("\((receipt.originalPath as NSString).lastPathComponent) · \(receipt.fileCount) files preserved") {
+            Text("Original: \(receipt.originalPath)\nRecovery: \(receipt.archivePath)")
+              .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            HStack(spacing: 10) {
+              Button("Reveal Preserved Folder") { model.revealArtifactPath(receipt.archivePath) }
+              Button("Restore This Folder") { model.restoreTransferArtifact(receipt) }
+                .disabled(model.hasLocalMutationInProgress)
+            }
+          }
+        }
+        ForEach(Array(result.failures.enumerated()), id: \.offset) { _, failure in
+          Text("\(failure.artifactPath)\n\(failure.detail)").font(.system(size: 12)).foregroundStyle(DashboardTheme.warning).textSelection(.enabled)
+        }
+        Button("Reveal Cleanup Result") { model.revealArtifactPath(result.resultPath) }
+      }
+      if !model.artifactCleanupHistory.isEmpty {
+        DisclosureGroup("Saved cleanup batches (\(model.artifactCleanupHistory.count))") {
+          ForEach(Array(model.artifactCleanupHistory.prefix(20)), id: \.reviewID) { session in
+            Button("Inspect \(session.createdAt.formatted()) · \(session.phase) · \(session.reviewID.prefix(8))") { model.inspectArtifactCleanupSession(session) }
+              .disabled(model.hasLocalMutationInProgress)
+          }
+        }
+      }
+    }
+  }
+
+  private var checkoutReviewPanel: some View {
+    PanelCard(title: "Checkout Review & Recovery", subtitle: "Compare two local folders with live GitHub identity and file evidence, then preserve a reviewed extra checkout in recoverable storage.") {
+      VStack(alignment: .leading, spacing: 6) {
+        FieldLabel(text: "Keeper checkout")
+        TextField("Folder to keep active", text: $model.checkoutKeeperPath)
+          .textFieldStyle(.plain).dashboardFieldStyle()
+          .accessibilityLabel("Keeper checkout folder")
+          .disabled(model.isRunningCheckoutOperation)
+        FieldLabel(text: "Other checkout to review")
+        TextField("Folder to compare and optionally retire", text: $model.checkoutOtherPath)
+          .textFieldStyle(.plain).dashboardFieldStyle()
+          .accessibilityLabel("Other checkout folder")
+          .disabled(model.isRunningCheckoutOperation)
+      }
+      HStack(spacing: 10) {
+        Button("Use Selected Project") { model.useSelectedCheckoutAsKeeper() }
+        Button("Choose Keeper") { model.chooseCheckoutFolder(keeper: true) }
+        Button("Choose Other") { model.chooseCheckoutFolder(keeper: false) }
+        Button("Compare with GitHub") { model.compareCheckoutPair() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+      }.disabled(model.isRunningCheckoutOperation)
+      if !model.similarlyNamedCheckouts.isEmpty {
+        Text("Similar project names need review; their GitHub repositories may be different.")
+          .font(.system(size: 12)).foregroundStyle(DashboardTheme.warning)
+        ForEach(Array(model.similarlyNamedCheckouts.prefix(8))) { project in
+          Button("Compare selected project with \(project.slug)") { model.prepareCheckoutComparison(with: project) }
+            .disabled(model.isRunningCheckoutOperation)
+        }
+      }
+      BannerCard(title: model.isRunningCheckoutOperation ? "Checkout operation in progress" : "Checkout identity and file review", detail: model.checkoutReviewStatus, kind: model.checkoutReviewStatusKind)
+      if model.isRunningCheckoutOperation {
+        ProgressView().progressViewStyle(.linear).accessibilityLabel("Comparing or preserving checkout files")
+      }
+      if let review = model.checkoutPairReview {
+        checkoutSnapshotView(review.first, title: "Keeper candidate")
+        checkoutSnapshotView(review.second, title: "Other checkout")
+        if let first = review.first.github, let second = review.second.github {
+          BannerCard(
+            title: first.repositoryID == second.repositoryID ? "Same live GitHub repository identity" : "Different live GitHub repositories",
+            detail: first.repositoryID == second.repositoryID
+              ? "Both origins resolve to repository ID \(first.repositoryID). Local changes and complete file evidence still require review."
+              : "\(first.fullName) and \(second.fullName) have different repository IDs. Similar folder names do not establish a duplicate; keep the intended project and preserve the other checkout if retiring it.",
+            kind: .warning
+          )
+        }
+        Text("All-entry comparison: \(review.delta.identicalFiles) identical regular files · \(review.delta.differentPaths.count) different common entries · \(review.delta.firstOnlyPaths.count) keeper-only entries · \(review.delta.secondOnlyPaths.count) other-only entries.")
+          .font(.system(size: 12, weight: .semibold)).textSelection(.enabled)
+        if !review.delta.secondOnlyPaths.isEmpty {
+          Text("Other-only paths to preserve:\n" + review.delta.secondOnlyPaths.prefix(12).joined(separator: "\n"))
+            .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+        }
+        ForEach(review.blockers, id: \.self) { Text($0).font(.system(size: 12)).foregroundStyle(DashboardTheme.warning) }
+        Text("Reviewed \(review.createdAt.formatted()). Every file, hidden entry, dependency, link, and Git metadata entry is included. The keeper is preserved. GitHub repositories and branches are unaffected by local retirement.")
+          .font(.system(size: 12)).foregroundStyle(DashboardTheme.muted)
+        Toggle("I reviewed the identities and want to preserve the other checkout in recovery", isOn: $model.checkoutRetirementArmed)
+          .toggleStyle(.switch)
+          .disabled(!review.canRetire || model.isRunningCheckoutOperation)
+        HStack(spacing: 10) {
+          Button("Retire Other Checkout to Recovery") { model.retireReviewedCheckout() }
+            .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
+            .disabled(!review.canRetire || !model.checkoutRetirementArmed || model.isRunningCheckoutOperation)
+          Button("Reveal Comparison Evidence") { model.revealCheckoutReviewEvidence() }
+        }
+      }
+      if let receipt = model.checkoutLastRetirement {
+        FixedValueRow(label: "Retired local entry", value: receipt.originalPath)
+        FixedValueRow(label: "Preserved checkout", value: receipt.archivePath)
+        Text("\(receipt.fileCount) files · \(receipt.directoryCount) folders · \(receipt.symlinkCount) links · \(ByteCountFormatter.string(fromByteCount: receipt.totalBytes, countStyle: .file)) preserved and verified. Receipt: \(receipt.receiptPath)")
+          .font(.system(size: 12)).textSelection(.enabled)
+        HStack(spacing: 10) {
+          Button("Reveal Preserved Checkout") { model.revealRetiredCheckout() }
+          Button("Restore Retired Checkout") { model.restoreLastRetiredCheckout() }
+            .disabled(model.isRunningCheckoutOperation)
+          Button("Reveal Recovery Receipt") { model.revealCheckoutReviewEvidence() }
+        }
+      }
+    }
+  }
+
+  private func checkoutSnapshotView(_ snapshot: CheckoutSnapshot, title: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title).font(.system(size: 14, weight: .bold))
+      Text(snapshot.path).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+      Text("\(snapshot.fileCount) files · \(snapshot.directoryCount) folders · \(snapshot.symlinkCount) links · \(ByteCountFormatter.string(fromByteCount: snapshot.totalBytes, countStyle: .file))")
+        .font(.system(size: 12))
+      Text("Origin: \(snapshot.git.origin?.browserURL ?? "Unrecognized or missing")\nLocal branch: \(snapshot.git.branch ?? "Detached or unavailable") · HEAD: \(snapshot.git.head ?? "No local commit")\n\(snapshot.git.trackedChanges) tracked changes · \(snapshot.git.untrackedFiles) untracked files")
+        .font(.system(size: 12)).textSelection(.enabled)
+      if let github = snapshot.github {
+        Text("GitHub: \(github.fullName) · Repository ID \(github.repositoryID)\nLive \(github.defaultBranch): \(github.head)\n\(github.matchingFiles)/\(github.treeFileCount) GitHub entries match local bytes and type · \(github.differentPaths.count) different · \(github.missingPaths.count) missing · \(github.localOnlyPaths.count) additional Git-visible local paths")
+          .font(.system(size: 12)).textSelection(.enabled)
+        Text(github.historyStatus).font(.system(size: 12)).foregroundStyle(DashboardTheme.warning).textSelection(.enabled)
+        if !github.localOnlyPaths.isEmpty {
+          Text("Additional Git-visible local paths:\n" + github.localOnlyPaths.prefix(8).joined(separator: "\n"))
+            .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+        }
+        if !github.differentPaths.isEmpty || !github.missingPaths.isEmpty {
+          Text("Different or missing GitHub paths:\n" + (github.differentPaths + github.missingPaths).prefix(8).joined(separator: "\n"))
+            .font(.system(size: 11, design: .monospaced)).foregroundStyle(DashboardTheme.warning).textSelection(.enabled)
+        }
+      }
+      ForEach(snapshot.errors, id: \.self) { Text($0).font(.system(size: 12)).foregroundStyle(DashboardTheme.warning) }
+    }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var sourceResidualsPanel: some View {
+    PanelCard(title: "Old Source Leftovers", subtitle: "Find folders left after a move, including dependency-only trees and hidden files that are absent from the project library.") {
+      TextField("Optional exact old source folder; leave blank to scan known source roots", text: $model.sourceResidualScanPath)
+        .textFieldStyle(.plain)
+        .dashboardFieldStyle()
+        .accessibilityLabel("Old source folder to scan")
+      HStack(spacing: 10) {
+        Button("Scan Old Source Leftovers") { model.scanOldSourceLeftovers() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.accent, bordered: true))
+          .disabled(model.isScanningSourceResiduals)
+        Button("Choose Source Folder") { model.chooseSourceResidualFolder() }
+          .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+          .disabled(model.isScanningSourceResiduals)
+      }
+      BannerCard(
+        title: model.sourceResidualReportHasWarnings ? "Leftover audit needs attention" : "\(model.sourceResiduals.filter { $0.summary.cleanupIncomplete }.count) unresolved source folder(s)",
+        detail: model.sourceResidualStatus,
+        kind: model.isScanningSourceResiduals ? .running : (model.sourceResidualReportHasWarnings || model.sourceResiduals.contains(where: { $0.summary.cleanupIncomplete })) ? .warning : .ready
+      )
+      ForEach(Array(model.sourceResiduals.sorted { lhs, rhs in
+        if lhs.summary.cleanupIncomplete != rhs.summary.cleanupIncomplete { return lhs.summary.cleanupIncomplete }
+        return lhs.sourcePath < rhs.sourcePath
+      }.prefix(20))) { record in
+        VStack(alignment: .leading, spacing: 5) {
+          Text(record.sourcePath).font(.system(size: 12, weight: .semibold)).textSelection(.enabled)
+          Text(record.summary.cleanupComplete
+            ? "Verified absent · \(record.scannedAt.formatted())"
+            : "\(record.summary.classification.rawValue) · \(record.summary.fileCount) files · \(record.summary.directoryCount) folders · \(record.summary.symlinkCount) links · \(record.summary.placeholderCount) cloud placeholders · \(record.summary.state.rawValue) · \(record.scannedAt.formatted())")
+            .font(.system(size: 12)).foregroundStyle(DashboardTheme.muted)
+          if let destination = record.destinationPath { Text("Destination: \(destination)").font(.system(size: 12)).textSelection(.enabled) }
+          if record.summary.cleanupIncomplete {
+            Text(record.summary.remainingPathSample.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            ForEach(record.summary.errors + record.summary.truncationReasons, id: \.self) { Text($0).font(.system(size: 11)).foregroundStyle(DashboardTheme.warning) }
+            Button("Reveal Old Source") { model.revealSourceResidual(record) }
+          }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if model.sourceResiduals.count > 20 { Text("Showing 20 of \(model.sourceResiduals.count) saved records. The full report is saved in Application Support/CSA-iEM/source-residuals.json.") }
+      Text("This metadata scan preserves all files. Missing or changed content must be copied and checksum-verified before an old source can be removed. Scan limits and unreadable entries remain unresolved.")
+        .font(.system(size: 12)).foregroundStyle(DashboardTheme.muted)
     }
   }
 
@@ -22323,6 +23615,7 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
   private weak var model: CleanupViewModel?
   private let instanceLock = CSAiEMSingleInstanceLock()
   private var isDuplicateInstance = false
+  private var firebaseStatus = CSAiEMFirebaseBootstrapStatus.notStarted
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     guard ProcessInfo.processInfo.environment["CSA_IEM_ALLOW_MULTIPLE_INSTANCES"] != "1" else {
@@ -22353,6 +23646,8 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     guard !isDuplicateInstance else { return }
+    firebaseStatus = CSAiEMFirebaseBootstrap.configure()
+    FileHandle.standardError.write(Data("\(firebaseStatus.safeLogMessage)\n".utf8))
     NSApp.setActivationPolicy(.regular)
 
     if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
@@ -22364,6 +23659,7 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
       for window in NSApp.windows {
         self.configure(window)
       }
+      self.rebuildStatusMenu()
     }
   }
 
@@ -22396,6 +23692,7 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(disabledItem("Code: \(roots.codeRoot)"))
     menu.addItem(disabledItem("Import: \(roots.importRoot)"))
     menu.addItem(disabledItem("Runtime: \(roots.runtimeRoot)"))
+    menu.addItem(disabledItem("Firebase: \(firebaseStatus.operatorLabel)"))
     menu.addItem(.separator())
     menu.addItem(disabledItem("\(model.activeContainers.count) active devcontainers · \(runningRunners)/\(model.runnerServices.count) runners running"))
 

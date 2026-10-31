@@ -1,3 +1,8 @@
+> Current automation policy (2026-10-07): repository GitHub Actions workflows
+> are removed. Native preflight runs locally and rejects workflow files.
+> Earlier hosted-workflow evidence below is historical; no Google Cloud build
+> or Firebase deployment pipeline is created by this removal.
+
 # CODEX ~ GPT Add-on Master Plan
 
 Status: 0.8.0 local macOS milestone closed on `main`; future phases remain separately tracked
@@ -31,9 +36,11 @@ implemented by this milestone.
 CSA-iLEM is a native SwiftUI/AppKit macOS application with Bash, Python, and
 PowerShell support. It is not a website repository. Package.swift is the
 native package identity and there is no package.json application in this
-checkout. package.json, Firebase, Vite, and similar markers are valid only as
-bounded evidence when CSA-iLEM inspects an imported project from another
-checkout.
+checkout. package.json, Vite, Firebase Hosting, and similar web markers are
+valid only as bounded evidence when CSA-iLEM inspects an imported project from
+another checkout. The Firebase Apple client plist and FirebaseCore package
+added in Phase 13.47 are part of this native app and do not create a website or
+port.
 
 The add-on must never confuse:
 
@@ -397,8 +404,8 @@ The current branch has direct evidence for each local milestone gate:
 - disposable safety fixtures: dirty and history-unavailable destinations were
   blocked with zero applied mutations and preserved receipts/fixtures.
 - repeatable release gate: `.SYSTEMX/scripts/release-preflight.sh` runs the
-  native checks locally and `.github/workflows/csa-ilem-preflight.yml` runs the
-  same non-destructive gate on macOS for pushes and pull requests.
+  native checks locally. The former GitHub Actions preflight workflow has
+  been removed; current checks require no repository Actions workflows.
 - release-manifest smoke: `.SYSTEMX/scripts/release-manifest-smoke.sh` checks
   the semantic version and installer payload checksums, then deliberately
   tampers with a staged installer and proves verification fails closed; this
@@ -501,3 +508,23 @@ checkout commit, or missing credential isolation in either workflow. This
 keeps the Node.js 24 migration reproducible and prevents a later workflow edit
 from silently restoring the deprecated Node.js 20 action path. It does not
 create or authorize a tag, release, signature, or notarization request.
+
+## Phase 13.47 native Firebase Apple setup
+
+The registered Firebase Apple app uses the native bundle identifier
+`com.waynetechlab.csa-iem` in project `csa-ilem`. The implementation extends
+the existing AppKit delegate rather than adding a second lifecycle: it pins
+Firebase Apple SDK 12.18.0, links FirebaseCore only, validates required plist
+fields plus exact bundle/project identity, initializes once, and exposes a
+safe status in the existing menu-bar surface.
+
+The app builder copies the Apple plist and generated SwiftPM privacy/resource
+bundles into the signed `Contents/Resources` envelope so the installed binary
+does not depend on an absolute build-cache fallback. The local preflight is
+15 stages and requires no repository GitHub Actions workflows. The prior
+hosted macOS runner and checkout requirements are historical.
+
+This phase deliberately excludes Analytics, Auth, Firestore, Realtime
+Database, Storage, Messaging, Hosting, a web runtime, and ports. Enabling any
+of those is a separately reviewed product/security/privacy change. This phase
+does not create a tag, push a commit, publish a release, or claim notarization.

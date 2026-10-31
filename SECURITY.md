@@ -31,6 +31,26 @@ This project does not intentionally store:
 - private SSH keys
 - cloud provider secret keys
 
+### Firebase Apple Client Configuration
+
+The native app ships Firebase's Apple client configuration file and pins the
+Firebase Apple SDK. Firebase client API keys identify a project and app; they
+are not backend authorization credentials. Access to any future Firebase data
+service must be enforced with Firebase Security Rules, IAM where applicable,
+and App Check rather than by hiding the client file.
+
+The current integration initializes `FirebaseCore` only. It does not include
+Analytics, Authentication, Firestore, Realtime Database, Cloud Storage,
+Messaging, or Firebase Hosting. Do not place service-account JSON, private
+keys, OAuth client secrets, Gemini Developer API keys, or unrestricted Google
+Cloud API keys in `GoogleService-Info.plist` or anywhere in the app bundle.
+Before enabling another Firebase product, review its rules, App Check support,
+API-key restrictions, macOS entitlements, privacy disclosure, and test lane.
+
+`.SYSTEMX/scripts/verify-firebase-apple-config.sh` checks the required client
+fields and exact CSA-iLEM bundle/project identity without printing the field
+values. The release preflight and GUI builder both run that verifier.
+
 ### GUI Log Handling
 
 The native app redacts common token and secret patterns before showing command output in its live log panel.
@@ -42,6 +62,26 @@ Examples of redacted patterns include:
 - common `access_token`, `client_secret`, and `api_key` assignments
 
 ### Operational Risk
+
+Checkout Review compares explicit local roots and live github.com repository
+IDs without fetching, resetting, pulling, or publishing. Read-only inspection
+disables repository hooks, fsmonitor, custom clean/process filters, and lazy
+fetching. Its complete physical manifest includes generated and hidden data;
+missing, changed, unreadable, or bounded evidence cannot authorize retirement.
+Retirement uses a same-volume exclusive rename into private recovery storage,
+full read-back verification, and durable restore receipts. The active app,
+protected paths, active files/process working directories, shared Git storage,
+overlapping paths, and changed physical recovery parents remain guarded.
+Provider identity and similar names are review evidence, not deletion authority.
+
+Transfer-artifact cleanup requires exact transaction names, approved physical
+containers, complete source/canonical inventories, inactive sources, and fresh
+pre/post checks. Canonical symlinks into artifacts, shared Git storage, changed
+evidence, unknown parents, and incomplete scans remain blocked. Full prepared
+proof and a pending ledger precede each exclusive recovery rename. Recovery
+verification retains previously completed archive records and starts no new
+moves. The opt-in completion hook excludes read-only, failed, cancelled,
+dry-run, startup, and undo work, and waits for other local writers.
 
 The primary risk in `CSA-iEM` is destructive workflow and environment change, not secret storage.
 

@@ -10,6 +10,8 @@
 - Bundle ID: `com.waynetechlab.csa-iem`
 - Category: `public.app-category.developer-tools`
 - Minimum macOS: `13.0`
+- Firebase project: `csa-ilem`
+- Firebase Apple SDK: `12.18.0` (`FirebaseCore` only)
 
 ## Product Scope
 
@@ -18,7 +20,7 @@ pages, engines, bridges, runtimes, recovery, and install/update surfaces. The
 matrix is a diagnostic identity layer; it does not replace Git, receipts, or
 the installed bundle version.
 
-`CSA-iEM` is the production package for:
+`CSA-iEM` provides:
 
 - GitHub repo import and local workspace preparation
 - local devcontainer setup and validation
@@ -26,16 +28,45 @@ the installed bundle version.
 - workflow `runs-on` patching to self-hosted labels
 - GitHub cleanup for workflows, runs, artifacts, caches, and Codespaces
 - one-project-at-a-time cost-control review
-- a multi-page native macOS GUI for Home, GitHub Account, Projects, Local Files, Cleanup, Workspace, and About
+- a native macOS GUI for Home, Jobs, Incidents, GitHub Issues, GitHub Account, GitHub Billing Reports, Import, Projects, CODEX ~ GPT PORTAL, Project Backups, Local Files, Cleanup, Workspace, Settings, and About
+- Checkout Review & Recovery for live GitHub identity/file comparison, separate Git-history findings, complete physical manifests, recoverable retirement, and verified restoration
+- Old Source Leftovers for metadata-only inspection of hidden and dependency-only remnants, saved reports, and incomplete-cleanup results
+- Staging & Backup Cleanup for verified whole-folder recovery archives, per-item restore, interruption verification, and optional follow-up after eligible observed app runs
 - a Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, and runner/devcontainer prep
+
+Bundled reference pages cover Help Center, Terms of Service, Security Notes,
+Brand System, macOS App Notes, and Project Info. Matrix `matrix-1.4` tracks 24
+modules, including `feature.checkout-review`, `feature.source-residuals`, and
+`feature.transfer-artifacts` (`transfer-artifacts-v1.0`).
+About distinguishes the installed payload from the unchanged app-version
+baseline. A payload fingerprint identifies the packaged manifest; it does not
+replace binary signature, notarization, or release acceptance checks.
+
+Checkout review preserves a selected extra local checkout in same-volume
+Runtime recovery storage and retains a restore receipt. Configured origins,
+live repository IDs, working-file equality, and Git history are distinct
+findings. Exact native transaction staging and backup directories remain on
+disk for separate review rather than being counted as normal active projects.
+
+Staging/backup preservation stores complete trees in
+`Runtime/Recovery/TransferArtifacts` and full per-item manifests in
+`Runtime/Reports/TransferArtifacts`. A lightweight Application Support session
+pointer is written before moves. Interrupted verification checks the recorded
+receipts without starting new moves. Automation is off by default, follows only
+eligible observed non-dry-run mutation completions after other mutating jobs
+finish, and excludes startup, scans, failures/cancellations, restores/undo, and
+unobserved standalone Terminal Stage 2/3 sessions. Sources blocked by active use,
+shared Git storage, cloud placeholders, unreadable content, or protection remain
+in place; canonical checkouts remain unchanged.
 
 ## Repository Boundary
 
 This checkout is the native CSA-iLEM application repository, not a website
 application. Package.swift and Sources/CSAiEMMacApp are the product identity.
-The scanner recognizes package.json, Firebase, Vite, and other markers only
-when inspecting an imported project outside this repository; those markers do
-not indicate that CSA-iLEM itself is a web app.
+The scanner recognizes package.json, Vite, Hosting, and other web markers only
+when inspecting an imported project outside this repository. CSA-iLEM's own
+`GoogleService-Info.plist` and FirebaseCore dependency are native Apple client
+configuration and do not indicate that CSA-iLEM is a web app.
 
 The CODEX ~ GPT Add-on master plan lives at
 .SYSTEMX/AI/CODEX-GPT-ADDON-MASTER-PLAN.md. It defines the native dashboard,
@@ -64,6 +95,9 @@ The packaged `.app` includes:
 - help markdown files under `Contents/Resources/Help`
 - brand and icon assets under `Contents/Resources/assets`
 - `AppIcon.icns` for Finder and Dock
+- the validated Firebase Apple client plist under `Contents/Resources`
+- Firebase/SwiftPM privacy and resource bundles under `Contents/Resources`
+- the checksum-pinned Firebase Apple SDK third-party notice aggregation
 
 ## Runtime Resource Resolution
 

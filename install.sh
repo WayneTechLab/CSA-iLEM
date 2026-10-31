@@ -37,6 +37,8 @@ FILES=(
   "Transfer_Note.MD"
   "SHA256SUMS"
   "Package.swift"
+  "Package.resolved"
+  "GoogleService-Info.plist"
   "install-remote.sh"
   "CSA-iEM.ps1"
   "stage2-workspace.ps1"

@@ -2,8 +2,8 @@
 
 Status: primary native macOS dashboard contract
 Version: 0.8.0
-Matrix revision: matrix-1.1
-Updated: 2026-08-19
+Matrix revision: matrix-1.4
+Updated: 2026-10-31
 
 ## Purpose
 
@@ -52,9 +52,63 @@ When an operator reports a broken surface:
 4. Compare the relevant receipt, index, or runtime log.
 5. Update the module entry and CHANGELOG only after the fix is verified.
 
+## Current local review and recovery modules
+
+Matrix 1.4 contains 24 stable tags. `feature.checkout-review` identifies
+Checkout Review & Recovery in Projects and Local Files: live GitHub repository
+identity and file comparison, separate local-history findings, complete
+physical manifests, recoverable retirement, and guarded restoration.
+`feature.source-residuals` identifies Old Source Leftovers in Local Files and
+Jobs: metadata-only detection of hidden or dependency-only remnants, saved
+reports, and explicit Cleanup incomplete or Verified absent results.
+
+`feature.transfer-artifacts`, version `transfer-artifacts-v1.0`, identifies
+TransferArtifactCleanupEngine's Staging & Backup Cleanup workflow in Projects
+and Local Files. Every reviewed row remains visible. Complete per-item source
+and canonical manifests support recoverable whole-folder preservation and
+restoration, with Runtime reports/receipts and a pre-move Application Support
+session pointer. Verify Interrupted Cleanup checks recorded prepared/archived
+results without starting new moves; remaining sources require fresh review.
+
+Automatic artifact preservation is opt-in and follows only eligible observed
+non-dry-run mutation completions after other mutating jobs finish. Startup,
+read-only work, failure/cancellation, restores/undo, and standalone Terminal
+Stage 2/3 sessions do not trigger it. Fresh failures or original source
+leftovers keep Cleanup incomplete rather than converting a partial run to
+success. Active/shared Git, cloud, unreadable, or protected-source evidence
+blocks the affected item. Protected canonical checkouts remain read-only.
+
+Configured Git origins are normalized identity claims; live provider IDs and
+immutable file evidence remain separate proof. Exact native transaction staging
+and backup folders are preserved for visible review outside active project
+counts. Similar names, matching bytes, and transaction-shaped names never
+authorize a cleanup action by themselves. Smart Logic displays its actual rule version from the
+engine so the catalog and incremental identity rules stay aligned.
+
+About exposes the installed payload identity for local updates sharing the
+`0.8.0` baseline. Record that identity and the matrix revision when reporting
+an issue. These local diagnostics do not establish a signed, notarized, or
+published release.
+
+## Phase 13.47 native Firebase Apple bridge
+
+Matrix 1.2 adds `bridge.firebase` at `firebase-apple-v1.0` and advances
+`runtime.release` to `release-gate-v1.3`. The native app validates the exact
+Firebase project and bundle identity before calling FirebaseCore, surfaces a
+safe ready/failure state in the existing menu-bar dashboard, and packages the
+SwiftPM privacy/resource bundles inside the signed Resources envelope needed
+for cache-independent installed use.
+
+The dependency is pinned to Firebase Apple SDK 12.18.0. Repository GitHub
+Actions workflows were removed on 2026-10-07. The local 15-stage release
+preflight checks the configuration contract and rejects GitHub Actions
+workflow files; Firebase/Google Cloud automation requires separate setup.
+This bridge adds no Analytics, Auth, data service, Hosting, web runtime, or
+port, and it grants no publication authority.
+
 ## Phase 13.46 workflow dependency hardening
 
-The `runtime.release` module is `release-gate-v1.2`. Both native macOS
+The Phase 13.46 `runtime.release` baseline was `release-gate-v1.2`. Both native macOS
 workflows pin `actions/checkout` v7.0.1 to its immutable commit, disable
 persisted checkout credentials, and are checked by the local release preflight.
 This moves the checkout runtime to Node.js 24 without changing the exact-tag,

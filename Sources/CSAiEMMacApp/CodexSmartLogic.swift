@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 enum CodexDecisionClass: String, Codable, CaseIterable, Identifiable, Sendable {
   case canonical
@@ -1034,7 +1035,7 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 }
 
 enum CodexSmartLogicEngine {
-  static let ruleVersion = "smart-logic-v2.7"
+  static let ruleVersion = "smart-logic-v2.8"
 
   static func sourceFingerprint(_ project: CodexProjectEntry) -> String {
     let latestModification = project.snapshot.latestModification.map { ISO8601DateFormatter().string(from: $0) } ?? ""
@@ -1112,10 +1113,10 @@ enum CodexSmartLogicEngine {
 
     return projects.map { project in
       let remote = normalizedRemote(project.remoteURL)
-      let hasVerifiedRemote = project.hasGit && remote?.isEmpty == false
+      let hasRecognizedRemote = project.hasGit && remote?.isEmpty == false
       let sameGroupCount = grouped[groupKey(for: project)]?.count ?? 1
       let leadRank = leadRanks[project.path] ?? 1
-      let isRecommendedLead = sameGroupCount > 1 && leadRank == 1 && project.hasGit && hasVerifiedRemote
+      let isRecommendedLead = sameGroupCount > 1 && leadRank == 1 && project.hasGit && hasRecognizedRemote
       var reasons: [String] = []
       let classification: CodexDecisionClass
       let confidence: Double
@@ -1124,7 +1125,7 @@ enum CodexSmartLogicEngine {
         classification = .brokenMetadataReview
         confidence = 0.15
         reasons.append("No Git worktree was detected.")
-      } else if !hasVerifiedRemote {
+      } else if !hasRecognizedRemote {
         classification = .sameNameReview
         confidence = 0.25
         reasons.append("No verified GitHub remote identity is available.")
@@ -1140,7 +1141,7 @@ enum CodexSmartLogicEngine {
       } else if sameGroupCount > 1 {
         classification = .mergeCandidate
         confidence = project.gitStatus.hasLocalChanges || !project.gitStatus.isMainSynchronized || project.branch != "main" ? 0.86 : 0.92
-        reasons.append("Multiple source folders share the same verified remote identity.")
+        reasons.append("Multiple source folders share the same configured Git origin. Use Checkout Review for live GitHub repository confirmation.")
         if isRecommendedLead {
           reasons.append("Deterministic lead recommendation: this source has the strongest synchronized, clean, and linked evidence in the identity group.")
         } else {
@@ -1205,7 +1206,7 @@ enum CodexSmartLogicEngine {
         evidence: CodexSourceEvidence(
           path: project.path,
           name: project.name,
-          remoteURL: project.remoteURL,
+          remoteURL: CheckoutRemoteIdentity.parse(project.remoteURL)?.browserURL,
           branch: project.branch,
           hasGit: project.hasGit,
           hasLocalChanges: project.gitStatus.hasLocalChanges,
@@ -1472,7 +1473,7 @@ enum CodexSmartLogicEngine {
     return score
   }
 
-  private static func groupKey(for project: CodexProjectEntry) -> String {
+  static func groupKey(for project: CodexProjectEntry) -> String {
     if let remote = normalizedRemote(project.remoteURL), !remote.isEmpty {
       return "remote:\(remote)"
     }
@@ -1480,12 +1481,7 @@ enum CodexSmartLogicEngine {
   }
 
   private static func normalizedRemote(_ value: String?) -> String? {
-    guard var value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-    if value.hasSuffix(".git") { value.removeLast(4) }
-    if value.hasPrefix("git@"), let separator = value.firstIndex(of: ":") {
-      value = "https://" + value[..<separator].replacingOccurrences(of: "git@", with: "") + "/" + value[value.index(after: separator)...]
-    }
-    return value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    CheckoutRemoteIdentity.parse(value).map { "https://" + $0.groupingKey }
   }
 
   private static func owner(from remote: String?) -> String? {
@@ -1870,49 +1866,68 @@ final class CodexCatalogStore: @unchecked Sendable {
   }
 
   private func runSQL(_ sql: String) throws {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-    process.arguments = ["-batch", databasePath]
-    let input = Pipe()
-    let output = Pipe()
-    process.standardInput = input
-    process.standardOutput = output
-    process.standardError = output
-    try process.run()
-    input.fileHandleForWriting.write(Data(sql.utf8))
-    input.fileHandleForWriting.closeFile()
-    // Drain before waiting. Waiting first can deadlock when sqlite3 fills the
-    // pipe while writing a large diagnostic or query response.
-    let response = output.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else {
-      let message = String(data: response, encoding: .utf8) ?? "sqlite3 failed"
-      throw NSError(domain: "CSAiEM.CodexCatalog", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message.trimmingCharacters(in: .whitespacesAndNewlines)])
+    let database = try openDatabase(readOnly: false)
+    defer { sqlite3_close_v2(database) }
+
+    var message: UnsafeMutablePointer<CChar>?
+    let result = sqlite3_exec(database, sql, nil, nil, &message)
+    defer { sqlite3_free(message) }
+    guard result == SQLITE_OK else {
+      let detail = message.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(database))
+      throw NSError(domain: "CSAiEM.CodexCatalog", code: Int(result), userInfo: [NSLocalizedDescriptionKey: detail])
     }
   }
 
   private func runQuery(_ sql: String) -> String? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-    process.arguments = ["-batch", databasePath]
-    let input = Pipe()
-    let output = Pipe()
-    process.standardInput = input
-    process.standardOutput = output
-    process.standardError = output
     do {
-      try process.run()
-      input.fileHandleForWriting.write(Data(sql.utf8))
-      input.fileHandleForWriting.closeFile()
-      // Read to EOF before waitUntilExit so result sets larger than the pipe
-      // buffer cannot stall the catalog and freeze a scan or resume action.
-      let response = output.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else { return nil }
-      return String(data: response, encoding: .utf8)
+      let database = try openDatabase(readOnly: true)
+      defer { sqlite3_close_v2(database) }
+
+      var preparedStatement: OpaquePointer?
+      defer { sqlite3_finalize(preparedStatement) }
+      guard sqlite3_prepare_v2(database, sql, -1, &preparedStatement, nil) == SQLITE_OK,
+            let statement = preparedStatement else { return nil }
+
+      var output = ""
+      while true {
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+          // Match sqlite3's default list output so existing catalog decoders
+          // keep their column, NULL, and row-separator behavior.
+          let columns = (0..<sqlite3_column_count(statement)).map { column in
+            sqlite3_column_text(statement, column).map { String(cString: $0) } ?? ""
+          }
+          output += columns.joined(separator: "|") + "\n"
+        case SQLITE_DONE:
+          return output
+        default:
+          return nil
+        }
+      }
     } catch {
       return nil
     }
+  }
+
+  private func openDatabase(readOnly: Bool) throws -> OpaquePointer {
+    var database: OpaquePointer?
+    let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) | SQLITE_OPEN_FULLMUTEX
+    let result = sqlite3_open_v2(databasePath, &database, flags, nil)
+    guard result == SQLITE_OK, let database else {
+      let detail = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Cannot open the local SQLite catalog."
+      if let database { sqlite3_close_v2(database) }
+      throw NSError(domain: "CSAiEM.CodexCatalog", code: Int(result), userInfo: [NSLocalizedDescriptionKey: detail])
+    }
+    // Catalog status can be read during SwiftUI rendering. Native SQLite avoids
+    // Process.waitUntilExit(), whose nested main run loop can re-enter an
+    // AttributeGraph update. Bound lock contention rather than hanging the UI.
+    let timeoutResult = sqlite3_busy_timeout(database, 250)
+    guard timeoutResult == SQLITE_OK else {
+      let detail = String(cString: sqlite3_errmsg(database))
+      sqlite3_close_v2(database)
+      throw NSError(domain: "CSAiEM.CodexCatalog", code: Int(timeoutResult), userInfo: [NSLocalizedDescriptionKey: detail])
+    }
+    return database
   }
 
   private func encode<T: Encodable>(_ value: T) throws -> String {

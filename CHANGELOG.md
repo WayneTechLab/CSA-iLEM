@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Added complete staging/backup batch review, whole-tree verified recovery, per-folder restore receipts, interrupted-session verification, and a saved post-run cleanup policy with an idle barrier and explicit eligible-job rules.
+- Fixed native transaction rollback to preserve untouched destinations, account for partial stages before copy, retain prior destination backups, remove only empty transaction containers, and keep snapshot originals intact when preparatory backup fails.
+- Added an in-app checkout comparison and recoverable retirement workflow: complete physical manifests, live GitHub repository IDs and immutable file deltas, independent Git-history status, verified recovery receipts, and guarded restoration.
+- Unified Git origin identity parsing across Smart Logic and incremental rescans; repository links now use the sanitized checkout origin, and exact transaction staging/backup folders remain visible for review outside the active project library.
+- Added a bounded, read-only Old Source Leftovers scan for dependency-only trees, numbered Finder copies, hidden metadata, cloud placeholders, and unreadable entries, with saved reports that survive app restarts.
+- Changed native move completion to recheck the physical old source after deletion and report Cleanup incomplete when anything remains; destination promotion stays intact and retained sources remain visible in Jobs and Local Files.
+- Replaced Smart Logic catalog subprocess calls with the system SQLite library so opening the portal cannot re-enter SwiftUI layout through Process.waitUntilExit; catalog reads keep their existing receipt and checkpoint formats.
+- Made the staged Firebase license notice owner-writable before bundle attribute cleanup and signing, preserving read-only SDK cache files.
+- Removed repository GitHub Actions preflight and macOS publication workflows for the Firebase/Google Cloud project direction; retained the local 15-stage preflight with a no-Actions gate and updated release documentation. No cloud pipeline or deployment is created by this change.
+
+- Added Phase 13.47 native Firebase Apple setup: exact Firebase 12.18.0 SwiftPM resolution, FirebaseCore-only startup through the existing macOS delegate, fail-closed bundle/project plist validation, safe menu-bar status, packaged SwiftPM privacy/resource bundles, checksum-pinned third-party notices, and a 15-stage local release preflight.
+- Added the `bridge.firebase` module and advanced the shared catalog to matrix 1.2 with 21 stable tags; advanced the publication boundary to `release-gate-v1.3` without creating a release, tag, or deployment.
+- Kept Firebase Analytics, Auth, Firestore, Storage, Hosting, web code, and local ports outside this native-core setup.
 - Added Phase 13.46 GitHub Actions supply-chain hardening: both native macOS workflows now pin `actions/checkout` v7.0.1 to its immutable commit, disable persisted checkout credentials, and fail local release preflight if either boundary regresses to a floating major reference.
 - Added Phase 13.45 native runtime and publication hardening: one process-level app instance, disposable installer staging with no runnable install-tree duplicate, exact release-tag-to-HEAD validation, and a verified-tag GitHub release boundary.
 - Made cleanup preview-first on fresh launches, changed terminal auto-confirm to opt-in, and stopped credential or unapproved confirmation gates safely instead of leaving a hidden process waiting for GUI-inaccessible input.

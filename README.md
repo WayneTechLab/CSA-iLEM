@@ -10,12 +10,14 @@ Notice: `Use at your own risk.`
 
 `CSA-iEM` is now a cross-platform toolset with:
 - a production CLI backend
-- a SwiftUI macOS GUI with native `Home`, `Import`, `Projects`, `CODEX ~ GPT PORTAL`, `Cleanup`, `Local Files`, `Workspace`, `Settings`, `GitHub Account`, and `GitHub Billing Reports` pages
+- a SwiftUI macOS GUI with native `Home`, `Jobs`, `Incidents`, `GitHub Issues`, `GitHub Account`, `GitHub Billing Reports`, `Import`, `Projects`, `CODEX ~ GPT PORTAL`, `Project Backups`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About` pages
+- bundled `Help Center`, `Terms of Service`, `Security Notes`, `Brand System`, `macOS App Notes`, and `Project Info` reference pages
 - a macOS menu-bar mini control app plus a Windows notification-area tray companion for opening CSA-iEM/OpenProject tooling, controlling local GitHub Actions runners, and opening GitHub billing reports
 - toolbar quick actions for opening the loaded repo or active container in VS Code, Codex, GitHub Copilot, Finder, CLI, or the project browser
 - GitHub account and repo shortcuts for login, org/repo navigation, workflow and run loading, Codespaces, secrets, rulesets, repo settings, and direct tab links for Actions, Issues, Pull Requests, Projects, Security, and Insights
 - GitHub billing reports for Actions minutes, paid minutes, storage, Packages, project-level usage signals, and direct account or organization billing links
 - Privacy-First startup checks that verify local tools and GitHub CLI login state without importing or saving GitHub tokens, API keys, account identity, repository inventory, or organization data
+- a native Firebase Apple bootstrap for the registered `csa-ilem` project, with an exact bundle/project validation gate, FirebaseCore-only initialization, and visible ready/failure status without Analytics or web runtime code
 - index-first CODEX transfers that reuse verified zero-delta plans, skip unchanged destination files, prepare planned iCloud placeholders in bounded parallel batches, and by default omit rebuildable dependencies, compiler output, coverage, and tool caches
 - separate CODEX discovery, IDE-link, and Git-main status so the selected Codex workspace, other linked projects, unlinked disk projects, local changes, and local `origin/main` parity remain distinguishable
 - Stage 2 GitHub-identity reconciliation from a `CODEX PROJECTS` preservation folder into canonical `Code/Repos`, with selected or Full Auto execution and fail-closed worktree/history checks
@@ -24,6 +26,9 @@ Notice: `Use at your own risk.`
 - external-drive Default workspace controls that can save a stable `DRIVE/CSA-iEM` layout without moving data, or stage and relocate all `Code`, `Import`, and `Runtime` roots after explicit confirmation
 - runner fleet controls for stopping all active runners or starting only one selected runner
 - old-workspace migration tools for scanning Diamond, WTL, CSA-iLEM, and other legacy roots and importing projects into Default or Custom paths
+- native Checkout Review & Recovery for complete local manifests, live GitHub identity and file deltas, separate Git-history findings, recoverable retirement, and verified restoration
+- Old Source Leftovers for hidden and dependency-only remnants, cloud-placeholder and scan-limit reporting, saved evidence, and explicit Cleanup incomplete results
+- Staging & Backup Cleanup for complete source/canonical comparison, whole-folder recovery archives, per-item restoration, interruption verification, and opt-in preservation after eligible successful app runs
 - opt-in auto-confirm support for simple terminal yes/no gates; with auto-confirm off, or whenever a sudo/password/security prompt appears, the native job stops safely and directs the user to a visible Terminal instead of hanging on hidden input
 - an opt-in Administrator Terminal mode that requests `sudo` authorization in a visible Terminal without capturing or storing passwords
 - terminal installers for macOS
@@ -48,10 +53,39 @@ same unified module matrix strip. Home expands the matrix so operators can
 see the version, tag, area, state, and last-updated date for UI pages, engines,
 bridges, runtimes, receipts, recovery, and install/update surfaces.
 
-The `runtime.release` module is currently `release-gate-v1.2`. Native macOS
-preflight and publication workflows pin `actions/checkout` v7.0.1 to an
-immutable commit, disable persisted checkout credentials, and enforce that
-dependency boundary in the local release preflight.
+The shared catalog is now `matrix-1.4` with 24 tagged modules, including
+`feature.checkout-review`, `feature.source-residuals`, and
+`feature.transfer-artifacts`. The
+`bridge.firebase` module is `firebase-apple-v1.0`, and `runtime.release` is
+`release-gate-v1.3`. This repository uses Firebase/Google Cloud as its cloud
+project and has no GitHub Actions workflows. Native checks remain available
+locally through `.SYSTEMX/scripts/release-preflight.sh`, whose 15-stage gate
+rejects any reintroduced GitHub Actions workflow. Cloud build or deployment
+automation must be configured separately; this change creates none.
+
+Projects and Local Files expose **Checkout Review & Recovery**. The app shows
+configured origins separately from live GitHub repository IDs, and distinguishes
+working-file equality from commit history. A reviewed extra checkout can be
+preserved in same-volume Runtime recovery storage with a verified restore
+receipt. Native transaction staging and backup folders remain visible for
+review outside active project counts. Local Files and Jobs expose **Old Source
+Leftovers**, including dependency-only trees missed by ordinary project
+discovery. Saved findings survive restarts and require a fresh rescan to confirm
+removal. About shows installed payload identity for local builds sharing the
+same version baseline; signing, notarization, and public release acceptance
+remain separate checks.
+
+**Staging & Backup Cleanup** in Projects and Local Files reviews every listed
+transaction folder and preserves eligible whole trees in
+`Runtime/Recovery/TransferArtifacts` without overwriting canonical projects.
+Each item has full evidence in `Runtime/Reports/TransferArtifacts` and a restore
+receipt. The session pointer is saved before moves; **Verify Interrupted
+Cleanup** verifies recorded prepared/archived results without starting new
+moves. Automatic preservation is off by default and follows only eligible
+observed non-dry-run import, migration/export, CODEX, or applied-cleanup jobs
+after other mutating work finishes. Startup, read-only work, failed/cancelled
+runs, restores/undo, and standalone Terminal Stage 2/3 sessions do not trigger
+it. Partial failures and remaining old sources keep their cleanup warning.
 
 The matrix contract is documented in
 [`docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md`](./docs/wiki/CSA-iLEM-Dashboard-and-Module-Matrix.md).
@@ -83,8 +117,10 @@ complete. Validate its exact count and bindings with
 Run: node .SYSTEMX/scripts/validate-10000-task-plan.mjs
 
 This is a native macOS application repository, not a website checkout.
-Web-oriented project markers in the scanner describe imported external
-projects only and do not change the identity of this repository.
+The Firebase Apple SDK and `GoogleService-Info.plist` are native macOS client
+configuration; they do not introduce a website, Firebase Hosting, Vite, a web
+server, or a local port. Other web-oriented markers in the scanner describe
+imported external projects only and do not change this repository's identity.
 
 The fail-closed one-folder-per-repository lifecycle, GitHub identity rules,
 local-source retirement gates, and final `_temp` cleanup contract are recorded
@@ -365,7 +401,7 @@ csa-iem-gui --source-run
 ```
 
 The GUI is a SwiftUI macOS app that:
-- uses simple task pages for `Home`, `Jobs`, `GitHub Account`, `GitHub Billing Reports`, `Projects`, `Local Files`, `Cleanup`, `Workspace`, `Settings`, and `About`
+- uses the native task pages and bundled reference pages listed above
 - keeps project browsing on-screen with native search, targeting, and direct VS Code / Finder open actions
 - adds GitHub quick actions for host, account, repo, workflow, Codespaces, rules, issues, pull requests, projects, and security page jumps
 - adds a native jobs center for background operations, status, retries, and logs
