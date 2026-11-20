@@ -12175,6 +12175,40 @@ final class CleanupViewModel: ObservableObject {
     return evidence
   }
 
+  private nonisolated static func isCodexProjectContainer(at path: String, fileManager fm: FileManager) -> Bool {
+    // Only Code/Repos/<owner> has the workspace owner shape. An arbitrary
+    // project with .SYSTEMX and multiple package components remains a project.
+    let directory = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    let repos = directory.deletingLastPathComponent()
+    guard repos.lastPathComponent.caseInsensitiveCompare("Repos") == .orderedSame,
+          repos.deletingLastPathComponent().lastPathComponent.caseInsensitiveCompare("Code") == .orderedSame else {
+      return false
+    }
+
+    // A workspace owner may have its own .SYSTEMX metadata while the actual
+    // Git repositories are immediate children. Strong evidence at this level
+    // wins so a real project root never expands into nested templates.
+    let evidence = codexProjectEvidence(at: path, fileManager: fm)
+    guard !evidence.contains("Git"), !evidence.contains("manifest") else { return false }
+    guard let children = try? fm.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+      options: [.skipsHiddenFiles]
+    ) else { return false }
+
+    var projectChildren = 0
+    for child in children.prefix(512) {
+      let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+      guard values?.isDirectory == true, values?.isSymbolicLink == false else { continue }
+      let childEvidence = codexProjectEvidence(at: child.path, fileManager: fm)
+      if childEvidence.contains("Git") {
+        projectChildren += 1
+        if projectChildren >= 2 { return true }
+      }
+    }
+    return false
+  }
+
   nonisolated static func readCodexLocalDevProfile(projectPath: String) -> CodexLocalDevProfile? {
     let packagePath = (projectPath as NSString).appendingPathComponent("package.json")
     // Project manifests can be contributor-controlled. Do not follow links or
@@ -12209,7 +12243,7 @@ final class CleanupViewModel: ObservableObject {
     return nil
   }
 
-  private nonisolated static func discoverCodexProjects(
+  nonisolated static func discoverCodexProjects(
     scanRoots: [String],
     environment: [String: String]
   ) -> [CodexProjectEntry] {
@@ -12238,7 +12272,8 @@ final class CleanupViewModel: ObservableObject {
             isDirectory.boolValue,
             !isCodexAuxiliaryDestinationName((normalized as NSString).lastPathComponent) else { return }
       let evidence = codexProjectEvidence(at: normalized, fileManager: fm)
-      guard !evidence.isEmpty else { return }
+      guard !evidence.isEmpty,
+            !isCodexProjectContainer(at: normalized, fileManager: fm) else { return }
       let discoverySource = evidence.contains("folder context") ? "\(source), folder context" : source
       if let existing = discovered[normalized], !existing.contains(discoverySource) {
         discovered[normalized] = existing + ", " + discoverySource
@@ -12290,7 +12325,8 @@ final class CleanupViewModel: ObservableObject {
       guard Date() < scanDeadline, scannedDirectories < 50_000 else { break }
       let normalizedRoot = NSString(string: root).standardizingPath
       addCandidate(normalizedRoot, source: "scan root")
-      let rootIsProject = !codexProjectEvidence(at: normalizedRoot, fileManager: fm).isEmpty
+      let rootIsProject = !codexProjectEvidence(at: normalizedRoot, fileManager: fm).isEmpty &&
+        !isCodexProjectContainer(at: normalizedRoot, fileManager: fm)
       // A selected project root is already an actionable result. Avoid
       // recursively walking its templates and generated trees; container
       // roots still recurse so multiple projects can be discovered.
@@ -12318,7 +12354,8 @@ final class CleanupViewModel: ObservableObject {
           continue
         }
         let evidence = codexProjectEvidence(at: url.path, fileManager: fm)
-        if !evidence.isEmpty {
+        if !evidence.isEmpty,
+           !isCodexProjectContainer(at: url.path, fileManager: fm) {
           addCandidate(url.path, source: "folder scan")
           enumerator.skipDescendants()
         }
@@ -12328,7 +12365,8 @@ final class CleanupViewModel: ObservableObject {
     if !scanRoots.isEmpty {
       let normalizedRoots = scanRoots.map { NSString(string: $0).standardizingPath }
       let projectRoots = normalizedRoots.filter { root in
-        !codexProjectEvidence(at: root, fileManager: fm).isEmpty
+        !codexProjectEvidence(at: root, fileManager: fm).isEmpty &&
+          !isCodexProjectContainer(at: root, fileManager: fm)
       }
       discovered = discovered.filter { path, _ in
         if projectRoots.contains(path) {

@@ -6,7 +6,7 @@ Updated: `2026-11-20`
 This file is the current production-status snapshot for `CSA-iEM`.
 
 Local acceptance (2026-11-20): the complete 15-stage release preflight passed
-with 193 Swift tests and no failures, a Swift release build, 170 payload
+with 196 Swift tests and no failures, a Swift release build, 171 payload
 checksums, PowerShell parsing and trust tests, disposable install/update/uninstall
 rollback, Stage 2 exact reviewed-scope smoke, recovery safety, and GitHub
 identity-scope checks. This validates the local source and test lanes; public
@@ -35,6 +35,10 @@ as saved audit evidence, but the dashboard does not count them as current or
 permit review and transfer actions until a fresh scan completes for the selected
 source and output paths. A visible action selects the active workspace Code/Repos
 source and Import output drafts without changing files or starting a scan.
+Project discovery now treats a `Code/Repos/<owner>` folder with multiple
+immediate Git repositories as a container even if the owner folder has
+`.SYSTEMX` metadata, so the active Code/Repos scan reaches the individual
+repositories. Other composite projects remain intact.
 Stage 2 apply requires fresh decision coverage for its exact source and managed
 roots; Full Auto compares the reviewed paths to its live eligible candidate set
 before planning, so incomplete or stale scans fail closed. Changed source
