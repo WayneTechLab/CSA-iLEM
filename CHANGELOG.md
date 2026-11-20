@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Verified native Move stages and promoted destinations with bounded-memory full-tree SHA-256 read-back of files, hidden entries, links, metadata, and extended attributes before source removal; late source changes retain the original and produce a recoverable incomplete result. Added a pre-copy destination capacity check.
+- Verified snapshot preparatory backups and restore/rollback copies, retaining previous roots in durable recovery storage with a job-visible path.
+- Restricted macOS and Windows installer cleanup to receipt-identified versions and verified app bundles; macOS same-version updates now stage, verify, promote, and roll back the prior CLI on failure. The macOS GUI installer preserves other app copies, retains the prior canonical bundle in recovery storage, and stops only the process running from the exact canonical path.
+- Fixed old-source discovery to report project-marked folders as review candidates, and excluded exact transaction artifacts from legacy migration counts and operations.
+- Added full archive read-back before resolving historic staging-cleanup incidents, corrected artifact retry routing after restart, exposed all saved cleanup batches through search and paging, and moved portal SQLite status reads off the SwiftUI render path.
+- Fixed Codex portal summaries and status text that displayed literal counter placeholders instead of the current values and profile names.
+- Advanced the native module catalog to matrix 1.5 with 24 tags. Public distribution still requires Developer ID signing and notarization.
+
 - Added complete staging/backup batch review, whole-tree verified recovery, per-folder restore receipts, interrupted-session verification, and a saved post-run cleanup policy with an idle barrier and explicit eligible-job rules.
 - Fixed native transaction rollback to preserve untouched destinations, account for partial stages before copy, retain prior destination backups, remove only empty transaction containers, and keep snapshot originals intact when preparatory backup fails.
 - Added an in-app checkout comparison and recoverable retirement workflow: complete physical manifests, live GitHub repository IDs and immutable file deltas, independent Git-history status, verified recovery receipts, and guarded restoration.

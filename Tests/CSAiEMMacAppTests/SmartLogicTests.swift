@@ -824,6 +824,42 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertEqual(CodexImportedEvidenceRecord(id: "partial", sourceName: "partial.json", importedAt: observedDate, bundle: partialBundle).compatibilityState, .partial)
   }
 
+  func testSmartLogicSummariesRenderLiveCountsAndProfileNames() {
+    let timing = CodexScanTimingEvidence(sessionID: "current", discoveryMilliseconds: 1,
+      decisionMilliseconds: 2, totalMilliseconds: 3, discoveredSourceCount: 4,
+      evaluatedSourceCount: 3, reusedSourceCount: 1, changedSourceCount: 2, affectedGroupCount: 1)
+    let baseline = CodexSessionDiffSummary(currentSessionID: "current", previousSessionID: nil,
+      addedCount: 0, changedCount: 0, unchangedCount: 4, removedCount: 0,
+      affectedGroupCount: 0, evaluatedSourceCount: 3, reusedSourceCount: 1, timing: timing)
+    XCTAssertTrue(baseline.headline.contains("evaluated 3 source row(s)"))
+    let comparison = CodexSessionDiffSummary(currentSessionID: "current", previousSessionID: "previous-session",
+      addedCount: 1, changedCount: 2, unchangedCount: 0, removedCount: 1,
+      affectedGroupCount: 1, evaluatedSourceCount: 3, reusedSourceCount: 1, timing: timing)
+    XCTAssertTrue(comparison.headline.contains("session previous"))
+    XCTAssertTrue(comparison.headline.contains("4 changed/removed row(s) · 1 reused"))
+
+    let routes = CodexEvidenceScanRouteSummary(totalCount: 4, metadataTriageCount: 1,
+      targetedVerificationCount: 2, noDeepScanCount: 1)
+    XCTAssertEqual(routes.headline,
+      "4 source(s) · 1 metadata triage · 2 targeted · 1 deep scan avoided")
+    let plan = CodexSmartScanPlan(totalCount: 4, metadataTriageCount: 1,
+      targetedVerificationCount: 2, noDeepScanCount: 1, reviewRequiredCount: 1)
+    XCTAssertEqual(plan.headline,
+      "4 indexed source(s) · 1 metadata triage · 2 targeted verification · 1 deep scan avoided")
+    XCTAssertTrue(plan.profileGuidance(.fastIndex).contains("identified 2 targeted route(s)"))
+    XCTAssertTrue(plan.profileGuidance(.verified).contains("matches the 2 targeted route(s)"))
+    let noTargets = CodexSmartScanPlan(totalCount: 1, metadataTriageCount: 1,
+      targetedVerificationCount: 0, noDeepScanCount: 0, reviewRequiredCount: 0)
+    XCTAssertTrue(noTargets.profileGuidance(.fastIndex).contains("Fast Index can remain bounded"))
+
+    let receipts = CodexRouteReceiptSummary(totalCount: 5, plannedCount: 1,
+      skippedCount: 1, completedCount: 2, interruptedCount: 1, failedCount: 0)
+    XCTAssertEqual(receipts.headline, "2 completed · 2 pending · 1 skipped")
+    let assessment = CodexEvidenceProfileAssessment(profile: .fastIndex,
+      targetedRouteCount: 2, strongerProfileRecommended: true)
+    XCTAssertEqual(assessment.headline, "Full Verification recommended for 2 targeted route(s).")
+  }
+
   func testSmartScanPlanRoutesChangedAndReviewSourcesWithoutDeepScanningSafeSources() {
     let projects = [
       project(path: "/tmp/canonical", name: "canonical", remoteURL: "https://github.com/example/canonical.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized),
@@ -1227,7 +1263,7 @@ final class SmartLogicTests: XCTestCase {
 
   func testModuleMatrixHasUniqueStableTagsAndRequiredLocalSurfaces() {
     let catalog = CSAiEMModuleTag.catalog
-    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.4")
+    XCTAssertEqual(CSAiEMModuleTag.matrixVersion, "matrix-1.5")
     XCTAssertEqual(catalog.count, 24)
     XCTAssertEqual(Set(catalog.map(\.id)).count, catalog.count)
     XCTAssertEqual(Set(catalog.map(\.tag)).count, catalog.count)
@@ -1246,7 +1282,7 @@ final class SmartLogicTests: XCTestCase {
         && $0.lastUpdated == "2026-08-22"
     })
     XCTAssertTrue(catalog.contains { $0.tag == "feature.settings" && $0.version == "settings-v1.1" })
-    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.2" })
+    XCTAssertTrue(catalog.contains { $0.tag == "feature.incidents" && $0.version == "incident-v1.3" })
     XCTAssertTrue(catalog.contains { $0.tag == "bridge.github" && $0.version == "issues-v1.4" })
     XCTAssertTrue(catalog.contains {
       $0.tag == "bridge.firebase"
@@ -1402,6 +1438,7 @@ final class SmartLogicTests: XCTestCase {
     XCTAssertTrue(decision.evidence.snapshot.truncated)
     XCTAssertTrue(decision.reasons.contains { $0.contains("does not prove the process opened this project") })
     XCTAssertTrue(decision.reasons.contains { $0.contains("deep content verification remains separate") })
+    XCTAssertTrue(decision.reasons.contains { $0.contains("bounded at 400 files") })
   }
 
   func testSmartLogicGroupSummaryAggregatesLeadFreshnessAndBlockers() {

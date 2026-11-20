@@ -7,6 +7,7 @@ APP_BUNDLE_IDENTIFIER="com.waynetechlab.csa-iem"
 APP_VENDOR="Wayne Tech Lab LLC"
 APP_URL="https://www.WayneTechLab.com"
 APP_VERSION="$(sed -n '1p' "$SCRIPT_DIR/VERSION" 2>/dev/null || printf '0.0.0')"
+INSTALL_RECEIPT_NAME=".csa-iem-install-receipt"
 INSTALL_ROOT="${CSA_IEM_INSTALL_ROOT:-${CSA_ILEM_INSTALL_ROOT:-$HOME/.local/share/csa-iem}}"
 BIN_DIR="${CSA_IEM_BIN_DIR:-${CSA_ILEM_BIN_DIR:-$HOME/.local/bin}}"
 DEVCONTAINER_NPM_PREFIX="${CSA_IEM_NPM_PREFIX:-${CSA_ILEM_NPM_PREFIX:-$HOME/.local/share/csa-iem/npm}}"
@@ -14,6 +15,9 @@ APP_INSTALL_DIR_OVERRIDE="${CSA_IEM_APP_INSTALL_DIR:-}"
 DISABLE_LOGIN_TOOLBAR="${CSA_IEM_DISABLE_LOGIN_TOOLBAR:-0}"
 DISABLE_PROCESS_STOP="${CSA_IEM_DISABLE_PROCESS_STOP:-0}"
 INSTALL_DIR=""
+INSTALL_ROLLBACK_DIR=""
+INSTALL_ROLLBACK_KIND=""
+STAGED_INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=1
 BOOTSTRAP_DEPS=1
@@ -129,9 +133,8 @@ Install behavior:
   Installs and updates replace the target version by default, update the
   current symlink, and remove older version folders from the install root.
   On macOS, the installer builds and installs one canonical
-  /Applications/CSA-iEM.app, removes every other CSA-iEM bundle with the
-  same bundle identifier from the user and system Applications folders,
-  starts the canonical app, and registers it to launch at login.
+  /Applications/CSA-iEM.app, preserves other app copies for review, starts
+  the canonical app, and registers it to launch at login.
 
 Cross-platform note:
   Windows 11 admin-shell installers also ship in this repo:
@@ -146,6 +149,267 @@ info() {
 
 warn() {
   printf '[WARN] %s\n' "$*"
+}
+
+validate_install_root() {
+  local path_part=""
+  local parts=()
+  local home_physical=""
+
+  if [[ "$INSTALL_ROOT" != /* || "$INSTALL_ROOT" == "/" || "$INSTALL_ROOT" == "$HOME" ]]; then
+    printf 'Unsafe install root: %s\n' "$INSTALL_ROOT" >&2
+    return 1
+  fi
+  IFS='/' read -r -a parts <<< "$INSTALL_ROOT"
+  for path_part in "${parts[@]}"; do
+    [[ -n "$path_part" ]] || continue
+    if [[ "$path_part" == "." || "$path_part" == ".." ]]; then
+      printf 'Install root must not contain dot path components: %s\n' "$INSTALL_ROOT" >&2
+      return 1
+    fi
+  done
+
+  if [[ -L "$INSTALL_ROOT" ]]; then
+    printf 'Install root itself must not be a symlink: %s\n' "$INSTALL_ROOT" >&2
+    return 1
+  fi
+
+  mkdir -p -- "$INSTALL_ROOT"
+  INSTALL_ROOT="$(cd -P -- "$INSTALL_ROOT" && pwd)"
+  home_physical="$(cd -P -- "$HOME" && pwd)"
+  case "$home_physical" in
+    "$INSTALL_ROOT"|"$INSTALL_ROOT"/*)
+      printf 'Install root cannot contain the home directory: %s\n' "$INSTALL_ROOT" >&2
+      return 1
+      ;;
+  esac
+  case "$INSTALL_ROOT" in
+    /Applications|/Library|/System|/Users|/Volumes|/private|/usr|/bin|/sbin|/etc|/tmp|/var)
+      printf 'Install root is a protected system directory: %s\n' "$INSTALL_ROOT" >&2
+      return 1
+      ;;
+  esac
+}
+
+is_on_parent_device() {
+  local candidate="$1"
+  local candidate_device=""
+  local parent_device=""
+  candidate_device="$(stat -f %d "$candidate" 2>/dev/null)" || return 1
+  parent_device="$(stat -f %d "$(dirname -- "$candidate")" 2>/dev/null)" || return 1
+  [[ -n "$candidate_device" && "$candidate_device" == "$parent_device" ]]
+}
+
+physical_existing_path() {
+  local candidate="$1"
+  local parent=""
+  [[ -e "$candidate" || -L "$candidate" ]] || return 1
+  parent="$(cd -P -- "$(dirname -- "$candidate")" && pwd)" || return 1
+  printf '%s/%s\n' "$parent" "$(basename -- "$candidate")"
+}
+
+is_owned_install_version() {
+  local candidate="$1"
+  local expected_version="$2"
+  local receipt="$candidate/$INSTALL_RECEIPT_NAME"
+
+  [[ -d "$candidate" && ! -L "$candidate" ]] || return 1
+  is_on_parent_device "$candidate" || return 1
+  [[ -f "$receipt" && ! -L "$receipt" ]] || return 1
+  [[ "$(cat -- "$receipt")" == "$APP_BUNDLE_IDENTIFIER|$expected_version" ]] || return 1
+  [[ -f "$candidate/VERSION" && "$(sed -n '1p' "$candidate/VERSION")" == "$expected_version" ]] || return 1
+  [[ -f "$candidate/install.sh" && -f "$candidate/csa-iem" && -f "$candidate/SHA256SUMS" ]] || return 1
+}
+
+is_legacy_install_version() {
+  local candidate="$1"
+  local expected_version="$2"
+
+  [[ -d "$candidate" && ! -L "$candidate" ]] || return 1
+  is_on_parent_device "$candidate" || return 1
+  [[ ! -e "$candidate/$INSTALL_RECEIPT_NAME" && ! -L "$candidate/$INSTALL_RECEIPT_NAME" ]] || return 1
+  [[ -f "$candidate/VERSION" && "$(sed -n '1p' "$candidate/VERSION")" == "$expected_version" ]] || return 1
+  [[ -f "$candidate/install.sh" && -f "$candidate/csa-iem" && -f "$candidate/SHA256SUMS" ]] || return 1
+}
+
+prepare_current_install_version() {
+  local preserved=""
+
+  [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]] || return 0
+  if is_owned_install_version "$INSTALL_DIR" "$APP_VERSION"; then
+    preserved="$INSTALL_ROOT/.csa-iem-install-rollback-$APP_VERSION-$(uuidgen)"
+    mv -- "$INSTALL_DIR" "$preserved" || return 1
+    INSTALL_ROLLBACK_DIR="$preserved"
+    INSTALL_ROLLBACK_KIND="managed"
+    return 0
+  fi
+  if is_legacy_install_version "$INSTALL_DIR" "$APP_VERSION"; then
+    preserved="$INSTALL_ROOT/.csa-iem-preserved-$APP_VERSION-$(uuidgen)"
+    mv -- "$INSTALL_DIR" "$preserved" || return 1
+    INSTALL_ROLLBACK_DIR="$preserved"
+    INSTALL_ROLLBACK_KIND="legacy"
+    return 0
+  fi
+  printf 'Refusing to replace unrecognized install-root entry: %s\n' "$INSTALL_DIR" >&2
+  return 1
+}
+
+verify_staged_install() {
+  local staged="$1"
+  is_owned_install_version "$staged" "$APP_VERSION" || return 1
+  (cd "$staged" && shasum -a 256 -c --strict SHA256SUMS >/dev/null)
+}
+
+rollback_current_install_version() {
+  local failed=""
+
+  if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
+    if ! is_owned_install_version "$INSTALL_DIR" "$APP_VERSION"; then
+      printf 'Refusing to overwrite an unexpected install during rollback: %s\n' "$INSTALL_DIR" >&2
+      return 1
+    fi
+    failed="$INSTALL_ROOT/.csa-iem-install-failed-$APP_VERSION-$(uuidgen)"
+    mv -- "$INSTALL_DIR" "$failed" || return 1
+    warn "Preserved failed replacement for review: $failed"
+  fi
+  if [[ -n "$INSTALL_ROLLBACK_DIR" ]]; then
+    mv -- "$INSTALL_ROLLBACK_DIR" "$INSTALL_DIR" || return 1
+    INSTALL_ROLLBACK_DIR=""
+    INSTALL_ROLLBACK_KIND=""
+  fi
+}
+
+finalize_prior_install_version() {
+  [[ -n "$INSTALL_ROLLBACK_DIR" ]] || return 0
+  if [[ "$INSTALL_ROLLBACK_KIND" == "legacy" ]]; then
+    warn "Preserved legacy unmarked version instead of deleting it: $INSTALL_ROLLBACK_DIR"
+    return 0
+  fi
+  if ! is_owned_install_version "$INSTALL_ROLLBACK_DIR" "$APP_VERSION"; then
+    warn "Retained prior version with unverified receipt: $INSTALL_ROLLBACK_DIR"
+    return 1
+  fi
+  if has_nested_install_tree_app_bundle "$INSTALL_ROLLBACK_DIR"; then
+    warn "Retained prior version because it contains a nested GUI bundle: $INSTALL_ROLLBACK_DIR"
+    return 0
+  fi
+  rm -rfx -- "$INSTALL_ROLLBACK_DIR"
+  if [[ -e "$INSTALL_ROLLBACK_DIR" || -L "$INSTALL_ROLLBACK_DIR" ]]; then
+    warn "Prior version still contains files and needs review: $INSTALL_ROLLBACK_DIR"
+    return 1
+  fi
+  INSTALL_ROLLBACK_DIR=""
+  INSTALL_ROLLBACK_KIND=""
+}
+
+write_install_receipt() {
+  printf '%s|%s\n' "$APP_BUNDLE_IDENTIFIER" "$APP_VERSION" > "$INSTALL_DIR/$INSTALL_RECEIPT_NAME"
+}
+
+validate_current_install_link() {
+  local current="$INSTALL_ROOT/current"
+  local target=""
+  local target_version=""
+
+  [[ -e "$current" || -L "$current" ]] || return 0
+  if [[ ! -L "$current" ]]; then
+    printf 'Refusing to replace unrelated current entry: %s\n' "$current" >&2
+    return 1
+  fi
+  target="$(readlink "$current")"
+  target="$(physical_existing_path "$target")" || {
+    printf 'Refusing to replace dangling current link: %s\n' "$current" >&2
+    return 1
+  }
+  case "$target" in
+    "$INSTALL_ROOT"/*) ;;
+    *) printf 'Refusing to replace external current link: %s\n' "$current" >&2; return 1 ;;
+  esac
+  target_version="$(basename -- "$target")"
+  if ! is_owned_install_version "$target" "$target_version" \
+    && ! is_legacy_install_version "$target" "$target_version"; then
+    printf 'Refusing to replace unrecognized current link: %s\n' "$current" >&2
+    return 1
+  fi
+}
+
+validate_command_links() {
+  local command_name=""
+  local link_path=""
+  local target=""
+  local version_path=""
+  local version_name=""
+
+  if [[ "$BIN_DIR" != /* || -L "$BIN_DIR" ]]; then
+    printf 'Unsafe command directory: %s\n' "$BIN_DIR" >&2
+    return 1
+  fi
+  mkdir -p -- "$BIN_DIR"
+  BIN_DIR="$(cd -P -- "$BIN_DIR" && pwd)"
+  for command_name in "${COMMANDS[@]}"; do
+    link_path="$BIN_DIR/$command_name"
+    [[ -e "$link_path" || -L "$link_path" ]] || continue
+    if [[ ! -L "$link_path" ]]; then
+      printf 'Refusing to replace unrelated command file: %s\n' "$link_path" >&2
+      return 1
+    fi
+    target="$(readlink "$link_path")"
+    target="$(physical_existing_path "$target")" || {
+      printf 'Refusing to replace dangling command link: %s\n' "$link_path" >&2
+      return 1
+    }
+    case "$target" in
+      "$INSTALL_ROOT"/*/"$command_name") ;;
+      *) printf 'Refusing to replace external command link: %s\n' "$link_path" >&2; return 1 ;;
+    esac
+    version_path="$(dirname -- "$target")"
+    version_name="$(basename -- "$version_path")"
+    if ! is_owned_install_version "$version_path" "$version_name" \
+      && ! is_legacy_install_version "$version_path" "$version_name"; then
+      printf 'Refusing to replace unrecognized command link: %s\n' "$link_path" >&2
+      return 1
+    fi
+  done
+}
+
+cleanup_old_install_versions() {
+  local candidate=""
+  local candidate_version=""
+
+  while IFS= read -r -d '' candidate; do
+    candidate_version="$(basename -- "$candidate")"
+    [[ "$candidate_version" == "$APP_VERSION" || "$candidate_version" == "npm" || "$candidate_version" == "Recovery" ]] && continue
+    if ! is_owned_install_version "$candidate" "$candidate_version"; then
+      warn "Retained unrecognized install-root directory: $candidate"
+      continue
+    fi
+    if has_nested_install_tree_app_bundle "$candidate"; then
+      warn "Retained install-root directory with a nested GUI bundle: $candidate"
+      continue
+    fi
+    rm -rfx -- "$candidate"
+    if [[ -e "$candidate" || -L "$candidate" ]]; then
+      warn "Prior verified install still contains files and needs review: $candidate"
+    else
+      info "Removed prior verified CSA-iEM install: $candidate"
+    fi
+  done < <(find "$INSTALL_ROOT" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+is_owned_app_bundle() {
+  local candidate="$1"
+  local info_plist="$candidate/Contents/Info.plist"
+  local bundle_id=""
+
+  [[ -d "$candidate" && ! -L "$candidate" && -f "$info_plist" ]] || return 1
+  is_on_parent_device "$candidate" || return 1
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
+  [[ "$bundle_id" == "$APP_BUNDLE_IDENTIFIER" ]]
+}
+
+has_nested_install_tree_app_bundle() {
+  local candidate="$1/dist/$APP_NAME.app"
+  [[ -e "$candidate" || -L "$candidate" ]]
 }
 
 confirm() {
@@ -279,8 +543,6 @@ remove_stale_gui_app_bundles() {
   local canonical_dir="$(dirname -- "$canonical_app")"
   local app_dir=""
   local candidate=""
-  local bundle_id=""
-  local info_plist=""
 
   local app_dirs=()
   if [[ -n "$APP_INSTALL_DIR_OVERRIDE" ]]; then
@@ -289,56 +551,32 @@ remove_stale_gui_app_bundles() {
     app_dirs=(/Applications "$HOME/Applications")
   fi
 
+  # A matching bundle identifier does not prove that another app copy is an
+  # abandoned installer artifact. Leave every other bundle available for the
+  # owner's review, including backup names and copies in another app folder.
   for app_dir in "${app_dirs[@]}"; do
     [[ -d "$app_dir" ]] || continue
-    for candidate in \
-      "$app_dir"/CSA-iEM.app.backup-* \
-      "$app_dir"/CSA-iLEM.app.backup-* \
-      "$app_dir"/CSA-iEM.app.* \
-      "$app_dir"/CSA-iLEM.app.* \
-      "$app_dir"/CSA-iEM-*.app \
-      "$app_dir"/CSA-iLEM-*.app \
-      "$app_dir"/CSA-iEM\ *.app \
-      "$app_dir"/CSA-iLEM\ *.app \
-      "$app_dir"/CSA-iLEM.app; do
-      [[ -e "$candidate" ]] || continue
-      [[ "$candidate" == "$canonical_app" ]] && continue
-      rm -rf -- "$candidate"
-      info "Removed stale CSA-iEM app bundle: $candidate"
-    done
-
     while IFS= read -r -d '' candidate; do
       [[ "$candidate" == "$canonical_app" ]] && continue
-      info_plist="$candidate/Contents/Info.plist"
-      [[ -f "$info_plist" ]] || continue
-      bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
-      [[ "$bundle_id" == "$APP_BUNDLE_IDENTIFIER" ]] || continue
-      rm -rf -- "$candidate"
-      info "Removed stale CSA-iEM bundle by identifier: $candidate"
+      if is_owned_app_bundle "$candidate"; then
+        warn "Preserved additional CSA-iEM app copy for review: $candidate"
+      fi
     done < <(find "$app_dir" -maxdepth 1 \( -type d -o -type l \) -name '*.app' -print0)
   done
 }
 
 remove_legacy_install_tree_app_bundle() {
   local candidate="$INSTALL_DIR/dist/$APP_NAME.app"
-  local info_plist="$candidate/Contents/Info.plist"
-  local bundle_id=""
 
   [[ -e "$candidate" || -L "$candidate" ]] || return 0
-  if [[ -f "$info_plist" ]]; then
-    bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
-  fi
-  if [[ "$bundle_id" != "$APP_BUNDLE_IDENTIFIER" ]]; then
-    warn "Retained unexpected app-like data instead of deleting it: $candidate"
-    return 0
-  fi
-
-  rm -rf -- "$candidate"
-  rmdir "$INSTALL_DIR/dist" >/dev/null 2>&1 || true
-  info "Removed legacy duplicate app bundle from the install tree: $candidate"
+  warn "Preserved nested GUI bundle for review; a bundle identifier alone does not prove installer ownership: $candidate"
 }
 
 stop_running_gui_instances() {
+  local target_app="$1"
+  local expected_executable=""
+  local pid=""
+  local running=0
   local attempt=0
 
   if [[ "$DISABLE_PROCESS_STOP" == "1" ]]; then
@@ -346,15 +584,95 @@ stop_running_gui_instances() {
     return 0
   fi
 
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-  while pgrep -x "$APP_NAME" >/dev/null 2>&1; do
+  [[ -e "$target_app" || -L "$target_app" ]] || return 0
+  is_owned_app_bundle "$target_app" || return 1
+  expected_executable="$(physical_existing_path "$target_app")/Contents/MacOS/$APP_NAME" || return 1
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    if [[ "$(process_executable_for_pid "$pid" || true)" == "$expected_executable" ]]; then
+      /bin/kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done < <(pgrep -x "$APP_NAME" || true)
+
+  while true; do
+    running=0
+    while IFS= read -r pid; do
+      [[ -n "$pid" ]] || continue
+      if [[ "$(process_executable_for_pid "$pid" || true)" == "$expected_executable" ]]; then
+        running=1
+      fi
+    done < <(pgrep -x "$APP_NAME" || true)
+    [[ "$running" -eq 1 ]] || return 0
     attempt=$((attempt + 1))
     if [[ "$attempt" -ge 20 ]]; then
-      warn "Could not stop every running $APP_NAME process before replacement."
+      warn "Could not stop the running app at $target_app before replacement."
       return 1
     fi
     sleep 0.25
   done
+}
+
+process_executable_for_pid() {
+  local pid="$1"
+  local line=""
+  while IFS= read -r line; do
+    case "$line" in
+      n/*) printf '%s\n' "${line#n}"; return 0 ;;
+    esac
+  done < <(/usr/sbin/lsof -a -p "$pid" -d txt -Fn 2>/dev/null || true)
+  return 1
+}
+
+preserve_prior_gui_app_bundle() {
+  local rollback_root="$1"
+  local rollback_app="$2"
+  local recovery_base="$INSTALL_ROOT/Recovery/InstalledApps"
+  local recovery_slot=""
+  local prior_identity=""
+  local retained_app=""
+
+  [[ -e "$rollback_app" || -L "$rollback_app" ]] || {
+    rmdir -- "$rollback_root" >/dev/null 2>&1 || true
+    return 0
+  }
+  if [[ -L "$INSTALL_ROOT/Recovery" || -L "$recovery_base" ]] \
+    || [[ "$(stat -f %d "$rollback_app" 2>/dev/null)" != "$(stat -f %d "$INSTALL_ROOT" 2>/dev/null)" ]]; then
+    warn "Prior GUI bundle remains in its same-volume rollback folder for review: $rollback_app"
+    return 0
+  fi
+  if ! mkdir -p -- "$recovery_base"; then
+    warn "Could not create app recovery storage; prior GUI bundle remains at $rollback_app"
+    return 0
+  fi
+  recovery_slot="$recovery_base/$(uuidgen)"
+  if ! mkdir -m 700 -- "$recovery_slot"; then
+    warn "Could not reserve a unique app recovery folder; prior GUI bundle remains at $rollback_app"
+    return 0
+  fi
+  retained_app="$recovery_slot/$APP_NAME.app"
+  prior_identity="$(stat -f '%d:%i' "$rollback_app")"
+  if mv -- "$rollback_app" "$retained_app" \
+    && [[ "$prior_identity" == "$(stat -f '%d:%i' "$retained_app")" ]] \
+    && is_owned_app_bundle "$retained_app"; then
+    rmdir -- "$rollback_root" >/dev/null 2>&1 || true
+    info "Preserved prior GUI bundle outside Applications: $retained_app"
+    return 0
+  fi
+  warn "Prior GUI bundle needs review at $rollback_app or $retained_app; neither path was removed."
+}
+
+restore_prior_gui_app_bundle() {
+  local rollback_app="$1"
+  local target_app="$2"
+  [[ -e "$rollback_app" || -L "$rollback_app" ]] || return 0
+  if [[ -e "$target_app" || -L "$target_app" ]]; then
+    warn "Target path is occupied; prior GUI bundle remains in rollback storage: $rollback_app"
+    return 1
+  fi
+  if ! mv -- "$rollback_app" "$target_app"; then
+    warn "Could not restore prior GUI bundle; it remains in rollback storage: $rollback_app"
+    return 1
+  fi
 }
 
 install_login_toolbar_agent() {
@@ -420,7 +738,7 @@ install_gui_app_bundle() {
   fi
 
   info "Building native $APP_NAME.app for the menu-bar toolbar..."
-  build_dist_root="$(mktemp -d "${TMPDIR:-/tmp}/csa-iem-install-build.XXXXXX")"
+  build_dist_root="$(mktemp -d "${TMPDIR:-/tmp}/csa-iem-install-build.XXXXXX")" || return 1
   built_app="$build_dist_root/$APP_NAME.app"
   if ! CSA_IEM_DIST_DIR="$build_dist_root" "$INSTALL_DIR/build-gui-app.sh" >"$build_log" 2>&1; then
     rm -rf -- "$build_dist_root"
@@ -436,13 +754,18 @@ install_gui_app_bundle() {
   fi
 
   app_install_dir="$(default_app_install_dir)"
-  mkdir -p "$app_install_dir"
+  mkdir -p "$app_install_dir" || return 1
   target_app="$app_install_dir/$APP_NAME.app"
-  app_stage_root="$(mktemp -d "$app_install_dir/.csa-iem-install.XXXXXX")"
+  app_stage_root="$(mktemp -d "$app_install_dir/.csa-iem-install.XXXXXX")" || return 1
   staged_app="$app_stage_root/$APP_NAME.app"
   if ! ditto --norsrc "$built_app" "$staged_app"; then
     rm -rf -- "$app_stage_root" "$build_dist_root"
     printf 'Could not stage the verified GUI bundle for installation: %s\n' "$staged_app" >&2
+    return 1
+  fi
+  if ! is_owned_app_bundle "$staged_app"; then
+    rm -rf -- "$app_stage_root" "$build_dist_root"
+    printf 'Staged GUI bundle has an unexpected identity: %s\n' "$staged_app" >&2
     return 1
   fi
   rm -rf -- "$build_dist_root"
@@ -456,9 +779,15 @@ install_gui_app_bundle() {
     fi
   fi
 
-  rollback_root="$(mktemp -d "$app_install_dir/.csa-iem-rollback.XXXXXX")"
+  rollback_root="$(mktemp -d "$app_install_dir/.csa-iem-rollback.XXXXXX")" || return 1
   rollback_app="$rollback_root/$APP_NAME.app"
-  if ! stop_running_gui_instances; then
+  if [[ -e "$target_app" || -L "$target_app" ]] \
+    && ! is_owned_app_bundle "$target_app"; then
+    rm -rf -- "$app_stage_root" "$rollback_root"
+    printf 'Refusing to replace app bundle with unverified identity: %s\n' "$target_app" >&2
+    return 1
+  fi
+  if ! stop_running_gui_instances "$target_app"; then
     rm -rf -- "$app_stage_root" "$rollback_root"
     printf 'Could not safely replace %s while an older process is still running.\n' "$target_app" >&2
     return 1
@@ -471,24 +800,24 @@ install_gui_app_bundle() {
     fi
   fi
   if ! mv -- "$staged_app" "$target_app"; then
-    if [[ -e "$rollback_app" || -L "$rollback_app" ]]; then
-      mv -- "$rollback_app" "$target_app" || true
-    fi
-    rm -rf -- "$app_stage_root" "$rollback_root"
+    restore_prior_gui_app_bundle "$rollback_app" "$target_app" || true
+    rm -rf -- "$app_stage_root"
+    rmdir -- "$rollback_root" >/dev/null 2>&1 || true
     printf 'Could not publish the staged GUI bundle: %s\n' "$target_app" >&2
     return 1
   fi
   if command -v codesign >/dev/null 2>&1 \
     && ! codesign --verify --deep --strict "$target_app" >/dev/null 2>&1; then
-    rm -rf -- "$target_app"
-    if [[ -e "$rollback_app" || -L "$rollback_app" ]]; then
-      mv -- "$rollback_app" "$target_app" || true
-    fi
-    rm -rf -- "$app_stage_root" "$rollback_root"
-    printf 'Installed GUI bundle signature verification failed; the prior app was restored: %s\n' "$target_app" >&2
+    mv -- "$target_app" "$app_stage_root/failed-$APP_NAME.app" \
+      || warn "Failed GUI bundle remains at $target_app and needs review."
+    restore_prior_gui_app_bundle "$rollback_app" "$target_app" || true
+    rmdir -- "$app_stage_root" >/dev/null 2>&1 || true
+    rmdir -- "$rollback_root" >/dev/null 2>&1 || true
+    printf 'Installed GUI bundle signature verification failed. Review the retained prior and failed bundles before retrying: %s\n' "$target_app" >&2
     return 1
   fi
-  rm -rf -- "$app_stage_root" "$rollback_root"
+  rmdir -- "$app_stage_root" >/dev/null 2>&1 || true
+  preserve_prior_gui_app_bundle "$rollback_root" "$rollback_app"
   remove_legacy_install_tree_app_bundle
   remove_stale_gui_app_bundles "$target_app"
   install_login_toolbar_agent "$target_app"
@@ -794,14 +1123,26 @@ if ! (cd "$SCRIPT_DIR" && shasum -a 256 -c --strict SHA256SUMS >/dev/null); then
   exit 1
 fi
 
-INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"
+validate_install_root
+FINAL_INSTALL_DIR="$INSTALL_ROOT/$APP_VERSION"
+INSTALL_DIR="$FINAL_INSTALL_DIR"
 
-mkdir -p "$INSTALL_DIR" "$BIN_DIR"
-
-if [[ -d "$INSTALL_DIR" && "$FORCE_INSTALL" -eq 1 ]]; then
-  rm -rf "$INSTALL_DIR"
-  mkdir -p "$INSTALL_DIR"
+validate_current_install_link
+validate_command_links
+if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]] \
+  && ! is_owned_install_version "$INSTALL_DIR" "$APP_VERSION" \
+  && ! is_legacy_install_version "$INSTALL_DIR" "$APP_VERSION"; then
+  printf 'Refusing to replace unrecognized install-root entry: %s\n' "$INSTALL_DIR" >&2
+  exit 1
 fi
+STAGED_INSTALL_DIR="$(mktemp -d "$INSTALL_ROOT/.csa-iem-install-stage.XXXXXX")"
+cleanup_unpromoted_stage() {
+  if [[ -n "$STAGED_INSTALL_DIR" && -d "$STAGED_INSTALL_DIR" ]]; then
+    rm -rfx -- "$STAGED_INSTALL_DIR"
+  fi
+}
+trap cleanup_unpromoted_stage EXIT
+INSTALL_DIR="$STAGED_INSTALL_DIR"
 
 for file_name in "${FILES[@]}"; do
   if [[ ! -f "$SCRIPT_DIR/$file_name" ]]; then
@@ -848,12 +1189,31 @@ chmod +x \
   "$INSTALL_DIR/install.sh" \
   "$INSTALL_DIR/uninstall.sh"
 
-ln -sfn "$INSTALL_DIR" "$INSTALL_ROOT/current"
+write_install_receipt
+if ! verify_staged_install "$STAGED_INSTALL_DIR"; then
+  printf 'Staged install payload did not pass checksum and identity verification. The previous version was retained.\n' >&2
+  exit 1
+fi
 
-find "$INSTALL_ROOT" -mindepth 1 -maxdepth 1 -type d \
-  ! -name "$APP_VERSION" \
-  ! -name "npm" \
-  -exec rm -rf {} +
+INSTALL_DIR="$FINAL_INSTALL_DIR"
+if ! prepare_current_install_version; then
+  printf 'Could not preserve the previous install before promotion.\n' >&2
+  exit 1
+fi
+if ! mv -- "$STAGED_INSTALL_DIR" "$INSTALL_DIR"; then
+  rollback_current_install_version || true
+  printf 'Could not promote the verified staged install. The previous version was restored where possible.\n' >&2
+  exit 1
+fi
+STAGED_INSTALL_DIR=""
+
+if ! install_gui_app_bundle; then
+  rollback_current_install_version || true
+  printf 'GUI installation failed. The previous CLI version was restored where possible.\n' >&2
+  exit 1
+fi
+
+ln -sfn "$INSTALL_DIR" "$INSTALL_ROOT/current"
 
 for command_name in "${COMMANDS[@]}"; do
   ln -sfn "$INSTALL_DIR/$command_name" "$BIN_DIR/$command_name"
@@ -863,7 +1223,8 @@ if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
   configure_shell_profiles "$(build_path_export_line "$BIN_DIR")" "${COMMAND_ALIAS_LINES[@]}"
 fi
 
-install_gui_app_bundle
+finalize_prior_install_version
+cleanup_old_install_versions
 
 echo
 printf '%s %s installed.\n' "$APP_NAME" "$APP_VERSION"
@@ -901,16 +1262,4 @@ echo "  csa-iem --version"
 echo "  csa-iem-update --help"
 echo "  CSA-IEM --version"
 echo
-echo "Latest published main install or update from any supported Mac terminal:"
-echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash"
-echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force"
-echo
-echo "Tagged release, branch, or commit install example:"
-echo "  curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch"
-echo
-echo "Installed update command:"
-echo "  csa-iem-update"
-echo "  csa-iem-update --ref your-tag-or-branch"
-echo
-echo "Installed remote installer:"
-echo "  $INSTALL_DIR/install-remote.sh --help"
+echo "For future updates, review a local source checkout and run its install.sh after verifying its publisher and checksum manifest."

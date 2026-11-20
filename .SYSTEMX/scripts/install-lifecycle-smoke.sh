@@ -54,7 +54,8 @@ test -x "$BIN_DIR/csa-iem"
 echo "Installed payload checksum verified"
 
 echo "[2/7] installed wrapper identity"
-test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/$(sed -n '1p' "$ROOT_DIR/VERSION")"
+PHYSICAL_INSTALL_ROOT="$(cd -P -- "$INSTALL_ROOT" && pwd)"
+test "$(readlink "$INSTALL_ROOT/current")" = "$PHYSICAL_INSTALL_ROOT/$(sed -n '1p' "$ROOT_DIR/VERSION")"
 test -f "$INSTALL_ROOT/current/VERSION"
 test -d "$INSTALL_ROOT/current/.SYSTEMX"
 

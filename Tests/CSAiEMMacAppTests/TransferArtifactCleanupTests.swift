@@ -69,6 +69,17 @@ final class TransferArtifactCleanupTests: XCTestCase {
     }
   }
 
+  func testPreservedReceiptReadbackRejectsChangedArchive() throws {
+    try fixture { fixture in
+      let project = try fixture.artifact(owner: "OwnerA", name: "Project", kind: "stage")
+      let result = try fixture.apply(fixture.review([project.source]))
+      let receipt = try XCTUnwrap(result.receipts.first)
+      XCTAssertNoThrow(try TransferArtifactCleanupEngine.verifyPreservedReceipt(receipt))
+      try write("archive changed after preservation\n", to: URL(fileURLWithPath: receipt.archivePath).appendingPathComponent("src/main.swift"))
+      XCTAssertThrowsError(try TransferArtifactCleanupEngine.verifyPreservedReceipt(receipt))
+    }
+  }
+
   func testChangedArtifactAfterReviewBlocksCleanupWithoutDiscardingNewWork() throws {
     try fixture { fixture in
       let project = try fixture.artifact(owner: "OwnerA", name: "Project", kind: "stage")

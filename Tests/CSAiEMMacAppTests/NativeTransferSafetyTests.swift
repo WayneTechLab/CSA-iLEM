@@ -3,6 +3,56 @@ import XCTest
 @testable import CSAiEMMacApp
 
 final class NativeTransferSafetyTests: XCTestCase {
+  func testChangedStagedTreeBlocksPromotionAndPreservesEveryOriginal() throws {
+    try fixture { root in
+      let operations = try pair(root)
+      do {
+        _ = try CleanupViewModel.performTransactionalTransfers(operations: operations, mode: .move, overwrite: true,
+          environment: ["CSA_IEM_TEST_CORRUPT_NATIVE_STAGE_INDEX": "1"])
+        XCTFail("Expected full-tree verification to reject the changed stage")
+      } catch let error as CleanupViewModel.NativeTransferFailure {
+        XCTAssertTrue(error.detail.contains("verification"))
+        XCTAssertEqual(error.residualSources.count, 2)
+        XCTAssertTrue(error.residualSources.contains { FileManager.default.fileExists(atPath: $0.sourcePath + "/injected-stage-only.fixture") })
+      }
+      try assertOriginalsAndSources(operations)
+    }
+  }
+
+  func testVerifiedMoveIncludesHiddenFilesAndSymlinks() throws {
+    try fixture { root in
+      let source = root.appendingPathComponent("source/one")
+      let destination = root.appendingPathComponent("out/one")
+      try write("private", at: source.appendingPathComponent(".hidden"))
+      try write("payload", at: source.appendingPathComponent("nested/data.txt"))
+      try FileManager.default.createSymbolicLink(atPath: source.appendingPathComponent("link").path, withDestinationPath: "nested/data.txt")
+      let result = try CleanupViewModel.performTransactionalTransfers(
+        operations: [LocalTransferOperation(source: source.path, destination: destination.path)],
+        mode: .move, overwrite: false, environment: [:])
+      XCTAssertTrue(result.residualSources.isEmpty)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+      XCTAssertEqual(try String(contentsOf: destination.appendingPathComponent(".hidden"), encoding: .utf8), "private")
+      XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: destination.appendingPathComponent("link").path), "nested/data.txt")
+    }
+  }
+
+  func testSourceChangedAfterPromotionRemainsForRecovery() throws {
+    try fixture { root in
+      let source = root.appendingPathComponent("source/one")
+      let destination = root.appendingPathComponent("out/one")
+      try write("original", at: source.appendingPathComponent("data.txt"))
+      let result = try CleanupViewModel.performTransactionalTransfers(
+        operations: [LocalTransferOperation(source: source.path, destination: destination.path)],
+        mode: .move, overwrite: false,
+        environment: ["CSA_IEM_TEST_MUTATE_NATIVE_SOURCE_BEFORE_CLEANUP": source.path])
+      XCTAssertEqual(result.residualSources.count, 1)
+      XCTAssertTrue(result.warnings.first?.contains("Cleanup incomplete") == true)
+      XCTAssertEqual(try String(contentsOf: source.appendingPathComponent("late-change.fixture"), encoding: .utf8), "New source data")
+      XCTAssertEqual(try String(contentsOf: source.appendingPathComponent("data.txt"), encoding: .utf8), "original")
+      XCTAssertEqual(try String(contentsOf: destination.appendingPathComponent("data.txt"), encoding: .utf8), "original")
+    }
+  }
+
   func testPartialSecondStagePreservesBothUntouchedOriginalDestinations() throws {
     try fixture { root in
       let operations = try pair(root)
@@ -118,7 +168,7 @@ final class NativeTransferSafetyTests: XCTestCase {
         try write("new-" + name, at: root.appendingPathComponent("payload/" + name + "/Repos/owner/project/data.txt"))
       }
       do {
-        try CleanupViewModel.restoreSnapshotPayload(payloadPath: root.appendingPathComponent("payload").path,
+        _ = try CleanupViewModel.restoreSnapshotPayload(payloadPath: root.appendingPathComponent("payload").path,
           roots: (root.appendingPathComponent("workspace/Code").path, root.appendingPathComponent("workspace/Import").path, root.appendingPathComponent("workspace/Runtime").path),
           environment: ["CSA_IEM_TEST_FAIL_SNAPSHOT_BACKUP_INDEX": "1"])
         XCTFail("Expected preparatory backup failure")
@@ -133,6 +183,42 @@ final class NativeTransferSafetyTests: XCTestCase {
       for name in names {
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("workspace/" + name + "/Repos/owner/project/data.txt"), encoding: .utf8), "old-" + name)
       }
+    }
+  }
+
+  func testSnapshotRestoreRejectsChangedPreparatoryBackupBeforeMerge() throws {
+    try fixture { root in
+      let code = root.appendingPathComponent("workspace/Code")
+      let payload = root.appendingPathComponent("payload")
+      try write("original", at: code.appendingPathComponent("Repos/owner/project/data.txt"))
+      try write("incoming", at: payload.appendingPathComponent("Code/Repos/owner/project/data.txt"))
+      do {
+        _ = try CleanupViewModel.restoreSnapshotPayload(payloadPath: payload.path,
+          roots: (code.path, root.appendingPathComponent("workspace/Import").path, root.appendingPathComponent("workspace/Runtime").path),
+          environment: ["CSA_IEM_TEST_CORRUPT_SNAPSHOT_BACKUP_INDEX": "0"])
+        XCTFail("Expected full backup verification to reject a changed copy")
+      } catch let error as CleanupViewModel.NativeTransferFailure {
+        XCTAssertTrue(error.detail.contains("never began"))
+        XCTAssertEqual(error.residualSources.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: error.residualSources[0].sourcePath + "/root-0/injected-backup-only.fixture"))
+      }
+      XCTAssertEqual(try String(contentsOf: code.appendingPathComponent("Repos/owner/project/data.txt"), encoding: .utf8), "original")
+    }
+  }
+
+  func testSnapshotRestoreKeepsVerifiedPreviousWorkspaceAfterSuccess() throws {
+    try fixture { root in
+      let code = root.appendingPathComponent("workspace/Code")
+      let payload = root.appendingPathComponent("payload")
+      try write("original", at: code.appendingPathComponent("Repos/owner/project/data.txt"))
+      try write("unique-old", at: code.appendingPathComponent("Repos/owner/project/old-only.txt"))
+      try write("incoming", at: payload.appendingPathComponent("Code/Repos/owner/project/data.txt"))
+      let retained = try CleanupViewModel.restoreSnapshotPayload(payloadPath: payload.path,
+        roots: (code.path, root.appendingPathComponent("workspace/Import").path, root.appendingPathComponent("workspace/Runtime").path), environment: [:])
+      XCTAssertTrue(retained.contains("/Recovery/SnapshotRestores/"))
+      XCTAssertEqual(try String(contentsOf: code.appendingPathComponent("Repos/owner/project/data.txt"), encoding: .utf8), "incoming")
+      XCTAssertEqual(try String(contentsOfFile: retained + "/root-0/Repos/owner/project/data.txt", encoding: .utf8), "original")
+      XCTAssertEqual(try String(contentsOfFile: retained + "/root-0/Repos/owner/project/old-only.txt", encoding: .utf8), "unique-old")
     }
   }
 

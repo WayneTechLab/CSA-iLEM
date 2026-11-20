@@ -84,7 +84,7 @@ incomplete** when old roots remain; rescan after recovery or removal to obtain
 a fresh **Verified absent** result. See the bundled Help Center for the two
 review workflows and their preservation requirements.
 
-The shared catalog is `matrix-1.4` with 24 module tags. About identifies the
+The shared catalog is `matrix-1.5` with 24 module tags. About identifies the
 installed payload separately from the unchanged `0.8.0` version baseline.
 The packaged manifest fingerprint is a diagnostic aid; public signing,
 notarization, and release acceptance remain separate gates.

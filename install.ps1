@@ -19,6 +19,7 @@ $BootstrapDeps = $true
 $UpdatePath = $true
 $ShowHelp = $false
 $ShowVersion = $false
+$BinDirExplicit = $false
 
 for ($Index = 0; $Index -lt $args.Count; $Index++) {
     switch ($args[$Index]) {
@@ -28,10 +29,12 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
         "--install-root" {
             $Index++
             $InstallRoot = $args[$Index]
+            if (-not $BinDirExplicit) { $BinDir = Join-Path $InstallRoot "bin" }
         }
         "--bin-dir" {
             $Index++
             $BinDir = $args[$Index]
+            $BinDirExplicit = $true
         }
         "--force" { $ForceInstall = $true }
         "--no-deps" { $BootstrapDeps = $false }
@@ -61,13 +64,116 @@ Usage:
 
 Install behavior:
   Installs and updates replace the target version by default, update current.txt,
-  and remove older version folders from the install root while keeping bin.
+  and remove only receipt-verified older CSA-iEM versions. Unknown folders stay.
 "@ | Write-Host
     exit 0
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "$AppName Windows install is supported only on Windows."
+}
+
+function Assert-SafeInstallRoot {
+    param([string]$Path)
+    $FullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd([char[]]@('\', '/'))
+    if ((Split-Path -Path $FullPath -Leaf) -ine "CSA-iEM") {
+        throw "Install root must be a dedicated CSA-iEM directory: $FullPath"
+    }
+    $Cursor = $FullPath
+    while ($Cursor) {
+        if (Test-Path -LiteralPath $Cursor) {
+            $Entry = Get-Item -LiteralPath $Cursor -Force
+            if (($Entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Install root traverses a link or junction: $Cursor"
+            }
+        }
+        $Parent = Split-Path -Path $Cursor -Parent
+        if (-not $Parent -or $Parent -eq $Cursor) { break }
+        $Cursor = $Parent
+    }
+    return $FullPath
+}
+
+function Assert-PhysicalDirectoryPath {
+    param([string]$Path)
+    $FullPath = [System.IO.Path]::GetFullPath($Path)
+    $Cursor = $FullPath
+    while ($Cursor) {
+        if (Test-Path -LiteralPath $Cursor) {
+            $Entry = Get-Item -LiteralPath $Cursor -Force
+            if (($Entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Directory path traverses a link or junction: $Cursor"
+            }
+        }
+        $Parent = Split-Path -Path $Cursor -Parent
+        if (-not $Parent -or $Parent -eq $Cursor) { break }
+        $Cursor = $Parent
+    }
+    return $FullPath
+}
+
+function Test-PhysicalInstallTree {
+    param([string]$Path)
+    $Pending = [System.Collections.Generic.Stack[string]]::new()
+    $Pending.Push($Path)
+    $Count = 0
+    try {
+        while ($Pending.Count -gt 0) {
+            foreach ($Child in (Get-ChildItem -LiteralPath $Pending.Pop() -Force -ErrorAction Stop)) {
+                $Count++
+                if ($Count -gt 200000 -or ($Child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+                if ($Child.PSIsContainer) { $Pending.Push($Child.FullName) }
+            }
+        }
+    } catch { return $false }
+    return $true
+}
+
+function Test-OwnedVersionDir {
+    param([string]$Path, [string]$Root)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+    $Entry = Get-Item -LiteralPath $Path -Force
+    if (($Entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+    $Version = $Entry.Name
+    if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$') { return $false }
+    $ExpectedPath = [System.IO.Path]::GetFullPath((Join-Path $Root $Version))
+    if (-not [string]::Equals($Entry.FullName, $ExpectedPath, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $Receipt = Join-Path $Path '.csa-iem-install-receipt.txt'
+    $VersionFile = Join-Path $Path 'VERSION'
+    $CliFile = Join-Path $Path 'CSA-iEM.ps1'
+    if (-not (Test-Path -LiteralPath $Receipt -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $VersionFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $CliFile -PathType Leaf)) { return $false }
+    foreach ($Candidate in @($Receipt, $VersionFile, $CliFile)) {
+        if (((Get-Item -LiteralPath $Candidate -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+    }
+    $ExpectedReceipt = "com.waynetechlab.csa-iem|$Version|$Root"
+    $ActualReceipt = (Get-Content -LiteralPath $Receipt -TotalCount 1).Trim()
+    $ActualVersion = (Get-Content -LiteralPath $VersionFile -TotalCount 1).Trim()
+    return ($ActualReceipt -ceq $ExpectedReceipt -and $ActualVersion -ceq $Version -and (Test-PhysicalInstallTree -Path $Path))
+}
+
+function Test-OwnedShim {
+    param([string]$Path, [string]$Root)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if (((Get-Item -LiteralPath $Path -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+    $Content = Get-Content -LiteralPath $Path -Raw
+    if ($Content -notmatch '(?s)^@echo off\r?\nsetlocal\r?\npowershell -NoProfile -ExecutionPolicy Bypass -File "([^"]+)" ([^\r\n]*)\r?\n?$') { return $false }
+    $Target = $Matches[1]
+    $Arguments = $Matches[2]
+    $TargetDirectory = Split-Path -Path $Target -Parent
+    if (-not (Test-OwnedVersionDir -Path $TargetDirectory -Root $Root)) { return $false }
+    $Shim = Split-Path -Path $Path -Leaf
+    $Script = Split-Path -Path $Target -Leaf
+    switch ($Shim) {
+        'csa-iem.cmd' { return ($Script -ceq 'CSA-iEM.ps1' -and $Arguments -ceq '%*') }
+        'csa-iem-open.cmd' { return ($Script -ceq 'CSA-iEM.ps1' -and $Arguments -ceq '--browse-projects --use-current-root %*') }
+        'openproj.cmd' { return ($Script -ceq 'CSA-iEM.ps1' -and $Arguments -ceq '--browse-projects --use-current-root %*') }
+        'csa-iem-update.cmd' { return ($Script -ceq 'update-win.ps1' -and $Arguments -ceq '%*') }
+        'csa-ilem-update.cmd' { return ($Script -ceq 'update-win.ps1' -and $Arguments -ceq '%*') }
+        'csa-iem-tray.cmd' { return ($Script -ceq 'csa-iem-tray.ps1' -and $Arguments -ceq '%*') }
+        default { return $false }
+    }
 }
 
 function Write-Info {
@@ -231,6 +337,8 @@ if ($BootstrapDeps) {
     Bootstrap-Dependencies
 }
 
+$InstallRoot = Assert-SafeInstallRoot -Path $InstallRoot
+$BinDir = Assert-PhysicalDirectoryPath -Path $BinDir
 $InstallDir = Join-Path $InstallRoot $AppVersion
 if ((Test-Path $InstallDir) -and -not $ForceInstall) {
     Write-WarnLine "$AppName $AppVersion is already installed at $InstallDir"
@@ -238,14 +346,38 @@ if ((Test-Path $InstallDir) -and -not $ForceInstall) {
     exit 0
 }
 
+if ((Test-Path -LiteralPath $InstallDir) -and -not (Test-OwnedVersionDir -Path $InstallDir -Root $InstallRoot)) {
+    throw "Refusing to replace an unverified directory: $InstallDir"
+}
+
+$CurrentPath = Join-Path $InstallRoot "current.txt"
+if (Test-Path -LiteralPath $CurrentPath) {
+    if (((Get-Item -LiteralPath $CurrentPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to overwrite a linked current installation marker: $CurrentPath"
+    }
+    $CurrentVersion = (Get-Content -LiteralPath $CurrentPath -TotalCount 1).Trim()
+    if (-not (Test-OwnedVersionDir -Path (Join-Path $InstallRoot $CurrentVersion) -Root $InstallRoot)) {
+        throw "Refusing to overwrite an unverified current installation marker: $CurrentPath"
+    }
+}
+
+$ShimNames = @("csa-iem.cmd", "csa-iem-open.cmd", "csa-iem-update.cmd", "csa-ilem-update.cmd", "openproj.cmd", "csa-iem-tray.cmd")
+foreach ($Shim in $ShimNames) {
+    $ShimPath = Join-Path $BinDir $Shim
+    if ((Test-Path -LiteralPath $ShimPath) -and -not (Test-OwnedShim -Path $ShimPath -Root $InstallRoot)) {
+        throw "Refusing to replace an unverified command shim: $ShimPath"
+    }
+}
+
 Ensure-Directory $InstallRoot
 Ensure-Directory $BinDir
 
-if (Test-Path $InstallDir) {
-    Remove-Item -Path $InstallDir -Recurse -Force
+if (Test-Path -LiteralPath $InstallDir) {
+    Remove-Item -LiteralPath $InstallDir -Recurse -Force
 }
 
 Copy-InstallTree -SourceRoot $ScriptDir -DestinationRoot $InstallDir
+"com.waynetechlab.csa-iem|$AppVersion|$InstallRoot" | Set-Content -LiteralPath (Join-Path $InstallDir '.csa-iem-install-receipt.txt') -Encoding ASCII
 
 $CliScriptPath = Join-Path $InstallDir "CSA-iEM.ps1"
 $TrayScriptPath = Join-Path $InstallDir "csa-iem-tray.ps1"
@@ -257,12 +389,11 @@ Write-CmdShim -Path (Join-Path $BinDir "csa-ilem-update.cmd") -ScriptAbsolutePat
 Write-CmdShim -Path (Join-Path $BinDir "openproj.cmd") -ScriptAbsolutePath $CliScriptPath -DefaultArgs @("--browse-projects", "--use-current-root")
 Write-CmdShim -Path (Join-Path $BinDir "csa-iem-tray.cmd") -ScriptAbsolutePath $TrayScriptPath
 
-$CurrentPath = Join-Path $InstallRoot "current.txt"
 $AppVersion | Set-Content -Path $CurrentPath -Encoding ASCII
 
-Get-ChildItem -Path $InstallRoot -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne $AppVersion -and $_.Name -ne "bin" } |
-    Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $InstallRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne $AppVersion -and (Test-OwnedVersionDir -Path $_.FullName -Root $InstallRoot) } |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
 if ($UpdatePath) {
     Set-UserPathIfMissing -PathToAdd $BinDir

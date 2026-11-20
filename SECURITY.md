@@ -47,6 +47,16 @@ Cloud API keys in `GoogleService-Info.plist` or anywhere in the app bundle.
 Before enabling another Firebase product, review its rules, App Check support,
 API-key restrictions, macOS entitlements, privacy disclosure, and test lane.
 
+The 2026-11-19 provider review found one open GitHub secret-scanning alert for
+the tracked Firebase Apple client key. The key has an API allowlist, but its
+Google Cloud record did not return allowed bundle IDs and includes some APIs
+outside core Firebase. This is a configuration review item, not proof of a
+compromised backend credential. Review the allowlist and application
+restriction in a test lane before a public release. Dependabot alerts were
+enabled later on 2026-11-19, and the immediate read-back returned no alerts;
+the dependency graph may still be populating. GitHub code scanning remains
+disabled, so its dashboard does not establish a clean code audit.
+
 `.SYSTEMX/scripts/verify-firebase-apple-config.sh` checks the required client
 fields and exact CSA-iLEM bundle/project identity without printing the field
 values. The release preflight and GUI builder both run that verifier.
@@ -82,6 +92,25 @@ proof and a pending ledger precede each exclusive recovery rename. Recovery
 verification retains previously completed archive records and starts no new
 moves. The opt-in completion hook excludes read-only, failed, cancelled,
 dry-run, startup, and undo work, and waits for other local writers.
+Historic partial-cleanup incidents remain open until a fresh zero-entry scan
+and full read-back of every corresponding preserved tree prove all sources are
+accounted for. Native Move verifies staged and promoted copies against the
+source before removal and keeps a source changed late in the operation.
+Snapshot restore verifies preparatory and rollback copies and retains previous
+roots in durable recovery storage. Full-root Move and restore use a streaming
+SHA-256 read-back, including hidden entries, links, metadata, and extended
+attributes. The app checks available destination capacity before staging large
+copies. These checks fail closed if a tree changes while it is read; concurrent
+writers should be stopped before a destructive transfer.
+
+Install cleanup requires an app-owned version receipt and matching payload
+identity before removing a version tree. Name-matching app bundles are checked
+by bundle ID, and unknown install-root entries are retained. The macOS updater
+stages and verifies the CLI before promoting it and can restore the prior CLI
+after a failed update. GUI updates leave other app copies untouched, retain
+the previous canonical bundle in recovery storage, and stop only a process
+running from the canonical executable path. A stopped or unverifiable
+operation preserves its source and needs specific review before retry.
 
 The primary risk in `CSA-iEM` is destructive workflow and environment change, not secret storage.
 

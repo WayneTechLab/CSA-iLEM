@@ -1,9 +1,36 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-10-31`
+Updated: `2026-11-19`
 
 This file is the current production-status snapshot for `CSA-iEM`.
+
+Production hardening review (2026-11-19): native Move now requires complete
+source-to-stage and source-to-destination read-back before old-source removal;
+late changes leave the original in place for review. Snapshot restore verifies
+preparatory and rollback copies and retains previous roots in durable recovery
+storage. macOS and Windows install cleanup now checks app-owned receipts and
+preserves unknown folders; the macOS same-version CLI update stages and rolls
+back on failure. GUI updates preserve other app copies and the prior canonical
+bundle, and stop only the process at the canonical executable path. Legacy
+migration excludes exact transaction artifacts, and
+Old Source Leftovers reports project-marked folders as review candidates.
+Saved cleanup batches are searchable and paged; the Incident Hub routes
+artifact retries correctly and closes an older partial result only after a
+fresh zero-entry scan and full recovery-archive read-back. Portal checkpoint
+status is read off the SwiftUI render thread. The UI matrix is 1.5 with 24
+tags, and Codex portal route/status summaries render current counts and profile
+names. Full-root Move and restore now use bounded-memory streaming verification
+and a pre-copy capacity check, since the current Code and Runtime roots exceed
+the earlier detailed-inventory limits. Public macOS distribution still requires a Developer ID identity,
+notarization, Gatekeeper acceptance, and a trusted published artifact. The
+separate Firebase Hosting root currently returns 404; the native app uses
+FirebaseCore only. GitHub has one open secret-scanning alert for the Firebase
+Apple client key; its API allowlist exists, while app/bundle restriction and
+non-Firebase targets require review. Dependabot alerts were enabled after the
+initial review and returned no alerts on immediate read-back; code scanning
+remains disabled. Auth/App Check configuration could not be read with current
+provider access.
 
 Source-update acceptance (2026-10-31): the matrix 1.4 update passed 148 Swift
 regression tests, the complete 15-stage local release preflight, and all 145

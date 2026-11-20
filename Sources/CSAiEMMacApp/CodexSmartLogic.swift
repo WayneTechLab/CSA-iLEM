@@ -201,9 +201,9 @@ struct CodexSessionDiffSummary: Codable, Hashable, Sendable {
 
   var headline: String {
     if previousSessionID == nil {
-      return "Baseline session · evaluated (evaluatedSourceCount) source row(s)"
+      return "Baseline session · evaluated \(evaluatedSourceCount) source row(s)"
     }
-    return "Compared with session (String(previousSessionID!.prefix(8))) · (changedCount + addedCount + removedCount) changed/removed row(s) · (reusedSourceCount) reused"
+    return "Compared with session \(String(previousSessionID!.prefix(8))) · \(changedCount + addedCount + removedCount) changed/removed row(s) · \(reusedSourceCount) reused"
   }
 }
 
@@ -533,7 +533,7 @@ struct CodexEvidenceScanRouteSummary: Codable, Hashable, Sendable {
   var deepScanAvoidedCount: Int { metadataTriageCount + noDeepScanCount }
 
   var headline: String {
-    "(totalCount) source(s) · (metadataTriageCount) metadata triage · (targetedVerificationCount) targeted · (noDeepScanCount) deep scan avoided"
+    "\(totalCount) source(s) · \(metadataTriageCount) metadata triage · \(targetedVerificationCount) targeted · \(noDeepScanCount) deep scan avoided"
   }
 }
 
@@ -547,17 +547,17 @@ struct CodexSmartScanPlan: Codable, Hashable, Sendable {
   var deepScanAvoidedCount: Int { metadataTriageCount + noDeepScanCount }
 
   var headline: String {
-    "(totalCount) indexed source(s) · (metadataTriageCount) metadata triage · (targetedVerificationCount) targeted verification · (noDeepScanCount) deep scan avoided"
+    "\(totalCount) indexed source(s) · \(metadataTriageCount) metadata triage · \(targetedVerificationCount) targeted verification · \(noDeepScanCount) deep scan avoided"
   }
 
   func profileGuidance(_ profile: CodexEvidenceScanProfile) -> String {
     if targetedVerificationCount == 0 {
-      return "The current indexed evidence has no targeted verification route. (profile.rawValue) can remain bounded to the selected operation."
+      return "The current indexed evidence has no targeted verification route. \(profile.displayName) can remain bounded to the selected operation."
     }
     if profile == .verified {
-      return "Full Verification matches the (targetedVerificationCount) targeted route(s) identified by Smart Logic."
+      return "Full Verification matches the \(targetedVerificationCount) targeted route(s) identified by Smart Logic."
     }
-    return "Smart Logic identified (targetedVerificationCount) targeted route(s); Full Verification remains recommended before a cleanup-capable operation."
+    return "Smart Logic identified \(targetedVerificationCount) targeted route(s); Full Verification remains recommended before a cleanup-capable operation."
   }
 }
 
@@ -592,7 +592,7 @@ struct CodexRouteReceiptSummary: Codable, Hashable, Sendable {
   var pendingCount: Int { plannedCount + interruptedCount + failedCount }
 
   var headline: String {
-    "(completedCount) completed · (pendingCount) pending · (skippedCount) skipped"
+    "\(completedCount) completed · \(pendingCount) pending · \(skippedCount) skipped"
   }
 }
 
@@ -806,6 +806,14 @@ enum CodexEvidenceScanProfile: String, Codable, CaseIterable, Sendable {
   case fastIndex
   case verified
   case yolo
+
+  var displayName: String {
+    switch self {
+    case .fastIndex: return "Fast Index"
+    case .verified: return "Full Verification"
+    case .yolo: return "YOLO · Skip Deep Preflight"
+    }
+  }
 }
 
 struct CodexEvidenceProfileAssessment: Codable, Hashable, Sendable {
@@ -815,7 +823,7 @@ struct CodexEvidenceProfileAssessment: Codable, Hashable, Sendable {
 
   var headline: String {
     if strongerProfileRecommended {
-      return "Full Verification recommended for (targetedRouteCount) targeted route(s)."
+      return "Full Verification recommended for \(targetedRouteCount) targeted route(s)."
     }
     switch profile {
     case .fastIndex:
@@ -1192,7 +1200,7 @@ enum CodexSmartLogicEngine {
         reasons.append("Read-only host activity evidence: \(tools) appears to be running on this Mac; this does not prove the process opened this project or grant write authority.")
       }
       if project.snapshot.truncated {
-        reasons.append("The source snapshot is bounded at (project.snapshot.fileCount) files; deep content verification remains separate.")
+        reasons.append("The source snapshot is bounded at \(project.snapshot.fileCount) files; deep content verification remains separate.")
       }
 
       return CodexSmartDecision(

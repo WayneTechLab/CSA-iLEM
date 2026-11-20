@@ -352,6 +352,29 @@ enum TransferArtifactCleanupEngine {
       environment: environment, inventoryMaxDuration: 300)
   }
 
+  /// Read back a preserved tree without changing it. Incident reconciliation
+  /// uses this proof before treating an earlier incomplete batch as resolved.
+  static func verifyPreservedReceipt(_ receipt: TransferArtifactCleanupReceipt) throws {
+    let full = try load(CheckoutRetirementReceipt.self, from: receipt.receiptPath)
+    try validateManifestDigest(full.inventory)
+    guard full.id == receipt.id,
+          full.originalPath == receipt.originalPath,
+          full.archivePath == receipt.archivePath,
+          full.keptPath == receipt.keptPath,
+          full.receiptPath == receipt.receiptPath,
+          try TransferArtifactInventorySummary(full.inventory) == receipt.inventory else {
+      throw failure("The saved receipt does not match its full-file recovery evidence.")
+    }
+    guard !existsNoFollow(receipt.originalPath),
+          try physicalDirectory(receipt.archivePath) == receipt.archivePath else {
+      throw failure("The original source is present or the recovery path changed.")
+    }
+    let archived = try CheckoutPairReviewEngine.inventory(path: receipt.archivePath, maxDuration: 300)
+    guard try TransferArtifactInventorySummary(archived) == receipt.inventory else {
+      throw failure("The preserved tree failed full checksum and metadata read-back.")
+    }
+  }
+
   private static func reviewItem(
     source: String, allowedRoots: [String], protectedRootPaths: [String], directory: URL,
     canonicalManifests: inout [String: String]

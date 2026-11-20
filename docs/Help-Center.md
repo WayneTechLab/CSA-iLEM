@@ -80,6 +80,12 @@ canonical checkout may be read for verification but is never overwritten.
 Each successful item has a verified receipt and its own restore action;
 restoration refuses to overwrite an existing original path. Partial failures
 remain visible and do not discard successful preservation receipts.
+Saved batches have search and paging so older restore receipts remain reachable.
+After a later cleanup succeeds, the app can resolve an earlier partial-cleanup
+incident only after a fresh zero-entry scan and full checksum read-back of every
+preserved folder from that incident. The Incident Hub keeps the original record
+and its verification note. Retry sends an artifact incident to the artifact
+review or interrupted-session verifier even after the original job list resets.
 
 The toggle **Automatically preserve and clean staging / backup folders after
 successful local runs** is off by default. Enable it to request the same
@@ -106,6 +112,8 @@ This read-only metadata scan includes hidden and dependency entries even when
 normal project discovery finds no repository or manifest. It does not read
 file payloads, follow directory symlinks, or download cloud placeholders.
 Unreadable entries and time, depth, or entry limits remain explicitly unverified.
+Project-marked folders such as checkouts with `.git` are review candidates;
+the scan does not silently treat them as absent or authorize their deletion.
 
 Native moves recheck the physical old source after cleanup. Any retained root
 is reported as **Cleanup incomplete**, with a saved source-specific report in
@@ -114,6 +122,13 @@ restart; scan again after recovery or removal to verify the current state.
 **Verified absent** requires a successful fresh check of that exact path.
 The scan does not prove that another copy preserves every file: checksum
 preservation and the appropriate cleanup confirmation are still required.
+
+Native Move verifies the copied stage and promoted destination against a fresh
+source inventory before removing the old source. A source changed during the
+operation remains in place with a Cleanup incomplete result for review. Snapshot
+restore verifies its preparatory and rollback copies and keeps the prior roots
+in a durable recovery folder reported by the restore job. Inventory limits
+stop oversized operations with the source retained for a more specific review.
 
 ## CODEX Dashboard Quick Start
 

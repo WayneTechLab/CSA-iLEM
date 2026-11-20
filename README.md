@@ -53,7 +53,7 @@ same unified module matrix strip. Home expands the matrix so operators can
 see the version, tag, area, state, and last-updated date for UI pages, engines,
 bridges, runtimes, receipts, recovery, and install/update surfaces.
 
-The shared catalog is now `matrix-1.4` with 24 tagged modules, including
+The shared catalog is now `matrix-1.5` with 24 tagged modules, including
 `feature.checkout-review`, `feature.source-residuals`, and
 `feature.transfer-artifacts`. The
 `bridge.firebase` module is `firebase-apple-v1.0`, and `runtime.release` is

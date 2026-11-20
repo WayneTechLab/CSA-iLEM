@@ -2,7 +2,7 @@
 
 Status: primary native macOS dashboard contract
 Version: 0.8.0
-Matrix revision: matrix-1.4
+Matrix revision: matrix-1.5
 Updated: 2026-10-31
 
 ## Purpose
@@ -54,7 +54,7 @@ When an operator reports a broken surface:
 
 ## Current local review and recovery modules
 
-Matrix 1.4 contains 24 stable tags. `feature.checkout-review` identifies
+Matrix 1.5 contains 24 stable tags. `feature.checkout-review` identifies
 Checkout Review & Recovery in Projects and Local Files: live GitHub repository
 identity and file comparison, separate local-history findings, complete
 physical manifests, recoverable retirement, and guarded restoration.
@@ -62,7 +62,7 @@ physical manifests, recoverable retirement, and guarded restoration.
 Jobs: metadata-only detection of hidden or dependency-only remnants, saved
 reports, and explicit Cleanup incomplete or Verified absent results.
 
-`feature.transfer-artifacts`, version `transfer-artifacts-v1.0`, identifies
+`feature.transfer-artifacts`, version `transfer-artifacts-v1.1`, identifies
 TransferArtifactCleanupEngine's Staging & Backup Cleanup workflow in Projects
 and Local Files. Every reviewed row remains visible. Complete per-item source
 and canonical manifests support recoverable whole-folder preservation and

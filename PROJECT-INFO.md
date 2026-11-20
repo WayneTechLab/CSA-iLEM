@@ -35,9 +35,9 @@ the installed bundle version.
 - a Windows 11 admin-shell PowerShell backend for import, cleanup, browsing, and runner/devcontainer prep
 
 Bundled reference pages cover Help Center, Terms of Service, Security Notes,
-Brand System, macOS App Notes, and Project Info. Matrix `matrix-1.4` tracks 24
+Brand System, macOS App Notes, and Project Info. Matrix `matrix-1.5` tracks 24
 modules, including `feature.checkout-review`, `feature.source-residuals`, and
-`feature.transfer-artifacts` (`transfer-artifacts-v1.0`).
+`feature.transfer-artifacts` (`transfer-artifacts-v1.1`).
 About distinguishes the installed payload from the unchanged app-version
 baseline. A payload fingerprint identifies the packaged manifest; it does not
 replace binary signature, notarization, or release acceptance checks.
