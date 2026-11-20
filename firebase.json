@@ -73,5 +73,18 @@
       "rules": "webportal/portal.rules",
       "indexes": "webportal/firestore.indexes.json"
     }
+  ],
+  "functions": [
+    {
+      "source": "webportal/functions",
+      "codebase": "portal",
+      "runtime": "nodejs22",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "*.local"
+      ]
+    }
   ]
 }

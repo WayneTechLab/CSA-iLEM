@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expanded the companion portal to 38 routes with an isolated Firebase emulator workflow, private workspace inventories, role management and audit, and opt-in native Mac metadata sync.
+
 - Marked restored Codex portal scan decisions as saved evidence until a fresh scan completes against the selected source and output paths. Current dashboard counts and review actions no longer present stale `/tmp` results as live, and a new button selects the active workspace Code/Repos and Import paths without transferring files.
 - Fixed project discovery for Code/Repos owner folders that contain many repositories and their own `.SYSTEMX` metadata. It now descends into immediate project children while still stopping at a real project root before nested templates.
 - Bound Stage 2 apply to fresh decisions for its exact source and managed roots, invalidated changed review and canonical choices, and required Full Auto's live candidate set to match the reviewed source set before planning. Codex transfer preflight and write paths now reject physical source/output overlap, including symlink aliases.

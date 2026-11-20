@@ -5,17 +5,27 @@ export function normalizePath(pathname: string) {
   return pathname.replace(/\/+$/, '') || '/'
 }
 
-export function isActivePath(currentPath: string, targetPath: string, end = false) {
+export function isActivePath(
+  currentPath: string,
+  targetPath: string,
+  end = false,
+) {
   const current = normalizePath(currentPath)
   const target = normalizePath(targetPath)
 
   if (target === '/') return current === '/'
-  return end ? current === target : current === target || current.startsWith(`${target}/`)
+  return end
+    ? current === target
+    : current === target || current.startsWith(`${target}/`)
 }
 
-export function navigate(to: string) {
+export function navigate(
+  to: string,
+  { replace = false }: { replace?: boolean } = {},
+) {
   const target = to.startsWith('/') ? to : `/${to}`
-  window.history.pushState({}, '', target)
+  if (replace) window.history.replaceState({}, '', target)
+  else window.history.pushState({}, '', target)
   window.dispatchEvent(new Event(NAVIGATION_EVENT))
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  window.scrollTo({ top: 0, behavior: 'instant' })
 }

@@ -1,8 +1,13 @@
-import {createContext,useContext} from "react";
-import type {User} from "firebase/auth";
+import { createContext, useContext } from 'react'
+import type { User } from 'firebase/auth'
+
 export const Session = createContext<{
-  user: User | null;
-  level: number;
-  loading: boolean;
-}>({ user: null, level: 0, loading: true });
-export const useSession = () => useContext(Session);
+  user: User | null
+  verified: boolean
+  level: number
+  loading: boolean
+}>({ user: null, verified: false, level: 0, loading: true })
+
+export function useSession() {
+  return useContext(Session)
+}

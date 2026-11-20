@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Public React/Vite/Firebase template with managed SYSTEMX tooling, agent coordination, LAN builder and production kits.",
   "scripts": {
+    "dev:local": "node scripts/local/dev.mjs start",
+    "dev:status": "node scripts/local/dev.mjs status",
+    "dev:stop": "node scripts/local/dev.mjs stop",
     "dev": "vite",
     "build": "tsc -b --noCheck && vite build",
     "preview": "vite preview",
@@ -22,7 +25,9 @@
     "ci:test": "npm run test --if-present",
     "ci:build": "vite build",
     "ci:audit": "npm audit --audit-level=high",
-    "ci:security": "bash scripts/security/run_security_checks.sh"
+    "ci:security": "bash scripts/security/run_security_checks.sh",
+    "test:portal": "playwright test",
+    "dev:mac": "bash scripts/local/mac-fixture.sh"
   },
   "dependencies": {
     "firebase": "^12.19.0",
@@ -32,6 +37,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

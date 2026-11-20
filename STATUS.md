@@ -6,12 +6,11 @@ Updated: `2026-11-20`
 This file is the current production-status snapshot for `CSA-iEM`.
 
 Local acceptance (2026-11-20): the complete 15-stage release preflight passed
-with 196 Swift tests and no failures, a Swift release build, 171 payload
+with 196 Swift tests and no failures, a Swift release build, 173 payload
 checksums, PowerShell parsing and trust tests, disposable install/update/uninstall
 rollback, Stage 2 exact reviewed-scope smoke, recovery safety, and GitHub
 identity-scope checks. This validates the local source and test lanes; public
-distribution remains blocked by the signing/notarization and web-source gaps
-below.
+distribution remains blocked by the signing and notarization prerequisites below.
 
 Security scan and release work (2026-11-19): a standard Codex Security scan of
 the preceding source snapshot found one medium-severity availability issue in
@@ -28,7 +27,11 @@ is present and fails closed, but this Mac still lacks a Developer ID Application
 identity and a configured notarization profile. The Firebase web portal is now deployed at https://csa-ilem.web.app from
 `webportal/`, adopted from the WebAppX standalone starter. The portal now supports Google/email login and verified-account metadata sync
 for projects, devices, and backup locations in the Oregon portal database.
-Native filesystem control and automatic pairing remain pending. Public
+The 38-page portal passed nine local browser and emulator scenarios, including
+owner role changes, Google and password sign-in, and account isolation. The
+isolated Mac build paired with the Level 5 fixture, verified a real test backup,
+retried its metadata upload after a simulated connection loss, and honored
+portal revocation. The hosted site continues to use the earlier portal version. Deploying the new functions requires Firebase Blaze. Public
 macOS distribution remains blocked by signing and notarization prerequisites.
 
 Portal state repair (2026-11-20): restored Smart Logic decisions remain available

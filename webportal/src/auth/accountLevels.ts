@@ -36,7 +36,7 @@ export const ACCOUNT_LEVELS: AccountLevelDefinition[] = [
     account: 'Paid Account',
     billing: 'Paid',
     loginState: 'logged-in',
-    description: 'Paid user access for pro workflows and commerce entitlements.',
+    description: 'Export workspace inventories to CSV.',
   },
   {
     level: 3,
@@ -45,7 +45,7 @@ export const ACCOUNT_LEVELS: AccountLevelDefinition[] = [
     account: 'Paid Account',
     billing: 'Paid',
     loginState: 'logged-in',
-    description: 'Premium paid access for highest customer tier workflows.',
+    description: 'Review backup coverage across projects and paired devices.',
   },
   {
     level: 4,
@@ -54,7 +54,7 @@ export const ACCOUNT_LEVELS: AccountLevelDefinition[] = [
     account: 'Admin Account',
     billing: 'Private',
     loginState: 'logged-in',
-    description: 'Employee/admin access. Requires server-side checks and MFA guidance.',
+    description: 'Inspect private service status.',
   },
   {
     level: 5,
@@ -63,7 +63,7 @@ export const ACCOUNT_LEVELS: AccountLevelDefinition[] = [
     account: 'Super Admin Account',
     billing: 'Private',
     loginState: 'logged-in',
-    description: 'Owner-only controls, break-glass operations, and full administrative access.',
+    description: 'Assign member and staff levels and review the role audit.',
   },
 ]
 

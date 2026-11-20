@@ -1854,9 +1854,27 @@ final class CleanupViewModel: ObservableObject {
   @Published var availableHosts: [String] = []
   @Published var availableAccounts: [String] = []
   @Published var availableRepos: [RepoCatalogEntry] = []
-  @Published var localProjects: [LocalProjectEntry] = []
+  lazy var portalSync = PortalSyncModel(stateDirectory: URL(fileURLWithPath: appSupportDir, isDirectory: true))
+
+  var portalProjects: [PortalProject] {
+    let local = localProjects.compactMap { entry in
+      entry.preferredOpenPath.map { PortalProject(name: entry.repo, path: $0) }
+    }
+    let importedPaths = Set(localProjects.flatMap { [$0.codePath, $0.runtimePath].compactMap { $0 }.map(PortalProject.localPath) })
+    let discovered = codexProjects.filter { !importedPaths.contains(PortalProject.localPath($0.path)) }
+      .map { PortalProject(name: $0.name, path: $0.path) }
+    var seen = Set<String>()
+    return (local + discovered).filter { seen.insert($0.id).inserted }
+      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+
+  @Published var localProjects: [LocalProjectEntry] = [] {
+    didSet { portalSync.observeProjects(portalProjects) }
+  }
   @Published var localProjectTransferArtifacts: [String] = []
-  @Published var codexProjects: [CodexProjectEntry] = []
+  @Published var codexProjects: [CodexProjectEntry] = [] {
+    didSet { portalSync.observeProjects(portalProjects) }
+  }
   @Published var selectedCodexProjectPaths: Set<String> = [] {
     didSet {
       guard selectedCodexProjectPaths != oldValue else { return }
@@ -7493,6 +7511,20 @@ final class CleanupViewModel: ObservableObject {
           if runLifecycle { self.codexLifecycleStatus = self.codexPortalStatus }
           if !residualRecords.isEmpty {
             self.codexPortalStatus += " Cleanup incomplete: \(residualRecords.count) retained source folder(s) require review in Old Source Leftovers."
+          }
+          for outcome in outcomes {
+            guard let artifact = outcome.archivePath, let receipt = outcome.receiptPath,
+                  FileManager.default.fileExists(atPath: artifact) else { continue }
+            let source = PortalProject.localPath(outcome.originalSourcePath)
+            let localEntry = self.localProjects.first { entry in
+              [entry.codePath, entry.runtimePath].compactMap { $0 }
+                .map(PortalProject.localPath).contains(source)
+            }
+            let project = PortalProject(
+              name: localEntry?.repo ?? outcome.projectName,
+              path: localEntry?.preferredOpenPath ?? outcome.originalSourcePath
+            )
+            self.portalSync.saveVerifiedBackup(project: project, artifact: artifact, receipt: receipt, verifiedAt: Date())
           }
           self.finishJob(id: jobID, state: residualRecords.isEmpty ? .succeeded : .cleanupIncomplete, detail: self.codexPortalStatus, residualSources: residualRecords)
           self.appendLog("[codex] \(self.codexPortalStatus)\n")
@@ -20395,6 +20427,8 @@ struct ContentView: View {
         isMenuVisible.toggle()
       }
 
+      PortalSyncPane(model: model.portalSync, projects: model.portalProjects)
+
       if width >= 1500 {
         HStack(alignment: .top, spacing: 18) {
           VStack(alignment: .leading, spacing: 18) {
@@ -24136,18 +24170,29 @@ struct CSAiEMMenuBarView: View {
 @main
 struct CSAiEMMacApp: App {
   @NSApplicationDelegateAdaptor(CSAiEMAppDelegate.self) private var appDelegate
-  @StateObject private var model = CleanupViewModel()
 
   var body: some Scene {
-    WindowGroup(appTitle) {
-      ContentView(model: model)
-        .onAppear {
-          appDelegate.attach(model: model)
-        }
+    WindowGroup(PortalSyncFixture.requested ? "CSA-iEM Portal Test" : appTitle) {
+      if PortalSyncFixture.requested {
+        #if DEBUG
+        PortalSyncFixtureRoot()
+        #endif
+      } else {
+        CSAiEMMainWindow(appDelegate: appDelegate)
+      }
     }
     .commands {
       CommandGroup(replacing: .newItem) { }
     }
+  }
+}
+
+private struct CSAiEMMainWindow: View {
+  let appDelegate: CSAiEMAppDelegate
+  @StateObject private var model = CleanupViewModel()
+
+  var body: some View {
+    ContentView(model: model).onAppear { appDelegate.attach(model: model) }
   }
 }
 
@@ -24161,6 +24206,7 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
   private var firebaseStatus = CSAiEMFirebaseBootstrapStatus.notStarted
 
   func applicationWillFinishLaunching(_ notification: Notification) {
+    guard !PortalSyncFixture.requested else { return }
     guard ProcessInfo.processInfo.environment["CSA_IEM_ALLOW_MULTIPLE_INSTANCES"] != "1" else {
       return
     }
@@ -24189,6 +24235,11 @@ final class CSAiEMAppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     guard !isDuplicateInstance else { return }
+    if PortalSyncFixture.requested {
+      NSApp.setActivationPolicy(.regular)
+      NSApp.activate(ignoringOtherApps: true)
+      return
+    }
     firebaseStatus = CSAiEMFirebaseBootstrap.configure()
     FileHandle.standardError.write(Data("\(firebaseStatus.safeLogMessage)\n".utf8))
     NSApp.setActivationPolicy(.regular)

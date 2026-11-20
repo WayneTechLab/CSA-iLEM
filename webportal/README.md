@@ -1,24 +1,77 @@
 # CSA-iEM web portal
 
-Live: https://csa-ilem.web.app
+The portal is based on the WayneTechLab/WebAppX 3.4.0 starter at
+`4ec10ea11857c756f686233ddcc905a99781e7b6`. The production site is
+[CSA-iEM](https://csa-ilem.web.app). This candidate runs on localhost.
 
-Adopted from WayneTechLab/WebAppX standalone starter 3.4.0 at 4ec10ea11857c756f686233ddcc905a99781e7b6. Template license retained in TEMPLATE-LICENSE. Layout/account patterns reviewed against WayneTechLab.com, Networks.Chat, and MKWgear; provider secrets and their application-specific backends were not copied.
+## Start the local workspace
 
-## Account and data model
+Use the project's Node version for Vite, Firebase CLI, and Java 21 for the
+Firestore emulator. Functions targets Node 22. If your shell uses another
+Node version, set `CSA_PORTAL_FUNCTIONS_NODE` to the absolute path to a Node
+22 executable for the emulator.
 
-Firebase Auth supports Google and email/password. Verified accounts can read and write their own projects, devices and backup location records under users/{uid}/{projects|devices|backups}/{id}. Each record stores name, location, notes, kind and a server updatedAt timestamp. Live listeners are intentional for dashboard sync across signed-in browsers. Lists are bounded to 100 records per category.
+```bash
+npm --prefix webportal ci
+npm --prefix webportal/functions ci
+npm --prefix webportal run dev:local
+```
 
-Roles live at roles/{uid}, with integer level 1–5. Only trusted backend credentials can assign them; clients cannot self-promote. Unauthenticated visitors have Level 0. Paid billing/entitlement automation and employee management are not implemented. No cross-user administrative data access is granted by the current prototype rules.
+Open the local owner preview printed by the launcher. It signs in a disposable
+Level 5 account against the demo project. Starting a new session reseeds data.
+Use `npm --prefix webportal run dev:status` to find the URL and
+`npm --prefix webportal run dev:stop` to stop the owned processes.
 
-Database: portal, Enterprise Native mode, us-west1, free tier at provisioning. Owner Lucas@WayneTechLab.com has a backend-provisioned Level 5 role. Email verification is required before role read and cloud saves.
+```bash
+npm --prefix webportal run typecheck
+npm --prefix webportal run lint
+npm --prefix webportal run build
+npx --prefix webportal playwright install chromium
+npm --prefix webportal run test:portal
+```
 
-## Current boundaries
+Set `CSA_BROWSER_CHANNEL=chrome` for the test command to use an installed
+Google Chrome instead. The tests require an active local emulator session.
+They exercise all 38 routes on desktop and mobile, browser account workflows,
+role and record isolation, and the device protocol against the demo project.
 
-Cloud sync stores metadata only. Local files, backup archives and filesystem operations remain in the native app. Automatic native device pairing/background sync and downloadable signed installers are pending. Downloads links to actual GitHub releases and build guidance.
+## Pair the isolated Mac app
 
-Build: npm ci && npm run typecheck && npm run lint && npm run build.
-Deploy from repository root: firebase deploy --only hosting,auth,firestore --project csa-ilem. Review service scope before each deploy; no Functions, Storage, billing provider or GitHub Actions are configured here.
+Run `npm --prefix webportal run dev:mac` on macOS while the local session is
+running. This opens a separate debug bundle and a synthetic project under the
+ignored local session directory. In the local dashboard, select **Pair a Mac**
+and generate a code. Enter the code in the debug app's Settings, select the
+fixture project, and approve sharing. Enable automatic sync or use **Sync now**.
+The debug app can create a real fixture backup and verify its copy locally.
+It also includes a lost-connection switch for testing the persistent upload
+queue. Revoke the device from its portal details to check that its next upload
+is denied and the existing receipt remains visible.
 
-## Verification on 2026-11-20
+## Data and rollout
 
-TypeScript, ESLint and production build passed. Live browser login, verified member project creation, reload readback, record deletion and sign-out passed with a disposable test account. Deployed rules rejected guests, cross-account reads, stale timestamps and self-promotion; own verified save/read/delete passed. Disposable accounts and successful probe records were removed. Owner interactive Google login still requires the owner.
+The browser matches the existing named `portal` database. Existing records
+remain in `users/{uid}/projects|devices|backups`. Paired devices write linked
+device, project, and backup metadata to separate collections under the same
+UID. Only verified account holders can read their workspace. Callable
+Functions validate record changes and enforce owner role management, recent
+authentication, and audited role writes. Pairing codes expire after ten minutes.
+The Mac stores its device credential in Keychain and the backend stores its
+digest. Exact paths require approval in the browser and on the Mac. Roles 2
+and 3 are owner assigned. The CSV export escapes spreadsheet formulas.
+
+The dashboard counts records in the signed-in workspace. Backup coverage is
+the number of tracked projects with a linked verified receipt divided by all
+tracked projects. Activity keeps the most recent 150 displayed events. Manual
+save points do not contribute to verified coverage.
+
+Hosted rollout requires Blaze for Functions and a coordinated deployment of
+Functions, Firestore rules, and Hosting after acceptance. Configure the live
+Auth email action handler to use `/auth/action` when publishing the new portal.
+A signed macOS installer requires separate Developer ID packaging and
+notarization. The public Downloads page links to the checked GitHub releases.
+No Actions workflow is used.
+
+The workspace preview is a browser screenshot using fixture records.
+The home hero uses this built-in ImageGen prompt.
+
+> Wide landscape editorial product photograph for the public home page of a professional Mac workspace and backup application. A modern Apple-style aluminum desktop workstation and exactly two distinct compact external backup drives on a clean desk, cool slate navy lighting with one restrained warm amber practical light, credible materials, sophisticated but realistic, slightly oblique straight-on camera view. Keep the equipment grouped near the center for responsive cropping. Screen has a subtle abstract dark gradient with no simulated UI. No words, no logos, no people, no watermark, no simulated dashboard. Landscape 3:2.

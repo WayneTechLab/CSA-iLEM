@@ -52,3 +52,9 @@ yarn-error.log*
 
 # Environment-generated markers (not part of the template)
 **/.csa-ilem-generated
+
+# Owned Vite/Emulator Suite run and test output
+.portal-local/
+.firebase.portal-local.json
+playwright-report/
+test-results/
