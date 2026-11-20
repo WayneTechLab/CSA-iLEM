@@ -31,8 +31,18 @@ The 38-page portal passed nine local browser and emulator scenarios, including
 owner role changes, Google and password sign-in, and account isolation. The
 isolated Mac build paired with the Level 5 fixture, verified a real test backup,
 retried its metadata upload after a simulated connection loss, and honored
-portal revocation. The hosted site continues to use the earlier portal version. Deploying the new functions requires Firebase Blaze. Public
-macOS distribution remains blocked by signing and notarization prerequisites.
+portal revocation.
+
+The 38-page portal went live on 2026-11-20 at
+[csa-ilem.web.app](https://csa-ilem.web.app) in Firebase Hosting version
+`d3a7b531c5d20ee2`. The preview passed all 38 routes on desktop and mobile
+using the production Auth, Functions, and named `portal` Firestore database.
+Live smoke tests confirmed Level 5 sign-in, private workspace readback, and
+audited role changes. A test client exercised the Mac pairing, retry, and
+revocation protocol against the live services.
+The previous Hosting version is `26ce29fcd8991a6e`. The Downloads page offers
+source releases and install instructions while the signed macOS installer
+awaits Developer ID packaging and notarization.
 
 Portal state repair (2026-11-20): restored Smart Logic decisions remain available
 as saved audit evidence, but the dashboard does not count them as current or

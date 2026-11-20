@@ -2,7 +2,7 @@
 
 The portal is based on the WayneTechLab/WebAppX 3.4.0 starter at
 `4ec10ea11857c756f686233ddcc905a99781e7b6`. The production site is
-[CSA-iEM](https://csa-ilem.web.app). This candidate runs on localhost.
+[CSA-iEM](https://csa-ilem.web.app).
 
 ## Start the local workspace
 
@@ -64,9 +64,20 @@ the number of tracked projects with a linked verified receipt divided by all
 tracked projects. Activity keeps the most recent 150 displayed events. Manual
 save points do not contribute to verified coverage.
 
-Hosted rollout requires Blaze for Functions and a coordinated deployment of
-Functions, Firestore rules, and Hosting after acceptance. Configure the live
-Auth email action handler to use `/auth/action` when publishing the new portal.
+Deploy the `portal` Functions codebase and Firestore rules before promoting a
+verified Hosting preview to live. The `csa-ilem` project uses Blaze, with the
+Functions and the `portal` database in `us-west1`. The
+`csa-portal-runtime` service account can read Firebase Auth accounts and can
+read and write the named `portal` database.
+
+Cloud Run uses service-level public HTTPS access for the portal Functions
+under the project's domain-restricted IAM policy. For a newly created portal
+service, use `gcloud run services update SERVICE --no-invoker-iam-check
+--region=us-west1 --project=csa-ilem`. The callables enforce Firebase Auth
+and role checks. Native endpoints require a pairing code or a device credential.
+Firebase Auth emails use its hosted action handler. The portal's `/auth/action`
+page also accepts Firebase verification and password reset links.
+
 A signed macOS installer requires separate Developer ID packaging and
 notarization. The public Downloads page links to the checked GitHub releases.
 No Actions workflow is used.
