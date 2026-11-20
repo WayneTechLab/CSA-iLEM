@@ -91,6 +91,7 @@ private let codexReviewDispositionsFile = (appSupportDir as NSString).appendingP
 private let codexReviewAuditFile = (appSupportDir as NSString).appendingPathComponent("codex-review-audit.json")
 private let codexSourceFingerprintsFile = (appSupportDir as NSString).appendingPathComponent("codex-source-fingerprints.json")
 private let codexSmartDecisionsFile = (appSupportDir as NSString).appendingPathComponent("codex-smart-decisions.json")
+private let codexDecisionBaselineFile = (appSupportDir as NSString).appendingPathComponent("codex-decision-baseline.json")
 private let codexImportedEvidenceHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-evidence-history.json")
 private let codexImportedRouteReceiptHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-route-receipt-history.json")
 private let codexImportedBaselineAuditHistoryFile = (appSupportDir as NSString).appendingPathComponent("codex-imported-baseline-audit-history.json")
@@ -1867,6 +1868,7 @@ final class CleanupViewModel: ObservableObject {
   }
   @Published var codexTransferPlans: [CodexTransferPlan] = []
   @Published var codexSmartDecisions: [CodexSmartDecision] = []
+  @Published private(set) var codexScanFreshness = CodexScanFreshness()
   @Published var codexReviewDispositions: [String: CodexReviewDisposition] = [:]
   @Published var codexReviewAudit: [CodexReviewAuditEntry] = []
   @Published var codexSourceDeltas: [CodexSourceDelta] = []
@@ -2345,7 +2347,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   var codexStage2ApplyBlocked: Bool {
-    !codexStage2GroupBlockerSummaries.isEmpty
+    !codexHasFreshStage2DecisionScan || !codexStage2GroupBlockerSummaries.isEmpty
   }
 
   var areAllVisibleCodexProjectsSelected: Bool {
@@ -2513,6 +2515,27 @@ final class CleanupViewModel: ObservableObject {
   var codexSmartArchivePath: String {
     let managedRoot = normalizeWorkspacePath(stage2ManagedRootDraft)
     return (managedRoot as NSString).appendingPathComponent(".SYSTEMX/Archive_Data")
+  }
+
+  var codexHasFreshDecisionScan: Bool {
+    codexScanFreshness.matches(
+      sourceRoots: parsedCodexScanRoots(),
+      outputRoot: normalizeWorkspacePath(codexOutputRootDraft)
+    )
+  }
+
+  var codexHasFreshStage2DecisionScan: Bool {
+    let sourceRoot = normalizeWorkspacePath(stage2SourceRootDraft)
+    return codexHasFreshDecisionScan && codexScanFreshness.context?.coversStage2(
+      sourceRoot: sourceRoot,
+      managedRoot: normalizeWorkspacePath(stage2ManagedRootDraft),
+      projectPaths: Set(codexProjects.map(\.path)),
+      decisionPaths: Set(codexSmartDecisions.map(\.sourcePath))
+    ) == true
+  }
+
+  var codexSavedScanSummary: String {
+    "\(codexSmartDecisions.count) saved decision row(s) are retained from an earlier scan. Their source and output paths may have changed or become unavailable. Run Scan Sources to refresh current counts before reviewing or applying a route."
   }
 
   var codexSmartReadyCount: Int {
@@ -2893,17 +2916,22 @@ final class CleanupViewModel: ObservableObject {
     let decisionStartedAt = Date()
     refreshCodexCatalogStore()
     let destinationRoot = normalizeWorkspacePath(codexOutputRootDraft)
+    let previousDecisions = codexSmartDecisions
+    let savedBaseline: CodexDecisionBaseline? = readJSON(CodexDecisionBaseline.self, from: codexDecisionBaselineFile)
     let previousFingerprints: [String: String] = readJSON([String: String].self, from: codexSourceFingerprintsFile) ?? [:]
     let deltas = CodexSmartLogicEngine.sourceDeltas(previous: previousFingerprints, current: projects)
     codexSourceDeltas = deltas
     let changedPaths = Set(deltas.filter { $0.kind != .unchanged }.map(\.sourcePath))
     let evaluateAll = codexSmartDecisions.isEmpty || previousFingerprints.isEmpty
+      || savedBaseline?.canReuse(for: destinationRoot, ruleVersion: CodexSmartLogicEngine.ruleVersion) != true
       || codexSmartDecisions.contains { $0.ruleVersion != CodexSmartLogicEngine.ruleVersion }
     let changedGroupKeys = Set(projects.filter { changedPaths.contains($0.path) }.map { CodexSmartLogicEngine.groupKey(for: $0) })
     let projectsToEvaluate: [CodexProjectEntry]
     if evaluateAll {
       projectsToEvaluate = projects
-      codexScanDeltaStatus = "Initial baseline: evaluated all \(projects.count) discovered source row(s)."
+      codexScanDeltaStatus = savedBaseline?.outputRoot != destinationRoot
+        ? "Output destination changed or prior scope is unknown: evaluated all \(projects.count) source row(s)."
+        : "Initial baseline: evaluated all \(projects.count) discovered source row(s)."
     } else {
       projectsToEvaluate = projects.filter { project in
         changedPaths.contains(project.path) || changedGroupKeys.contains(CodexSmartLogicEngine.groupKey(for: project))
@@ -2927,16 +2955,22 @@ final class CleanupViewModel: ObservableObject {
     writeJSON(decisions, to: codexSmartDecisionsFile)
     let currentFingerprints = Dictionary(uniqueKeysWithValues: projects.map { ($0.path, CodexSmartLogicEngine.sourceFingerprint($0)) })
     writeJSON(currentFingerprints, to: codexSourceFingerprintsFile)
-    codexReviewDispositions = codexReviewDispositions.filter { entry in
-      decisions.contains { $0.sourcePath == entry.key }
-    }
+    writeJSON(CodexDecisionBaseline(outputRoot: destinationRoot, ruleVersion: CodexSmartLogicEngine.ruleVersion), to: codexDecisionBaselineFile)
+    codexReviewDispositions = CodexSmartLogicEngine.retainedReviewDispositions(
+      codexReviewDispositions,
+      previousFingerprints: previousFingerprints,
+      currentFingerprints: currentFingerprints,
+      previousDecisions: previousDecisions,
+      currentDecisions: decisions
+    )
     persistCodexReviewDispositions()
-    let validGroups = Set(decisions.map(\.groupKey))
-    codexCanonicalSourceByGroup = codexCanonicalSourceByGroup.filter { entry in
-      validGroups.contains(entry.key) && decisions.contains { decision in
-        decision.groupKey == entry.key && decision.sourcePath == entry.value
-      }
-    }
+    codexCanonicalSourceByGroup = CodexSmartLogicEngine.retainedCanonicalSources(
+      codexCanonicalSourceByGroup,
+      previousFingerprints: previousFingerprints,
+      currentFingerprints: currentFingerprints,
+      previousDecisions: previousDecisions,
+      currentDecisions: decisions
+    )
     let session = CodexScanSession(
       id: UUID().uuidString,
       profile: profile.rawValue,
@@ -2990,6 +3024,7 @@ final class CleanupViewModel: ObservableObject {
       codexCatalogStatus = "Catalog warning: \(error.localizedDescription)"
       appendLog("[codex] Smart Logic catalog warning: \(error.localizedDescription)\n")
     }
+    codexScanFreshness.record(CodexFreshScanContext(sourceRoots: sourceRoots, outputRoot: destinationRoot))
   }
 
   func selectCodexComparisonSession(_ sessionID: String) {
@@ -3360,7 +3395,9 @@ final class CleanupViewModel: ObservableObject {
     }
     let oldDecisionCount = codexSmartDecisions.count
     try? FileManager.default.removeItem(atPath: codexSourceFingerprintsFile)
+    try? FileManager.default.removeItem(atPath: codexDecisionBaselineFile)
     codexSmartDecisions.removeAll()
+    codexScanFreshness.reset()
     codexComparisonDeltas.removeAll()
     codexSessionDiffSummary = nil
     codexBaselineRebuildReason = ""
@@ -3377,7 +3414,7 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func requestCodexLocalAdvisory() {
-    guard !codexActiveSmartDecisions.isEmpty else {
+    guard codexHasFreshDecisionScan, !codexActiveSmartDecisions.isEmpty else {
       codexAdvisory = nil
       codexAdvisoryStatus = "Run Scan Sources before requesting a local advisory."
       return
@@ -3404,6 +3441,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func chooseCodexCanonicalSource(_ decision: CodexSmartDecision) {
+    guard codexHasFreshDecisionScan else {
+      codexPortalStatus = "Run Scan Sources to refresh saved decisions before choosing a canonical source."
+      return
+    }
     guard decision.classification != .sameNameReview,
           decision.classification != .brokenMetadataReview,
           decision.classification != .fatalIdentityConflict else {
@@ -3418,6 +3459,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func setCodexReviewDisposition(_ decision: CodexSmartDecision, disposition: CodexReviewDisposition?) {
+    guard codexHasFreshDecisionScan else {
+      codexPortalStatus = "Run Scan Sources to refresh saved decisions before changing a review disposition."
+      return
+    }
     guard decision.classification.isReview || disposition == nil else {
       codexPortalStatus = "Only review-classified sources can be deferred or excluded."
       return
@@ -3453,6 +3498,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func undoLastCodexReviewAction() {
+    guard codexHasFreshDecisionScan else {
+      codexPortalStatus = "Run Scan Sources to refresh saved decisions before undoing a review action."
+      return
+    }
     guard let index = codexReviewAudit.lastIndex(where: { $0.action == "disposition-changed" }) else {
       codexPortalStatus = "No reversible review disposition is recorded."
       return
@@ -3482,6 +3531,10 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func reEvaluateCodexGroup(_ groupKey: String) {
+    guard codexHasFreshDecisionScan else {
+      codexGroupReviewStatus = "Run Scan Sources to refresh saved decisions before re-evaluating an identity group."
+      return
+    }
     let sourcePaths = Set(codexSmartDecisions.filter { $0.groupKey == groupKey }.map(\.sourcePath))
     let projects = codexProjects.filter { sourcePaths.contains($0.path) }
     guard !projects.isEmpty else {
@@ -6318,6 +6371,31 @@ final class CleanupViewModel: ObservableObject {
     codexPortalStatus = "Added readable Documents, development, Codex worktree, and mounted-drive project folders. Scan Projects uses folder context even when Codex no longer has a linked project record."
   }
 
+  func useActiveWorkspaceForCodexScan() {
+    guard !isCodexPortalBusy else {
+      codexPortalStatus = "Wait for the current Codex operation before changing scan paths."
+      return
+    }
+    let roots = resolvedProfileRoots()
+    let repositoryRoot = (roots.codeRoot as NSString).appendingPathComponent("Repos")
+    let sourceRoot = FileManager.default.fileExists(atPath: repositoryRoot) ? repositoryRoot : roots.codeRoot
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: sourceRoot, isDirectory: &isDirectory), isDirectory.boolValue else {
+      codexPortalStatus = "The active Code root is unavailable. Mount the workspace drive or choose a readable source folder."
+      return
+    }
+    do {
+      try CodexPathSafety.validate(sourcePath: sourceRoot, destinationPath: roots.importRoot)
+    } catch {
+      codexPortalStatus = "The active workspace paths cannot be used for this Codex scan: \(error.localizedDescription)"
+      return
+    }
+    codexScanRootsDraft = sourceRoot
+    codexOutputRootDraft = roots.importRoot
+    persistCodexScanRoots()
+    codexPortalStatus = "Using the active Code repositories as the source and Import as the output draft. Scan Sources to verify current projects; no files were transferred."
+  }
+
   func chooseCodexOutputRoot() {
     guard let selectedPath = chooseDirectory(startingAt: codexOutputRootDraft) else { return }
     codexOutputRootDraft = selectedPath
@@ -6360,8 +6438,9 @@ final class CleanupViewModel: ObservableObject {
       return
     }
     codexScanRootsDraft = sourceRoot
+    codexOutputRootDraft = normalizeWorkspacePath(stage2ManagedRootDraft)
     persistCodexScanRoots()
-    stage2Status = "Scanning the Stage 1 output folder. Temporary and transaction folders are excluded during Stage 2 planning."
+    stage2Status = "Scanning the Stage 1 source against the current managed root. Temporary and transaction folders are excluded during Stage 2 planning."
     scanCodexProjects()
   }
 
@@ -6686,6 +6765,19 @@ final class CleanupViewModel: ObservableObject {
       stage2Status = "Stage 1 source and the managed CSA-iEM root must be separate folders."
       return
     }
+    if action == "apply" && !codexHasFreshStage2DecisionScan {
+      stage2SafetyArmed = false
+      stage2Status = "Run Scan Stage 2 for this exact Stage 1 source and managed root before applying. Every source project needs a current decision row."
+      return
+    }
+    if action == "apply" && !fullAuto {
+      let excludedPaths = Set(codexExcludedSmartDecisions.map(\.sourcePath))
+      if stage2SelectedProjects.contains(where: { excludedPaths.contains($0.path) }) {
+        stage2SafetyArmed = false
+        stage2Status = "A selected Stage 2 project is excluded from Smart Logic review. Deselect it or restore its review disposition before applying."
+        return
+      }
+    }
     if action == "apply" && codexStage2ApplyBlocked {
       stage2SafetyArmed = false
       stage2Status = "Stage 2 apply is blocked by unresolved Smart Logic identity-group review. Run preflight, resolve or explicitly exclude the named sources, then rescan before arming workspace writes."
@@ -6712,6 +6804,26 @@ final class CleanupViewModel: ObservableObject {
     }
     for activeProject in codexProjects.filter({ $0.ideState == .active }) {
       arguments.append(contentsOf: ["--exclude-path", activeProject.path])
+    }
+
+    if fullAuto && codexHasFreshStage2DecisionScan {
+      let reviewedPaths = codexSmartDecisions.map(\.sourcePath).sorted()
+      for path in reviewedPaths {
+        arguments.append(contentsOf: ["--reviewed-source", path])
+      }
+      arguments.append("--require-reviewed-scope")
+      let reviewedSet = Set(reviewedPaths)
+      let excludedPaths = codexExcludedSmartDecisions.map(\.sourcePath).sorted()
+      guard excludedPaths.allSatisfy({ path in
+        reviewedSet.contains(path) && path.hasPrefix(sourceRoot + "/")
+      }) else {
+        stage2SafetyArmed = false
+        stage2Status = "An excluded Stage 2 source is outside the reviewed source scope. Scan Stage 2 again before Full Auto."
+        return
+      }
+      for path in excludedPaths {
+        arguments.append(contentsOf: ["--exclude-path", path])
+      }
     }
 
     if fullAuto {
@@ -6903,6 +7015,10 @@ final class CleanupViewModel: ObservableObject {
 
   func preflightCodexTransfer() {
     guard !isBuildingCodexTransferPlan, !isRunningCodexTransfer, !isScanningCodexProjects else { return }
+    guard codexHasFreshDecisionScan else {
+      codexPortalStatus = "Run Scan Sources after choosing the current source and output paths before building a transfer plan."
+      return
+    }
     let projects = selectedCodexProjects
     guard !projects.isEmpty else {
       codexPortalStatus = "Select at least one discovered project before preflight."
@@ -7102,6 +7218,11 @@ final class CleanupViewModel: ObservableObject {
 
   private func runCodexTransfer(runLifecycle: Bool) {
     guard !isRunningCodexTransfer, !isScanningCodexProjects, !isBuildingCodexTransferPlan else { return }
+    guard codexHasFreshDecisionScan else {
+      codexPortalStatus = "Run Scan Sources after choosing the current source and output paths before transferring projects."
+      restoreCodexResumeSelection()
+      return
+    }
     if codexSmartScanMode == .yolo && (runLifecycle || codexTransferMode.removesSource || codexTransferMode.performsBidirectionalSync || codexTransferMode.performsScanAndBackup) {
       codexPortalStatus = "YOLO mode is limited to a non-destructive Backup or Copy. It cannot run Sync and Move, bidirectional sync, Scan & Backup, Stage 2, or Stage 3."
       return
@@ -12054,10 +12175,13 @@ final class CleanupViewModel: ObservableObject {
     return evidence
   }
 
-  private nonisolated static func readCodexLocalDevProfile(projectPath: String) -> CodexLocalDevProfile? {
+  nonisolated static func readCodexLocalDevProfile(projectPath: String) -> CodexLocalDevProfile? {
     let packagePath = (projectPath as NSString).appendingPathComponent("package.json")
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: packagePath)),
-          let object = try? JSONSerialization.jsonObject(with: data),
+    // Project manifests can be contributor-controlled. Do not follow links or
+    // parse an unbounded file while discovering local development commands.
+    guard let read = CSAiEMBoundedFileRead.read(at: URL(fileURLWithPath: packagePath), limit: 1_048_576),
+          !read.hasBytesBeyondLimit,
+          let object = try? JSONSerialization.jsonObject(with: read.data),
           let package = object as? [String: Any],
           let scripts = package["scripts"] as? [String: Any] else {
       return nil
@@ -12894,7 +13018,27 @@ final class CleanupViewModel: ObservableObject {
     guard !outputRoot.isEmpty else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Choose an output folder."])
     }
+    // Resolve physical aliases before the write probe or any staging directory
+    // is created. A lexical comparison misses Code/Repos -> Import links.
+    for project in projects {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: outputRoot)
+    }
     try fm.createDirectory(atPath: outputRoot, withIntermediateDirectories: true, attributes: nil)
+
+    let resolvedDestinations = try resolveCodexDestinationPaths(
+      projects: projects,
+      outputRoot: outputRoot,
+      mode: mode,
+      fileManager: fm
+    )
+    if mode.writesDestination {
+      for project in projects {
+        guard let destination = resolvedDestinations[project.path] else {
+          throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not resolve an output destination for \(project.name)."])
+        }
+        try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
+      }
+    }
 
     let testPath = (outputRoot as NSString).appendingPathComponent(".csa-iem-write-test-\(UUID().uuidString)")
     let writeTest = runCommand(
@@ -12907,12 +13051,6 @@ final class CleanupViewModel: ObservableObject {
     }
     try? fm.removeItem(atPath: testPath)
 
-    let resolvedDestinations = try resolveCodexDestinationPaths(
-      projects: projects,
-      outputRoot: outputRoot,
-      mode: mode,
-      fileManager: fm
-    )
     var projectsByDestination: [String: [CodexProjectEntry]] = [:]
     if mode.writesDestination {
       for project in projects {
@@ -13487,11 +13625,15 @@ final class CleanupViewModel: ObservableObject {
     progress: ((String, Int, Int64) -> Void)? = nil
   ) throws -> CodexTransferPlan {
     let fm = FileManager.default
-    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name, projectPath: project.path)
     let destinationPath = mode.writesDestination ? resolvedDestinationPath : nil
     if mode.writesDestination, destinationPath == nil {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer destination for \(project.name) was not resolved during preflight."])
     }
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: outputRoot)
+    if let destinationPath {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destinationPath)
+    }
+    let indexDirectory = try codexIndexDirectory(outputRoot: outputRoot, projectName: project.name, projectPath: project.path)
     if let cachedPlan = cachedCodexTransferPlanIfCurrent(
       project: project,
       outputRoot: outputRoot,
@@ -13740,6 +13882,12 @@ final class CleanupViewModel: ObservableObject {
 
     let destinationPath = mode.writesDestination ? transferPlan.destinationPath : nil
     let destination = destinationPath
+    // Preflight evidence can become stale while an index or backup is built.
+    // Recheck the actual folders before entering any transfer write path.
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: outputRoot)
+    if let destination {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
+    }
     if mode.performsBidirectionalSync,
        let destinationPath,
        fm.fileExists(atPath: destinationPath),
@@ -13831,6 +13979,7 @@ final class CleanupViewModel: ObservableObject {
     }
 
     if createBackup {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: outputRoot)
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
       try transferNote.write(toFile: (backupRoot as NSString).appendingPathComponent("Transfer_Note.MD"), atomically: true, encoding: String.Encoding.utf8)
       try promptInject.write(toFile: (backupRoot as NSString).appendingPathComponent("Prompt_Inject.MD"), atomically: true, encoding: String.Encoding.utf8)
@@ -13874,6 +14023,7 @@ final class CleanupViewModel: ObservableObject {
       guard let destination = destinationPath else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The planned destination for \(project.name) is missing."])
       }
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
       guard !fm.fileExists(atPath: destination) else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Destination appeared during transfer: \(destination)"])
       }
@@ -13918,6 +14068,7 @@ final class CleanupViewModel: ObservableObject {
         }
 
         if mode.removesSource {
+          try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
           let parkedSource = project.path + ".csa-iem-source-\(stamp)"
           try fm.moveItem(atPath: project.path, toPath: parkedSource)
           parkedSourcePath = parkedSource
@@ -13988,6 +14139,7 @@ final class CleanupViewModel: ObservableObject {
     let stamp = timestampStamp()
     let safeName = project.name.replacingOccurrences(of: "/", with: "-")
     let outputRoot = (destination as NSString).deletingLastPathComponent
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
     let backupRoot = ((outputRoot as NSString).appendingPathComponent("backup") as NSString)
       .appendingPathComponent("\(safeName)-\(stamp)")
     let conflictRoot = ((outputRoot as NSString).appendingPathComponent("_temp") as NSString)
@@ -14071,6 +14223,7 @@ final class CleanupViewModel: ObservableObject {
     }
 
     if createBackup {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
       let sourceArchive = try createCodexBackup(
         source: project.path,
@@ -14093,6 +14246,7 @@ final class CleanupViewModel: ObservableObject {
 
     let sourceProtected = destinationWins.union(conflicts)
     let destinationProtected = sourceWins.union(conflicts)
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
     try applyRsyncMerge(
       source: project.path,
       destination: destination,
@@ -14104,6 +14258,7 @@ final class CleanupViewModel: ObservableObject {
       manifestOutputRoot: outputRoot,
       manifestProjectName: project.name
     )
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
     try applyRsyncMerge(
       source: destination,
       destination: project.path,
@@ -14790,10 +14945,12 @@ final class CleanupViewModel: ObservableObject {
     var archivePath: String?
     var currentSourcePath: String? = project.path
     let outputRoot = (destination as NSString).deletingLastPathComponent
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
     guard transferPlan.projectPath == project.path, transferPlan.destinationPath == destination else {
       throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "The transfer plan no longer matches \(project.name). Run Preflight again before modifying an existing destination."])
     }
     if createBackup {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
       // Capture both sides before reconciliation so an interrupted merge can
       // always roll back to the exact pre-run state.
       try fm.createDirectory(atPath: backupRoot, withIntermediateDirectories: true, attributes: nil)
@@ -14852,6 +15009,7 @@ final class CleanupViewModel: ObservableObject {
       guard wasPreserved else {
         throw NSError(domain: appTitle, code: 1, userInfo: [NSLocalizedDescriptionKey: "Type-conflict path was not preserved before replacement: \(relativePath)"])
       }
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
       let destinationPath = (destination as NSString).appendingPathComponent(relativePath)
       if codexPathExistsIncludingSymlink(destinationPath) {
         try fm.removeItem(atPath: destinationPath)
@@ -14860,6 +15018,7 @@ final class CleanupViewModel: ObservableObject {
     // Existing destinations use the preflight file table as an rsync manifest.
     // That means the repeat path copies only missing, metadata-changed, or
     // deep-audit-failed entries rather than re-sending the entire project.
+    try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
     var reconciledFileCount = try applyTargetedCodexRsync(
       source: project.path,
       destination: destination,
@@ -14991,6 +15150,7 @@ final class CleanupViewModel: ObservableObject {
     }
 
     if mode.removesSource {
+      try CodexPathSafety.validate(sourcePath: project.path, destinationPath: destination)
       let parkedSource = project.path + ".csa-iem-source-\(stamp)"
       try fm.moveItem(atPath: project.path, toPath: parkedSource)
       currentSourcePath = parkedSource
@@ -18196,9 +18356,18 @@ struct ContentView: View {
 
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
         MetricTile(label: "Sources indexed", value: "\(model.codexProjects.count)", tint: DashboardTheme.accent, icon: "folder.badge.questionmark")
-        MetricTile(label: "Ready candidates", value: "\(model.codexSmartReadyCount)", tint: DashboardTheme.success, icon: "checkmark.seal")
-        MetricTile(label: "Needs review", value: "\(model.codexSmartReviewCount)", tint: DashboardTheme.warning, icon: "exclamationmark.magnifyingglass")
+        MetricTile(label: "Ready candidates", value: model.codexHasFreshDecisionScan ? "\(model.codexSmartReadyCount)" : "0", tint: DashboardTheme.success, icon: "checkmark.seal")
+        MetricTile(label: "Needs review", value: model.codexHasFreshDecisionScan ? "\(model.codexSmartReviewCount)" : "0", tint: DashboardTheme.warning, icon: "exclamationmark.magnifyingglass")
         MetricTile(label: "Output plans", value: "\(model.codexSmartOutputCount)", tint: DashboardTheme.deepBlue, icon: "arrow.right.doc.on.clipboard")
+      }
+
+      if !model.codexHasFreshDecisionScan && !model.codexSmartDecisions.isEmpty {
+        BannerCard(title: "Saved scan evidence needs refresh", detail: model.codexSavedScanSummary, kind: .warning)
+        Button("Use Active Workspace Paths") {
+          model.useActiveWorkspaceForCodexScan()
+        }
+        .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
+        .disabled(model.isCodexPortalBusy)
       }
 
       Divider().overlay(DashboardTheme.border)
@@ -18223,7 +18392,7 @@ struct ContentView: View {
           .foregroundStyle(model.codexSmartScanMode == .yolo ? DashboardTheme.warning : DashboardTheme.text)
           .lineSpacing(2)
 
-        if let plan = model.codexSmartScanPlan {
+        if model.codexHasFreshDecisionScan, let plan = model.codexSmartScanPlan {
           VStack(alignment: .leading, spacing: 4) {
             Text("Smart Logic route plan")
               .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -18269,7 +18438,7 @@ struct ContentView: View {
           Label(model.isBuildingCodexTransferPlan ? "Indexing…" : "Build Decision Scan", systemImage: "checkmark.shield")
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.warning, bordered: true))
-        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy)
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy || !model.codexHasFreshDecisionScan)
 
         Button {
           model.runCodexTransfer()
@@ -18277,13 +18446,13 @@ struct ContentView: View {
           Label(model.isRunningCodexTransfer ? "Running…" : "Run Selected", systemImage: "play.fill")
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.success, bordered: false))
-        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy)
+        .disabled(model.selectedCodexProjectPaths.isEmpty || model.isCodexPortalBusy || !model.codexHasFreshDecisionScan)
       }
 
       BannerCard(
         title: model.codexSmartDecisionSummary,
         detail: "Index: \(model.codexSmartIndexPath)\nOutput: \(model.codexOutputRootDraft)\nBridges: \(model.codexBridgeSummary)",
-        kind: model.isCodexPortalBusy ? .running : (model.codexSmartReviewCount > 0 ? .warning : .ready)
+        kind: model.isCodexPortalBusy ? .running : (!model.codexHasFreshDecisionScan && !model.codexSmartDecisions.isEmpty || model.codexSmartReviewCount > 0 ? .warning : .ready)
       )
 
       Text(model.codexGroupReviewStatus)
@@ -18300,7 +18469,7 @@ struct ContentView: View {
         }
         .buttonStyle(DashboardButtonStyle(tint: DashboardTheme.deepBlue, bordered: true))
         .controlSize(.small)
-        .disabled(!model.codexReviewAudit.contains { $0.action == "disposition-changed" })
+        .disabled(!model.codexHasFreshDecisionScan || !model.codexReviewAudit.contains { $0.action == "disposition-changed" })
       }
 
       if let sessionDiff = model.codexSessionDiffSummary {
@@ -18570,34 +18739,53 @@ struct ContentView: View {
         .foregroundStyle(DashboardTheme.text)
       }
 
-      Text(model.codexCanonicalSelectionSummary)
-        .font(.system(size: 11, weight: .bold, design: .rounded))
-        .foregroundStyle(model.codexMissingCanonicalGroupCount == 0 ? DashboardTheme.success : DashboardTheme.warning)
+      if model.codexHasFreshDecisionScan {
+        Text(model.codexCanonicalSelectionSummary)
+          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .foregroundStyle(model.codexMissingCanonicalGroupCount == 0 ? DashboardTheme.success : DashboardTheme.warning)
 
-      CodexDecisionReviewPanel(
-        decisions: model.codexActiveSmartDecisions,
-        excludedDecisions: model.codexExcludedSmartDecisions,
-        groupSummaries: model.codexSmartGroupSummaries,
-        dispositions: model.codexReviewDispositions,
-        catalogStatus: model.codexCatalogStatus,
-        sessionID: model.codexActiveSessionID,
-        canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
-        advisoryProvider: $model.codexAdvisoryProviderKind,
-        advisory: model.codexAdvisory,
-        advisoryStatus: model.codexAdvisoryStatus,
-        onRequestAdvisory: {
-          model.requestCodexLocalAdvisory()
-        },
-        onChooseCanonical: { decision in
-          model.chooseCodexCanonicalSource(decision)
-        },
-        onSetDisposition: { decision, disposition in
-          model.setCodexReviewDisposition(decision, disposition: disposition)
-        },
-        onReevaluateGroup: { groupKey in
-          model.reEvaluateCodexGroup(groupKey)
+        CodexDecisionReviewPanel(
+          decisions: model.codexActiveSmartDecisions,
+          excludedDecisions: model.codexExcludedSmartDecisions,
+          groupSummaries: model.codexSmartGroupSummaries,
+          dispositions: model.codexReviewDispositions,
+          catalogStatus: model.codexCatalogStatus,
+          sessionID: model.codexActiveSessionID,
+          canonicalSourceByGroup: model.codexCanonicalSourceByGroup,
+          advisoryProvider: $model.codexAdvisoryProviderKind,
+          advisory: model.codexAdvisory,
+          advisoryStatus: model.codexAdvisoryStatus,
+          onRequestAdvisory: {
+            model.requestCodexLocalAdvisory()
+          },
+          onChooseCanonical: { decision in
+            model.chooseCodexCanonicalSource(decision)
+          },
+          onSetDisposition: { decision, disposition in
+            model.setCodexReviewDisposition(decision, disposition: disposition)
+          },
+          onReevaluateGroup: { groupKey in
+            model.reEvaluateCodexGroup(groupKey)
+          }
+        )
+      } else if !model.codexSmartDecisions.isEmpty {
+        DisclosureGroup("Saved decision evidence · \(model.codexSmartDecisions.count) rows") {
+          VStack(alignment: .leading, spacing: 5) {
+            Text("These records are retained for audit. Scan Sources before changing a canonical source or review disposition.")
+            ForEach(Array(model.codexSmartDecisions.prefix(12))) { decision in
+              Text("\(decision.classification.label) · \(decision.sourcePath)")
+                .textSelection(.enabled)
+            }
+            if model.codexSmartDecisions.count > 12 {
+              Text("Showing 12 of \(model.codexSmartDecisions.count) saved rows.")
+            }
+          }
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DashboardTheme.muted)
         }
-      )
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .foregroundStyle(DashboardTheme.text)
+      }
     }
   }
 
@@ -19708,18 +19896,31 @@ struct ContentView: View {
         .tint(DashboardTheme.success)
         .disabled(model.isCodexPortalBusy || model.codexStage2ApplyBlocked)
 
+      if !model.codexHasFreshStage2DecisionScan {
+        BannerCard(
+          title: "Stage 2 decision scan required",
+          detail: "Scan Stage 2 after choosing its Stage 1 source and managed root. Apply stays blocked until every discovered source has a current decision row for those exact paths.",
+          kind: .warning
+        )
+      }
+      Text("Full Auto also compares the reviewed source list with the shell's live eligible immediate child folders. A truncated scan or a project-marked source root stops before any project write; rescan the source.")
+        .font(.system(size: 10, weight: .medium, design: .rounded))
+        .foregroundStyle(DashboardTheme.muted)
+
       BannerCard(
         title: model.stage2SelectionSummary,
         detail: model.stage2Status,
         kind: model.stage2SafetyArmed ? .warning : .ready
       )
 
-      ForEach(model.codexStage2GroupBlockerSummaries, id: \.self) { summary in
-        BannerCard(
-          title: "Stage 2 apply blocked: identity group requires review",
-          detail: summary,
-          kind: .warning
-        )
+      if model.codexHasFreshStage2DecisionScan {
+        ForEach(model.codexStage2GroupBlockerSummaries, id: \.self) { summary in
+          BannerCard(
+            title: "Stage 2 apply blocked: identity group requires review",
+            detail: summary,
+            kind: .warning
+          )
+        }
       }
 
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {

@@ -4,6 +4,67 @@ import XCTest
 final class SmartLogicTests: XCTestCase {
   private let observedDate = Date(timeIntervalSince1970: 1_754_931_600)
 
+  func testFreshScanContextRequiresTheScannedSourceAndDestination() {
+    let context = CodexFreshScanContext(sourceRoots: ["/sources/a", "/sources/b"], outputRoot: "/output")
+    XCTAssertTrue(context.matches(sourceRoots: ["/sources/a", "/sources/b"], outputRoot: "/output"))
+    XCTAssertFalse(context.matches(sourceRoots: ["/sources/a"], outputRoot: "/output"))
+    XCTAssertFalse(context.matches(sourceRoots: ["/sources/a", "/sources/b"], outputRoot: "/other-output"))
+  }
+
+  func testStage2DecisionCoverageRequiresExactRootsAndNonemptyRows() {
+    let context = CodexFreshScanContext(sourceRoots: ["/stage1"], outputRoot: "/managed")
+    let projects: Set<String> = ["/stage1/Flowers"]
+    XCTAssertTrue(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/managed", projectPaths: projects, decisionPaths: projects))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/other", managedRoot: "/managed", projectPaths: projects, decisionPaths: projects))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/other", projectPaths: projects, decisionPaths: projects))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/managed", projectPaths: [], decisionPaths: []))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/managed", projectPaths: projects, decisionPaths: []))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/managed", projectPaths: ["/other/Flowers"], decisionPaths: ["/other/Flowers"]))
+    XCTAssertFalse(context.coversStage2(sourceRoot: "/stage1", managedRoot: "/managed", projectPaths: ["/stage1"], decisionPaths: ["/stage1"]))
+  }
+
+  func testDecisionBaselineForcesReevaluationWhenOutputChanges() {
+    let baseline = CodexDecisionBaseline(outputRoot: "/output-a", ruleVersion: CodexSmartLogicEngine.ruleVersion)
+    XCTAssertTrue(baseline.canReuse(for: "/output-a", ruleVersion: CodexSmartLogicEngine.ruleVersion))
+    XCTAssertFalse(baseline.canReuse(for: "/output-b", ruleVersion: CodexSmartLogicEngine.ruleVersion))
+    XCTAssertFalse(baseline.canReuse(for: "/output-a", ruleVersion: "older-rule"))
+  }
+
+  func testBaselineResetInvalidatesFreshScanContext() {
+    var freshness = CodexScanFreshness()
+    freshness.record(CodexFreshScanContext(sourceRoots: ["/source"], outputRoot: "/output"))
+    XCTAssertTrue(freshness.matches(sourceRoots: ["/source"], outputRoot: "/output"))
+    freshness.reset()
+    XCTAssertFalse(freshness.matches(sourceRoots: ["/source"], outputRoot: "/output"))
+  }
+
+  func testChangedSourceFingerprintDropsSavedExclusion() {
+    let source = project(path: "/stage1/Flowers", name: "Flowers", remoteURL: nil, branch: "main", ideState: .unlinked, hasLocalChanges: false, mainState: .synchronized)
+    let changed = project(path: source.path, name: source.name, remoteURL: "https://github.com/WayneTechLab/Flowers.git", branch: "main", ideState: .unlinked, hasLocalChanges: false, mainState: .synchronized)
+    let oldDecisions = CodexSmartLogicEngine.evaluate([source], destinationRoot: "/output-a")
+    let sameDecisions = CodexSmartLogicEngine.evaluate([source], destinationRoot: "/output-b")
+    let changedDecisions = CodexSmartLogicEngine.evaluate([changed], destinationRoot: "/output-b")
+    let oldFingerprints = [source.path: CodexSmartLogicEngine.sourceFingerprint(source)]
+    let sameFingerprints = oldFingerprints
+    let changedFingerprints = [changed.path: CodexSmartLogicEngine.sourceFingerprint(changed)]
+    let exclusions: [String: CodexReviewDisposition] = [source.path: .excluded]
+    XCTAssertEqual(CodexSmartLogicEngine.retainedReviewDispositions(exclusions, previousFingerprints: oldFingerprints, currentFingerprints: sameFingerprints, previousDecisions: oldDecisions, currentDecisions: sameDecisions), exclusions)
+    XCTAssertTrue(CodexSmartLogicEngine.retainedReviewDispositions(exclusions, previousFingerprints: oldFingerprints, currentFingerprints: changedFingerprints, previousDecisions: oldDecisions, currentDecisions: changedDecisions).isEmpty)
+  }
+
+  func testChangedSourceEvidenceDropsSavedCanonicalChoice() {
+    let old = project(path: "/stage1/Flowers", name: "Flowers", remoteURL: "https://github.com/WayneTechLab/Flowers.git", branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized)
+    let changed = project(path: old.path, name: old.name, remoteURL: old.remoteURL, branch: "main", ideState: .linked, hasLocalChanges: false, mainState: .synchronized, snapshot: CodexProjectSnapshot(fileCount: 1, byteCount: 12, latestModification: nil, truncated: false))
+    let oldDecisions = CodexSmartLogicEngine.evaluate([old], destinationRoot: "/managed-a")
+    let sameDecisions = CodexSmartLogicEngine.evaluate([old], destinationRoot: "/managed-b")
+    let changedDecisions = CodexSmartLogicEngine.evaluate([changed], destinationRoot: "/managed-b")
+    let choices = [oldDecisions[0].groupKey: old.path]
+    let oldFingerprints = [old.path: CodexSmartLogicEngine.sourceFingerprint(old)]
+    let changedFingerprints = [changed.path: CodexSmartLogicEngine.sourceFingerprint(changed)]
+    XCTAssertEqual(CodexSmartLogicEngine.retainedCanonicalSources(choices, previousFingerprints: oldFingerprints, currentFingerprints: oldFingerprints, previousDecisions: oldDecisions, currentDecisions: sameDecisions), choices)
+    XCTAssertTrue(CodexSmartLogicEngine.retainedCanonicalSources(choices, previousFingerprints: oldFingerprints, currentFingerprints: changedFingerprints, previousDecisions: oldDecisions, currentDecisions: changedDecisions).isEmpty)
+  }
+
   func testAppSettingsDecodeLegacyPartialPayloadWithoutResettingKnownValues() throws {
     let data = Data(#"{"defaultGitHubHost":"github.example.test","privacyFirstMode":false}"#.utf8)
     let settings = try JSONDecoder().decode(AppSettings.self, from: data)

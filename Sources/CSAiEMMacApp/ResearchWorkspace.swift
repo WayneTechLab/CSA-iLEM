@@ -22,7 +22,7 @@ private enum CSAiEMResearchDirectoryWalk {
   }
 }
 
-private struct CSAiEMBoundedFileRead {
+struct CSAiEMBoundedFileRead {
   let data: Data
   let byteCount: Int
   let hasBytesBeyondLimit: Bool

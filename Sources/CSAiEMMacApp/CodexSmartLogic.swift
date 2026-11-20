@@ -164,6 +164,54 @@ struct CodexScanSession: Codable, Hashable, Identifiable, Sendable {
   let decisionCount: Int
 }
 
+/// A scan is current only for the source and destination drafts it actually used.
+/// Persisted decisions remain review evidence after a relaunch, never live dashboard counts.
+struct CodexFreshScanContext: Equatable, Sendable {
+  let sourceRoots: [String]
+  let outputRoot: String
+
+  func matches(sourceRoots: [String], outputRoot: String) -> Bool {
+    self.sourceRoots == sourceRoots && self.outputRoot == outputRoot
+  }
+
+  func coversStage2(
+    sourceRoot: String,
+    managedRoot: String,
+    projectPaths: Set<String>,
+    decisionPaths: Set<String>
+  ) -> Bool {
+    sourceRoots == [sourceRoot] && outputRoot == managedRoot &&
+      !projectPaths.isEmpty && projectPaths == decisionPaths && projectPaths.allSatisfy {
+        $0.hasPrefix(sourceRoot + "/")
+      }
+  }
+}
+
+struct CodexScanFreshness: Equatable, Sendable {
+  private(set) var context: CodexFreshScanContext?
+
+  mutating func record(_ context: CodexFreshScanContext) {
+    self.context = context
+  }
+
+  mutating func reset() {
+    context = nil
+  }
+
+  func matches(sourceRoots: [String], outputRoot: String) -> Bool {
+    context?.matches(sourceRoots: sourceRoots, outputRoot: outputRoot) == true
+  }
+}
+
+struct CodexDecisionBaseline: Codable, Equatable, Sendable {
+  let outputRoot: String
+  let ruleVersion: String
+
+  func canReuse(for outputRoot: String, ruleVersion: String) -> Bool {
+    self.outputRoot == outputRoot && self.ruleVersion == ruleVersion
+  }
+}
+
 struct CodexScanTimingEvidence: Codable, Hashable, Sendable {
   let sessionID: String
   let discoveryMilliseconds: Int
@@ -1044,6 +1092,47 @@ struct LocalCodexAdvisoryProvider: CodexAdvisoryProvider {
 
 enum CodexSmartLogicEngine {
   static let ruleVersion = "smart-logic-v2.8"
+
+  static func retainedReviewDispositions(
+    _ dispositions: [String: CodexReviewDisposition],
+    previousFingerprints: [String: String],
+    currentFingerprints: [String: String],
+    previousDecisions: [CodexSmartDecision],
+    currentDecisions: [CodexSmartDecision]
+  ) -> [String: CodexReviewDisposition] {
+    let previousByPath = Dictionary(uniqueKeysWithValues: previousDecisions.map { ($0.sourcePath, $0) })
+    let currentByPath = Dictionary(uniqueKeysWithValues: currentDecisions.map { ($0.sourcePath, $0) })
+    return dispositions.filter { path, _ in
+      guard let previousFingerprint = previousFingerprints[path],
+            previousFingerprint == currentFingerprints[path],
+            let previous = previousByPath[path],
+            let current = currentByPath[path] else { return false }
+      return previous.groupKey == current.groupKey && previous.classification == current.classification
+    }
+  }
+
+  static func retainedCanonicalSources(
+    _ selections: [String: String],
+    previousFingerprints: [String: String],
+    currentFingerprints: [String: String],
+    previousDecisions: [CodexSmartDecision],
+    currentDecisions: [CodexSmartDecision]
+  ) -> [String: String] {
+    let previousByPath = Dictionary(uniqueKeysWithValues: previousDecisions.map { ($0.sourcePath, $0) })
+    let currentByPath = Dictionary(uniqueKeysWithValues: currentDecisions.map { ($0.sourcePath, $0) })
+    return selections.filter { group, selectedPath in
+      let previousPaths = Set(previousDecisions.filter { $0.groupKey == group }.map(\.sourcePath))
+      let currentPaths = Set(currentDecisions.filter { $0.groupKey == group }.map(\.sourcePath))
+      guard !previousPaths.isEmpty, previousPaths == currentPaths, currentPaths.contains(selectedPath) else { return false }
+      return currentPaths.allSatisfy { path in
+        guard let previousFingerprint = previousFingerprints[path],
+              previousFingerprint == currentFingerprints[path],
+              let previous = previousByPath[path],
+              let current = currentByPath[path] else { return false }
+        return previous.classification == current.classification && previous.groupKey == current.groupKey
+      }
+    }
+  }
 
   static func sourceFingerprint(_ project: CodexProjectEntry) -> String {
     let latestModification = project.snapshot.latestModification.map { ISO8601DateFormatter().string(from: $0) } ?? ""

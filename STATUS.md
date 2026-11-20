@@ -1,17 +1,26 @@
 # CSA-iEM Status
 
 Version baseline: `0.8.0`
-Updated: `2026-11-19`
+Updated: `2026-11-20`
 
 This file is the current production-status snapshot for `CSA-iEM`.
+
+Local acceptance (2026-11-20): the complete 15-stage release preflight passed
+with 193 Swift tests and no failures, a Swift release build, 170 payload
+checksums, PowerShell parsing and trust tests, disposable install/update/uninstall
+rollback, Stage 2 exact reviewed-scope smoke, recovery safety, and GitHub
+identity-scope checks. This validates the local source and test lanes; public
+distribution remains blocked by the signing/notarization and web-source gaps
+below.
 
 Security scan and release work (2026-11-19): a standard Codex Security scan of
 the preceding source snapshot found one medium-severity availability issue in
 Repository Intelligence's unbounded documentation and workflow reads. The
 working source now bounds those reads and directory traversal, rejects
 symlinks and special files, and moves snapshot work off the UI queue; focused
-regression tests cover large files, traversal caps, and `/dev/zero`. Both
-remote installers now require an exact commit and
+regression tests cover large files, traversal caps, and `/dev/zero`. Project
+discovery also rejects oversized or linked `package.json` files before parsing
+local development scripts. Both remote installers now require an exact commit and
 an independently verified complete-archive digest before execution. Optional
 package bootstrap requires `--with-deps`, and native direct Move is blocked
 outside the verified transaction path. A separate public macOS packaging gate
@@ -20,6 +29,17 @@ identity and a configured notarization profile. The registered Firebase Hosting
 site has zero releases and no webapp source has been identified in this repo;
 its root is 404. These external release prerequisites keep public production
 status blocked despite local hardening.
+
+Portal state repair (2026-11-20): restored Smart Logic decisions remain available
+as saved audit evidence, but the dashboard does not count them as current or
+permit review and transfer actions until a fresh scan completes for the selected
+source and output paths. A visible action selects the active workspace Code/Repos
+source and Import output drafts without changing files or starting a scan.
+Stage 2 apply requires fresh decision coverage for its exact source and managed
+roots; Full Auto compares the reviewed paths to its live eligible candidate set
+before planning, so incomplete or stale scans fail closed. Changed source
+evidence clears old review and canonical choices. Codex transfer preflight and
+execution check physical source/output separation, including symlink aliases.
 
 Production hardening review (2026-11-19): native Move now requires complete
 source-to-stage and source-to-destination read-back before old-source removal;
@@ -41,10 +61,12 @@ and a pre-copy capacity check, since the current Code and Runtime roots exceed
 the earlier detailed-inventory limits. Public macOS distribution still requires a Developer ID identity,
 notarization, Gatekeeper acceptance, and a trusted published artifact. The
 separate Firebase Hosting root currently returns 404; the native app uses
-FirebaseCore only. GitHub has one open secret-scanning alert for the Firebase
-Apple client key; the key is intentional client configuration. Cloud SQL Admin
-is on its allowlist but is disabled, and enabled-and-allowed targets were
-Firebase related in the provider review. No public project IAM principal is
+FirebaseCore only. GitHub's secret-scanning alert for the Firebase Apple client
+key was resolved as intentional public client configuration after live API-key
+restriction review; its validity remains unknown. Cloud SQL Admin
+was disabled and unused, then removed from both Firebase client-key allowlists
+on 2026-11-19. Each key now has 26 API targets, with the remaining restrictions
+unchanged on provider read-back. No public project IAM principal is
 bound. Dependabot alerts were enabled after the initial review and returned no
 alerts on immediate read-back; code scanning remains disabled. An authenticated
 Auth configuration read returned CONFIGURATION_NOT_FOUND, and App Check is

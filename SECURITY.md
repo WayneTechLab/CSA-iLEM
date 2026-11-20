@@ -47,18 +47,25 @@ Cloud API keys in `GoogleService-Info.plist` or anywhere in the app bundle.
 Before enabling another Firebase product, review its rules, App Check support,
 API-key restrictions, macOS entitlements, privacy disclosure, and test lane.
 
-The 2026-11-19 provider review found one open GitHub secret-scanning alert for
+The 2026-11-19 provider review found one GitHub secret-scanning alert for
 the tracked Firebase Apple client key. The key matches the registered app and
 is intentional public client configuration, not evidence of a compromised
-backend credential. Its 27 allowed API targets include Cloud SQL Admin, which
-is disabled in this project; the enabled-and-allowed targets are Firebase
-related. No public IAM principal is bound to the project. The native app uses
-FirebaseCore only, with no active Firestore, Storage, Realtime Database, Auth,
-or App Check configuration to exercise. Review key restrictions in a test lane
-before enabling more APIs or data services; applying an iOS bundle restriction
-to this macOS build without verifying its request headers could break calls.
-Dependabot alerts were
-enabled later on 2026-11-19, and the immediate read-back returned no alerts;
+backend credential. On 2026-11-19, Cloud SQL Admin was confirmed disabled and
+unused, then removed from both Firebase client-key API allowlists. Each key now
+allows 26 API targets; the existing platform restriction type and every other
+API target were preserved and verified by provider read-back. Both platform
+restriction objects remain empty, so no bundle-ID or referrer allowlist is
+configured. No public IAM
+principal is bound to the project. The native app uses FirebaseCore only, with
+no active Firestore, Storage, Realtime Database, Auth, or App Check configuration
+to exercise. The alert was resolved as `wont_fix` with an explanation that the
+key is intentional public Firebase client configuration; GitHub read-back
+confirmed the resolution. The key's validity remains unknown, and the resolution
+does not replace future Rules, App Check, and quota review. Review application
+restrictions in a test lane before enabling
+more APIs or data services; applying an iOS bundle restriction to this macOS
+build without verifying its request headers could break calls.
+Dependabot alerts were enabled later on 2026-11-19, and the immediate read-back returned no alerts;
 the dependency graph may still be populating. GitHub code scanning remains
 disabled, so its dashboard does not establish a clean code audit.
 

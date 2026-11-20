@@ -32,6 +32,8 @@ OPEN_WITH=""
 REPORT_PATH=""
 PROJECT_SELECTORS=()
 EXCLUDED_PATHS=()
+REVIEWED_SOURCE_PATHS=()
+REQUIRE_REVIEWED_SCOPE=0
 
 TMP_ROOT=""
 PLAN_FILE=""
@@ -155,6 +157,9 @@ Identity and safety:
   --github-account OWNER=LOGIN  Bind an owner to a stored gh login; repeatable.
                                 Tokens remain in memory and global auth is unchanged.
   --exclude-path PATH           Exclude an active project path; repeatable.
+  --reviewed-source PATH        One GUI-reviewed immediate source project; repeatable.
+  --require-reviewed-scope      Require the reviewed-source set to exactly match
+                                Stage 2's live eligible source set before planning.
   --report PATH                 Write the Markdown report to an explicit path.
 
 Stage 2 preserves .git, dependencies, hidden files, and Finder metadata for new
@@ -545,6 +550,49 @@ collect_candidates() {
 
   if [[ ! -s "$TMP_ROOT/candidates.txt" && ! -s "$PLAN_FILE" ]]; then
     die "No eligible Stage 2 projects were found under $SOURCE_ROOT"
+  fi
+}
+
+# A GUI scan can stop at a time/directory limit or treat a project-marked root
+# as one project. Full Auto must not take that partial review as authority for
+# the shell's independently enumerated immediate source folders.
+require_reviewed_scope() {
+  [[ "$REQUIRE_REVIEWED_SCOPE" -eq 1 ]] || return 0
+  [[ "$SELECT_ALL" -eq 1 ]] || die "--require-reviewed-scope requires --all or --full-auto."
+  [[ "${#REVIEWED_SOURCE_PATHS[@]}" -gt 0 ]] || die "Reviewed source scope is empty; scan Stage 2 projects before applying."
+
+  local reviewed=""
+  local canonical=""
+  local first_unreviewed=""
+  local first_unmatched=""
+  local reviewed_file="$TMP_ROOT/reviewed-sources.txt"
+  local sorted_reviewed="$TMP_ROOT/reviewed-sources-sorted.txt"
+  local sorted_candidates="$TMP_ROOT/candidates-sorted.txt"
+  : > "$reviewed_file"
+  for reviewed in "${REVIEWED_SOURCE_PATHS[@]}"; do
+    [[ "$reviewed" == /* && "$reviewed" != *$'\n'* && "$reviewed" != *$'\r'* ]] ||
+      die "A reviewed Stage 2 source must be an absolute path without line breaks."
+    [[ -d "$reviewed" ]] || die "A reviewed Stage 2 source is unavailable: $reviewed"
+    canonical="$(normalize_path "$reviewed")" || die "A reviewed Stage 2 source could not be canonicalized: $reviewed"
+    path_is_strictly_within "$canonical" "$SOURCE_ROOT" ||
+      die "A reviewed Stage 2 source is not an immediate eligible child of the Stage 1 root: $reviewed"
+    [[ "$(dirname -- "$canonical")" == "$SOURCE_ROOT" ]] ||
+      die "A reviewed Stage 2 source is not an immediate child of the Stage 1 root: $reviewed"
+    printf '%s\n' "$canonical" >> "$reviewed_file"
+  done
+
+  LC_ALL=C sort "$reviewed_file" > "$sorted_reviewed"
+  if [[ -n "$(LC_ALL=C uniq -d "$sorted_reviewed")" ]]; then
+    die "Reviewed Stage 2 source paths contain a duplicate or physical alias."
+  fi
+  LC_ALL=C sort "$TMP_ROOT/candidates.txt" > "$sorted_candidates"
+  if ! cmp -s "$sorted_reviewed" "$sorted_candidates"; then
+    first_unreviewed="$(LC_ALL=C comm -23 "$sorted_candidates" "$sorted_reviewed" | sed -n '1p')"
+    first_unmatched="$(LC_ALL=C comm -13 "$sorted_candidates" "$sorted_reviewed" | sed -n '1p')"
+    if [[ -n "$first_unreviewed" ]]; then
+      die "Stage 2 found an eligible source absent from the reviewed scan: $first_unreviewed. Rescan before applying."
+    fi
+    die "The reviewed Stage 2 source is no longer an eligible immediate project: $first_unmatched. Rescan before applying."
   fi
 }
 
@@ -4622,6 +4670,9 @@ parse_args() {
       --project) shift; [[ "$#" -gt 0 ]] || die "--project requires a path or name"; PROJECT_SELECTORS+=("$1") ;;
       --project=*) PROJECT_SELECTORS+=("${1#*=}") ;;
       --exclude-path) shift; [[ "$#" -gt 0 ]] || die "--exclude-path requires a path"; EXCLUDED_PATHS+=("$(normalize_path "$1")") ;;
+      --reviewed-source) shift; [[ "$#" -gt 0 ]] || die "--reviewed-source requires a path"; REVIEWED_SOURCE_PATHS+=("$1") ;;
+      --reviewed-source=*) REVIEWED_SOURCE_PATHS+=("${1#*=}") ;;
+      --require-reviewed-scope) REQUIRE_REVIEWED_SCOPE=1 ;;
       --preflight|--scan) ACTION="preflight" ;;
       --apply) ACTION="apply" ;;
       --full-auto) ACTION="apply"; SELECT_ALL=1 ;;
@@ -4737,6 +4788,7 @@ main() {
   build_destination_index
 
   collect_candidates
+  require_reviewed_scope
   info "Stage 1 source: $SOURCE_ROOT"
   info "Managed root: $MANAGED_ROOT"
   info "GitHub identity: $GITHUB_HOST/${ACCOUNT:-unavailable}"
