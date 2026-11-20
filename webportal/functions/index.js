@@ -6,7 +6,12 @@ const {
   FieldValue,
   Timestamp,
 } = require('firebase-admin/firestore')
+const { setGlobalOptions } = require('firebase-functions/v2')
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https')
+
+setGlobalOptions({
+  serviceAccount: 'csa-portal-runtime@csa-ilem.iam.gserviceaccount.com',
+})
 
 const app = initializeApp()
 const db = getFirestore(app, 'portal')
