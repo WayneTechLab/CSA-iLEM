@@ -9,12 +9,17 @@ import { ContactPage } from '@/pages/ContactPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
+import { DashboardPage } from '@/pages/DashboardPage'
+import { DownloadsPage } from '@/pages/DownloadsPage'
+
 function getPathname() {
   return normalizePath(window.location.pathname)
 }
 
 function renderPage(pathname: string) {
   switch (pathname) {
+    case '/dashboard': return <DashboardPage />
+    case '/downloads': return <DownloadsPage />
     case '/':
       return <HomePage />
     case '/about':

@@ -7,6 +7,8 @@ import { siteControls } from '@/config/siteControls'
 
 const links = [
   { to: '/', label: 'Home', end: true },
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/downloads', label: 'Downloads' },
   { to: '/about', label: 'About' },
   { to: '/services', label: 'Services' },
   { to: '/docs', label: 'Docs' },
@@ -74,7 +76,7 @@ export function Navbar({ currentPath }: NavbarProps) {
         <nav aria-label="Brand" className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 pr-18 sm:pr-20">
           <AppLink to="/" className="flex items-center gap-2 font-bold">
             <span className="grid h-8 w-8 place-items-center rounded border border-neutral-950 bg-neutral-950 text-xs font-semibold text-white">
-              W
+              C
             </span>
             <span className="truncate">CSA-iEM</span>
           </AppLink>

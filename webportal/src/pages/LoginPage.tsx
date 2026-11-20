@@ -1,1 +1,132 @@
-export function LoginPage() { return <section className="mx-auto max-w-6xl px-6 py-20"><p className="text-sm font-semibold uppercase tracking-widest text-sky-700">CSA-iEM · Workspace operations</p><h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight sm:text-6xl">Account access</h1><p className="mt-8 max-w-3xl text-lg leading-8 text-neutral-600">Cloud account access is not enabled in this initial portal. The native app uses your locally authenticated GitHub CLI session for authorized repository operations.</p><div className="mt-10 flex flex-wrap gap-4"><a className="rounded-lg bg-neutral-950 px-5 py-3 font-semibold text-white" href="https://github.com/WayneTechLab/CSA-iLEM">View project on GitHub</a><a className="rounded-lg border border-neutral-300 px-5 py-3" href="https://www.WayneTechLab.com">Wayne Tech Lab</a></div><p className="mt-12 text-sm text-neutral-500">Local files and recovery archives stay on your configured drives. This portal does not connect to your Mac filesystem.</p></section> }
+import { useState, type FormEvent } from "react";
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signOut,
+} from "firebase/auth";
+import { auth } from "@/config/firebase";
+import { useSession } from "@/portal/useSession";
+import { navigate } from "@/lib/navigation";
+export function LoginPage() {
+  const { user } = useSession();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [create, setCreate] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await action();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    await run(async () => {
+      if (create) {
+        const c = await createUserWithEmailAndPassword(auth, email, password);
+        await sendEmailVerification(c.user);
+        setMessage(
+          "Verification email sent. Verify your email to enable cloud saves.",
+        );
+      } else await signInWithEmailAndPassword(auth, email, password);
+      navigate("/dashboard");
+    });
+  }
+  return (
+    <section className="portal-wrap">
+      <div className="portal-card login-card">
+        <p className="eyebrow">Your workspace, connected</p>
+        <h1>{user ? "You are signed in" : "Welcome to CSA-iEM"}</h1>
+        <p>
+          Save project checkpoints and keep track of where your backups live.
+        </p>
+        {user ? (
+          <>
+            <p>{user.email}</p>
+            <button onClick={() => navigate("/dashboard")}>
+              Open dashboard
+            </button>
+            <button
+              className="secondary"
+              onClick={() => run(() => signOut(auth))}
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await signInWithPopup(auth, new GoogleAuthProvider());
+                  navigate("/dashboard");
+                })
+              }
+            >
+              Continue with Google
+            </button>
+            <form onSubmit={submit}>
+              <label>
+                Email
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  minLength={8}
+                  autoComplete={create ? "new-password" : "current-password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+              <button disabled={busy}>
+                {busy
+                  ? "Please wait…"
+                  : create
+                    ? "Create free account"
+                    : "Log in"}
+              </button>
+            </form>
+            <button className="text-button" onClick={() => setCreate(!create)}>
+              {create
+                ? "Already have an account? Log in"
+                : "Create a free member account"}
+            </button>
+            <button
+              className="text-button"
+              disabled={!email || busy}
+              onClick={() =>
+                run(async () => {
+                  await sendPasswordResetEmail(auth, email);
+                  setMessage("Password reset requested. Check your email.");
+                })
+              }
+            >
+              Reset password
+            </button>
+          </>
+        )}
+        <p role="status">{message}</p>
+      </div>
+    </section>
+  );
+}

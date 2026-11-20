@@ -57,5 +57,21 @@
       }
     ],
     "site": "csa-ilem"
-  }
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "CSA-iEM",
+        "supportEmail": "Lucas@WayneTechLab.com"
+      }
+    }
+  },
+  "firestore": [
+    {
+      "database": "portal",
+      "rules": "webportal/portal.rules",
+      "indexes": "webportal/firestore.indexes.json"
+    }
+  ]
 }

@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  // roles/{uid}: level integer 1..5, provisioned only with trusted admin credentials.
+  // users/{uid}/{projects|devices|backups}/{id}: name, location, notes, kind,
+  // updatedAt timestamp. Each record is private to its verified account.
+  function member(uid) { return request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true; }
+  function validRecord(kind) {
+   let d = request.resource.data;
+   return d.keys().hasAll(['name','location','notes','kind','updatedAt']) && d.keys().hasOnly(['name','location','notes','kind','updatedAt'])
+    && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+    && d.location is string && d.location.size() <= 1000
+    && d.notes is string && d.notes.size() <= 4000
+    && d.kind == kind && d.updatedAt == request.time;
+  }
+  match /roles/{uid} { allow get: if member(uid); allow list, write: if false; }
+  match /users/{uid}/{kind}/{id} {
+   allow read, delete: if member(uid) && kind in ['projects','devices','backups'];
+   allow create, update: if member(uid) && kind in ['projects','devices','backups'] && validRecord(kind);
+  }
+ }
+}
