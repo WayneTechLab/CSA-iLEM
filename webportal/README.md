@@ -59,6 +59,19 @@ The Mac stores its device credential in Keychain and the backend stores its
 digest. Exact paths require approval in the browser and on the Mac. Roles 2
 and 3 are owner assigned. The CSV export escapes spreadsheet formulas.
 
+In the Mac app, open **Settings → Cloud workspace sync** and refresh the
+inventory. The list uses the active Code, Import, and Runtime roots and
+the native Codex project catalog. Choose the individual checkouts to share.
+Selected folders keep separate records even when they use the same GitHub
+repository. The Projects page shows the reporting Mac, workspace area,
+other checkouts of that repository, and linked verified export or backup
+receipts. Exact paths require both pairing approvals. A checkout missing
+from a later scan retains its last report and is marked as unavailable.
+
+Use **Open in Codex** next to a native checkout, or copy its Codex command
+from the web detail page when its exact folder was shared. Run the copied
+command on the Mac that reported the folder.
+
 The dashboard counts records in the signed-in workspace. Backup coverage is
 the number of tracked projects with a linked verified receipt divided by all
 tracked projects. Activity keeps the most recent 150 displayed events. Manual

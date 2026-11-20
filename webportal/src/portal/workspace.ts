@@ -8,6 +8,13 @@ export const kindLabels = {
   backups: 'Backup',
 }
 export type RecordKind = keyof typeof kindLabels
+export const workspaceAreaLabels = {
+  code: 'Code workspace',
+  import: 'Import staging',
+  runtime: 'Runtime workspace',
+  local: 'Local checkout',
+} as const
+export type WorkspaceArea = keyof typeof workspaceAreaLabels
 export type WorkspaceEntry = {
   id: string
   name: string
@@ -16,6 +23,10 @@ export type WorkspaceEntry = {
   source: 'manual' | 'mac'
   projectId?: string
   deviceId?: string
+  repository?: string
+  area?: WorkspaceArea
+  available?: boolean
+  isExport?: boolean
   verifiedAt?: Date
   updatedAt?: Date
   lastSyncAt?: Date

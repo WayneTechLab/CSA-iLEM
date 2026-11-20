@@ -1207,6 +1207,7 @@ struct LocalTransferOutcome {
   let warnings: [String]
   var residualSources: [LocalSourceResidualRecord] = []
   var summary = ""
+  var verifiedProjectExports: [LocalTransferOperation] = []
 }
 
 struct TransferArtifactCleanupSession: Codable, Sendable {
@@ -1856,24 +1857,15 @@ final class CleanupViewModel: ObservableObject {
   @Published var availableRepos: [RepoCatalogEntry] = []
   lazy var portalSync = PortalSyncModel(stateDirectory: URL(fileURLWithPath: appSupportDir, isDirectory: true))
 
-  var portalProjects: [PortalProject] {
-    let local = localProjects.compactMap { entry in
-      entry.preferredOpenPath.map { PortalProject(name: entry.repo, path: $0) }
-    }
-    let importedPaths = Set(localProjects.flatMap { [$0.codePath, $0.runtimePath].compactMap { $0 }.map(PortalProject.localPath) })
-    let discovered = codexProjects.filter { !importedPaths.contains(PortalProject.localPath($0.path)) }
-      .map { PortalProject(name: $0.name, path: $0.path) }
-    var seen = Set<String>()
-    return (local + discovered).filter { seen.insert($0.id).inserted }
-      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-  }
+  @Published private(set) var portalProjects: [PortalProject] = []
+  @Published private(set) var isRefreshingPortalProjects = false
+  private var portalInventoryRevision = UUID()
+  private var localProjectScanRevision = UUID()
 
-  @Published var localProjects: [LocalProjectEntry] = [] {
-    didSet { portalSync.observeProjects(portalProjects) }
-  }
+  @Published var localProjects: [LocalProjectEntry] = []
   @Published var localProjectTransferArtifacts: [String] = []
   @Published var codexProjects: [CodexProjectEntry] = [] {
-    didSet { portalSync.observeProjects(portalProjects) }
+    didSet { refreshPortalInventory() }
   }
   @Published var selectedCodexProjectPaths: Set<String> = [] {
     didSet {
@@ -5357,6 +5349,13 @@ final class CleanupViewModel: ObservableObject {
           self.localFilesStatus = summary
           self.appendLog("[gui] \(summary)\n")
           self.recordSourceResiduals(outcome.residualSources)
+          for transfer in outcome.verifiedProjectExports {
+            guard let project = self.portalProjects.first(where: { $0.id == PortalProject.localPath(transfer.source) }) else { continue }
+            self.portalSync.saveVerifiedBackup(
+              project: project, artifact: transfer.destination, receipt: transfer.destination,
+              verifiedAt: Date(), isExport: true
+            )
+          }
           self.finishJob(id: jobID, state: outcome.residualSources.isEmpty ? .succeeded : .cleanupIncomplete, detail: summary, residualSources: outcome.residualSources)
           self.refreshLocalProjects()
         }
@@ -5432,6 +5431,8 @@ final class CleanupViewModel: ObservableObject {
   }
 
   func refreshLocalProjects() {
+    let revision = UUID()
+    localProjectScanRevision = revision
     isLoadingLocalProjects = true
     localProjectStatus = "Scanning local projects for the \(workspaceStyleLabel.lowercased()) workspace..."
     let workspaceLabel = workspaceStyleLabel
@@ -5446,6 +5447,7 @@ final class CleanupViewModel: ObservableObject {
       )
 
       DispatchQueue.main.async {
+        guard self.localProjectScanRevision == revision else { return }
         if result.projects.isEmpty,
            !self.isAutoRecoveringWorkspace,
            let fallback = self.workspaceRecoverySuggestion(currentCodeRoot: roots.codeRoot, currentRuntimeRoot: roots.runtimeRoot) {
@@ -5460,9 +5462,60 @@ final class CleanupViewModel: ObservableObject {
         self.localProjects = result.projects
         self.localProjectTransferArtifacts = result.transferArtifacts
         self.localProjectStatus = result.status
+        self.refreshPortalInventory()
         self.refreshLiveServices()
       }
     }
+  }
+
+  private func refreshPortalInventory() {
+    let revision = UUID()
+    portalInventoryRevision = revision
+    isRefreshingPortalProjects = true
+    let roots = resolvedProfileRoots()
+    let local = localProjects.flatMap { entry in
+      [entry.codePath, entry.runtimePath].compactMap { $0 }.map { (name: entry.repo, path: $0) }
+    }
+    let codex = codexProjects.map { (name: $0.name, path: $0.path) }
+
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let imports = Self.repoDirectories(in: (roots.importRoot as NSString).appendingPathComponent("Repos"))
+        .map { (name: $0.repo, path: $0.path) }
+      let areas: [(PortalWorkspaceArea, URL)] = [
+        (.code, URL(fileURLWithPath: roots.codeRoot, isDirectory: true)),
+        (.importStaging, URL(fileURLWithPath: roots.importRoot, isDirectory: true)),
+        (.runtime, URL(fileURLWithPath: roots.runtimeRoot, isDirectory: true))
+      ]
+      let workspaceRoots = areas.map { (area: $0.0, path: PortalProject.localPath($0.1.path), physical: $0.1.resolvingSymlinksInPath().path) }
+        .sorted { $0.path.count > $1.path.count }
+      var seen = Set<String>()
+      let projects = (local + imports + codex).compactMap { candidate -> PortalProject? in
+        let normalized = PortalProject.localPath(candidate.path)
+        guard seen.insert(normalized).inserted else { return nil }
+        let url = URL(fileURLWithPath: normalized, isDirectory: true)
+        guard !url.lastPathComponent.hasPrefix("."),
+              !url.pathComponents.contains(where: CheckoutDiscoveryRules.isTransferArtifactName),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isDirectory == true, values.isSymbolicLink != true else { return nil }
+        let workspace = workspaceRoots.first { normalized.hasPrefix($0.path + "/") }
+        if let workspace, !url.resolvingSymlinksInPath().path.hasPrefix(workspace.physical + "/") { return nil }
+        let origin = Self.readCodexGitMetadata(projectPath: normalized).remoteURL
+        return PortalProject(name: candidate.name, path: normalized, area: workspace?.area ?? .local, origin: origin)
+      }.sorted {
+        let comparison = $0.name.localizedStandardCompare($1.name)
+        return comparison == .orderedSame ? $0.location < $1.location : comparison == .orderedAscending
+      }
+      DispatchQueue.main.async {
+        guard let self, self.portalInventoryRevision == revision else { return }
+        self.portalProjects = projects
+        self.isRefreshingPortalProjects = false
+        self.portalSync.observeProjects(projects)
+      }
+    }
+  }
+
+  func openPortalCheckoutInCodex(_ project: PortalProject) {
+    openPathInApplication(project.location, appName: "Codex", label: project.name)
   }
 
   private func workspaceRecoverySuggestion(currentCodeRoot: String, currentRuntimeRoot: String) -> WorkspaceSuggestion? {
@@ -7516,14 +7569,7 @@ final class CleanupViewModel: ObservableObject {
             guard let artifact = outcome.archivePath, let receipt = outcome.receiptPath,
                   FileManager.default.fileExists(atPath: artifact) else { continue }
             let source = PortalProject.localPath(outcome.originalSourcePath)
-            let localEntry = self.localProjects.first { entry in
-              [entry.codePath, entry.runtimePath].compactMap { $0 }
-                .map(PortalProject.localPath).contains(source)
-            }
-            let project = PortalProject(
-              name: localEntry?.repo ?? outcome.projectName,
-              path: localEntry?.preferredOpenPath ?? outcome.originalSourcePath
-            )
+            guard let project = self.portalProjects.first(where: { $0.id == source }) else { continue }
             self.portalSync.saveVerifiedBackup(project: project, artifact: artifact, receipt: receipt, verifiedAt: Date())
           }
           self.finishJob(id: jobID, state: residualRecords.isEmpty ? .succeeded : .cleanupIncomplete, detail: self.codexPortalStatus, residualSources: residualRecords)
@@ -10704,7 +10750,14 @@ final class CleanupViewModel: ObservableObject {
       return
     }
 
-    launchDetached(executable: "/usr/bin/open", arguments: ["-a", appName, path])
+    let userCodex = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/codex").path
+    if appName == "Codex",
+       NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil,
+       let codex = executablePath(named: "codex") ?? (FileManager.default.isExecutableFile(atPath: userCodex) ? userCodex : nil) {
+      launchDetached(executable: codex, arguments: ["app", "--", path])
+    } else {
+      launchDetached(executable: "/usr/bin/open", arguments: ["-a", appName, path])
+    }
     appendLog("[gui] Opening \(label) in \(appName): \(path)\n")
   }
 
@@ -12009,6 +12062,8 @@ final class CleanupViewModel: ObservableObject {
       outcome.summary = "\(mode.label) finished for the runtime workspace at \(target)." + warningSuffix
     case .selectedProjects:
       outcome.summary = "\(mode.label) finished for \(selectedProjects.count) selected projects (\(operations.count) items) at \(exportRoot)." + warningSuffix
+      let checkoutPaths = Set(selectedProjects.flatMap { [$0.codePath, $0.runtimePath].compactMap { $0 } })
+      outcome.verifiedProjectExports = operations.filter { checkoutPaths.contains($0.source) }
     }
     return outcome
   }
@@ -12472,7 +12527,7 @@ final class CleanupViewModel: ObservableObject {
 
     var gitDirectory = dotGitPath
     if !isDirectory.boolValue,
-       let pointer = try? String(contentsOfFile: dotGitPath, encoding: .utf8),
+       let pointer = readBoundedGitText(dotGitPath),
        let gitdirLine = pointer.split(whereSeparator: \.isNewline).first(where: { $0.lowercased().hasPrefix("gitdir:") }) {
       let rawPath = gitdirLine.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
       gitDirectory = rawPath.hasPrefix("/")
@@ -12494,15 +12549,15 @@ final class CleanupViewModel: ObservableObject {
     }
 
     var remoteURL: String?
-    if let configPath, let config = try? String(contentsOfFile: configPath, encoding: .utf8) {
+    if let configPath, let config = readBoundedGitText(configPath) {
       var inOrigin = false
       for rawLine in config.split(whereSeparator: \.isNewline) {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if line.hasPrefix("[") {
           inOrigin = line.lowercased() == "[remote \"origin\"]"
-        } else if inOrigin, line.lowercased().hasPrefix("url") {
+        } else if inOrigin {
           let pieces = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-          if pieces.count == 2, !pieces[1].isEmpty {
+          if pieces.count == 2, pieces[0].lowercased() == "url", !pieces[1].isEmpty {
             remoteURL = pieces[1]
             break
           }
@@ -12511,11 +12566,17 @@ final class CleanupViewModel: ObservableObject {
     }
 
     let headPath = (gitDirectory as NSString).appendingPathComponent("HEAD")
-    let head = (try? String(contentsOfFile: headPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let head = readBoundedGitText(headPath)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let branch = head?.hasPrefix("ref: refs/heads/") == true
       ? String(head!.dropFirst("ref: refs/heads/".count))
       : nil
     return (true, remoteURL, branch)
+  }
+
+  private nonisolated static func readBoundedGitText(_ path: String) -> String? {
+    guard let read = CSAiEMBoundedFileRead.read(at: URL(fileURLWithPath: path), limit: 1_048_576),
+          !read.hasBytesBeyondLimit else { return nil }
+    return String(data: read.data, encoding: .utf8)
   }
 
   private nonisolated static func readCodexToolEvidence(
@@ -20427,7 +20488,11 @@ struct ContentView: View {
         isMenuVisible.toggle()
       }
 
-      PortalSyncPane(model: model.portalSync, projects: model.portalProjects)
+      PortalSyncPane(
+        model: model.portalSync, projects: model.portalProjects,
+        refreshing: model.isLoadingLocalProjects || model.isRefreshingPortalProjects,
+        refresh: model.refreshLocalProjects, openInCodex: model.openPortalCheckoutInCodex
+      )
 
       if width >= 1500 {
         HStack(alignment: .top, spacing: 18) {

@@ -18,6 +18,7 @@ const db = getFirestore(app, 'portal')
 const auth = getAuth(app)
 const region = 'us-west1'
 const memberKinds = new Set(['projects', 'devices', 'backups'])
+const workspaceAreas = new Set(['code', 'import', 'runtime', 'local'])
 const scopes = ['nativeProjects', 'linkedDevices', 'nativeBackups']
 const stamp = () => FieldValue.serverTimestamp()
 const hash = (value) => createHash('sha256').update(value).digest('hex')
@@ -154,16 +155,32 @@ exports.workspaceExport = onCall({ region }, async (request) => {
   )
   if (snapshots.some((snapshot) => snapshot.size > 1000))
     fail('resource-exhausted', 'Export is limited to 1,000 entries per source.')
+  const includeLocations =
+    kind === 'projects' && request.data?.includeProjectLocations === true
+  const devices = new Map()
+  if (includeLocations) {
+    const directory = await userRoot(uid).collection('linkedDevices').limit(1000).get()
+    for (const device of directory.docs) devices.set(device.id, device.get('name'))
+  }
   return snapshots.flatMap((snapshot, index) =>
     snapshot.docs.map((doc) => {
       const row = doc.data()
-      return [
+      const values = [
         row.name,
         row.location ?? '',
         row.notes ?? '',
         index ? 'Mac' : 'Manual',
         timestamp(row.updatedAt),
       ]
+      if (includeLocations) {
+        values.push(
+          row.repository ?? '',
+          devices.get(row.deviceId) ?? '',
+          row.area ?? '',
+          row.available === true ? 'Present' : row.available === false ? 'Not found in last scan' : '',
+        )
+      }
+      return values
     }),
   )
 })
@@ -397,6 +414,29 @@ exports.claimDevicePairCode = handleNative(async (request) => {
   })
 })
 
+function inventoryFields(row) {
+  const fields = {}
+  if (row.repository !== undefined) {
+    const repository = inputString(row.repository, 201, 'GitHub repository', true)
+    const components = repository.split('/')
+    if (!/^[a-zA-Z0-9_.-]{1,100}\/[a-zA-Z0-9_.-]{1,100}$/.test(repository) ||
+        components.some((part) => part === '.' || part === '..'))
+      fail('invalid-argument', 'Use an owner/repository GitHub identifier.')
+    fields.repository = repository
+  }
+  if (row.area !== undefined) {
+    if (!workspaceAreas.has(row.area))
+      fail('invalid-argument', 'Invalid workspace area.')
+    fields.area = row.area
+  }
+  if (row.available !== undefined) {
+    if (typeof row.available !== 'boolean')
+      fail('invalid-argument', 'Invalid checkout availability.')
+    fields.available = row.available
+  }
+  return fields
+}
+
 function nativeRows(values, kind, sharePaths, deviceID) {
   if (!Array.isArray(values) || values.length > 40)
     fail('invalid-argument', 'A batch accepts up to 40 records of each type.')
@@ -415,6 +455,7 @@ function nativeRows(values, kind, sharePaths, deviceID) {
       deviceId: deviceID,
       updatedAt: stamp(),
     }
+    if (kind === 'projects') Object.assign(record, inventoryFields(row))
     if (kind === 'backups') {
       const nativeProject = id(row.projectId, 'project ID')
       const verifiedAt = Date.parse(
@@ -425,6 +466,7 @@ function nativeRows(values, kind, sharePaths, deviceID) {
       Object.assign(record, {
         projectId: `${deviceID}_${hash(nativeProject).slice(0, 24)}`,
         verifiedAt: Timestamp.fromMillis(verifiedAt),
+        ...(row.isExport === true ? { isExport: true } : {}),
       })
     }
     return { destination, record }

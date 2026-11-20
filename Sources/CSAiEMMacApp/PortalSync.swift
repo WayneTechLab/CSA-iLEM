@@ -4,15 +4,37 @@ import Foundation
 import Security
 import SwiftUI
 
+enum PortalWorkspaceArea: String, Codable, Sendable {
+  case code, importStaging = "import", runtime, local
+
+  var label: String {
+    switch self {
+    case .code: return "Code"
+    case .importStaging: return "Import staging"
+    case .runtime: return "Runtime"
+    case .local: return "Local checkout"
+    }
+  }
+}
+
 struct PortalProject: Identifiable, Equatable, Sendable {
   let id: String
   let name: String
   let location: String
+  let area: PortalWorkspaceArea
+  let repository: String?
 
-  init(name: String, path: String) {
+  init(name: String, path: String, area: PortalWorkspaceArea = .local, origin: String? = nil) {
     id = Self.localPath(path)
     self.name = name
-    location = path
+    location = id
+    self.area = area
+    if let identity = CheckoutRemoteIdentity.parse(origin), identity.host == "github.com",
+       identity.owner.utf8.count <= 100, identity.repository.utf8.count <= 100 {
+      repository = "\(identity.owner)/\(identity.repository)"
+    } else {
+      repository = nil
+    }
   }
 
   static func localPath(_ path: String) -> String {
@@ -96,6 +118,10 @@ private struct PortalSyncRow: Codable, Equatable {
   let location: String
   var projectId: String?
   var verifiedAt: String?
+  var repository: String?
+  var area: PortalWorkspaceArea?
+  var available: Bool?
+  var isExport: Bool?
 }
 
 private struct PortalSyncBatch: Codable {
@@ -326,16 +352,29 @@ final class PortalSyncModel: ObservableObject {
   }
 
   private func projectRow(_ project: PortalProject) -> PortalSyncRow {
-    PortalSyncRow(id: digest(state.namespace + project.id), name: bounded(project.name, length: 120),
-      location: state.sharePaths ? bounded(project.location, length: 1000) : "")
+    PortalSyncRow(
+      id: digest(state.namespace + project.id), name: bounded(project.name, length: 120),
+      location: state.sharePaths ? bounded(project.location, length: 1000) : "",
+      repository: project.repository, area: project.area, available: true
+    )
   }
 
   private func queueProjects(_ projects: [PortalProject], force: Bool) throws {
-    let rows = projects.filter { state.selected.contains($0.id) }.map(projectRow).sorted { $0.id < $1.id }
-    guard !rows.isEmpty, force || state.previousProjects != rows else { return }
+    let current = projects.filter { state.selected.contains($0.id) }.map(projectRow)
+    let currentIDs = Set(current.map(\.id))
+    let selectedIDs = Set(state.selected.map { digest(state.namespace + $0) })
+    let missing = state.previousProjects.filter { selectedIDs.contains($0.id) && !currentIDs.contains($0.id) }.map { old in
+      var row = old
+      row.available = false
+      return row
+    }
+    let rows = (current + missing).sorted { $0.id < $1.id }
+    let previous = Dictionary(uniqueKeysWithValues: state.previousProjects.map { ($0.id, $0) })
+    let updates = force ? rows : rows.filter { previous[$0.id] != $0 }
+    guard !updates.isEmpty else { return }
     var next = state
-    for start in stride(from: 0, to: rows.count, by: 12) {
-      next.outbox.append(PortalSyncBatch(projects: Array(rows[start..<min(start + 12, rows.count)]), backups: []))
+    for start in stride(from: 0, to: updates.count, by: 12) {
+      next.outbox.append(PortalSyncBatch(projects: Array(updates[start..<min(start + 12, updates.count)]), backups: []))
     }
     next.previousProjects = rows
     try persist(next)
@@ -350,22 +389,29 @@ final class PortalSyncModel: ObservableObject {
   func syncNow(projects: [PortalProject]) {
     guard paired, !revoked, !busy else { return }
     do {
-      if state.outbox.isEmpty { try queueProjects(projects, force: true) }
+      try queueProjects(projects, force: state.outbox.isEmpty)
       if state.outbox.isEmpty { message = "Select a project to sync." }
       sendQueue()
     } catch { message = error.localizedDescription }
   }
 
-  func saveVerifiedBackup(project: PortalProject, artifact: String, receipt: String, verifiedAt: Date) {
+  func saveVerifiedBackup(
+    project: PortalProject, artifact: String, receipt: String, verifiedAt: Date, isExport: Bool = false
+  ) {
     guard paired, !revoked, state.selected.contains(project.id) else { return }
-    let projectRecord = projectRow(project)
+    var projectRecord = projectRow(project)
+    projectRecord.available = (try? URL(fileURLWithPath: project.location).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     let backup = PortalSyncRow(
-      id: digest(state.namespace + receipt), name: bounded(project.name + " verified backup", length: 120),
+      id: digest(state.namespace + receipt),
+      name: bounded(project.name + (isExport ? " verified export" : " verified backup"), length: 120),
       location: state.sharePaths ? bounded(artifact, length: 1000) : "",
-      projectId: projectRecord.id, verifiedAt: ISO8601DateFormatter().string(from: verifiedAt)
+      projectId: projectRecord.id, verifiedAt: ISO8601DateFormatter().string(from: verifiedAt),
+      isExport: isExport ? true : nil
     )
     var next = state
     next.outbox.append(PortalSyncBatch(projects: [projectRecord], backups: [backup]))
+    next.previousProjects.removeAll { $0.id == projectRecord.id }
+    next.previousProjects.append(projectRecord)
     do {
       try persist(next)
       if automatic { sendQueue() }
@@ -425,20 +471,48 @@ final class PortalSyncModel: ObservableObject {
 struct PortalSyncPane: View {
   @ObservedObject var model: PortalSyncModel
   let projects: [PortalProject]
+  var refreshing = false
+  var refresh: (() -> Void)?
+  var openInCodex: ((PortalProject) -> Void)?
   @State private var code = ""
   @State private var deviceName = Host.current().localizedName ?? "CSA-iEM Mac"
   @State private var sharePaths = false
   @State private var approved = false
   @State private var draftSelection: Set<String> = []
+  @State private var search = ""
 
   private var selected: Set<String> { model.paired ? model.selected : draftSelection }
+
+  private var visibleProjects: [PortalProject] {
+    let term = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else { return projects }
+    return projects.filter { project in
+      [project.name, project.repository ?? "", project.area.label, project.location]
+        .contains { $0.localizedCaseInsensitiveContains(term) }
+    }
+  }
+
+  private func updateSelection(_ selection: Set<String>) {
+    if model.paired {
+      model.setSelection(selection, projects: projects)
+    } else {
+      draftSelection = selection
+      approved = false
+    }
+  }
 
   var body: some View {
     GroupBox("Cloud workspace sync") {
       VStack(alignment: .leading, spacing: 12) {
-        Text("Pair through the web portal to send selected project names and verified backup receipts.")
+        Text("Share selected checkouts, their GitHub repositories, workspace areas, and verified export or backup receipts.")
           .font(.subheadline)
-        Link("Open Pair a Mac", destination: model.portalURL)
+        HStack {
+          Link("Open Pair a Mac", destination: model.portalURL)
+          if let refresh {
+            Button("Refresh workspace inventory", action: refresh).disabled(refreshing)
+          }
+          if refreshing { ProgressView().controlSize(.small) }
+        }
         if !model.paired {
           TextField("Device name", text: $deviceName)
           SecureField("Pairing code", text: $code)
@@ -447,40 +521,56 @@ struct PortalSyncPane: View {
         if projects.isEmpty {
           Text("Scan or import a project to make it available for sharing.").foregroundStyle(.secondary)
         } else {
-          Text("Projects to share").font(.headline)
+          Text("Checkouts to share").font(.headline)
+          HStack {
+            TextField("Find a project, repository, or folder", text: $search)
+            Button("Select visible") {
+              updateSelection(selected.union(visibleProjects.map(\.id)))
+            }.disabled(model.busy || model.revoked || refreshing || visibleProjects.isEmpty)
+            Button("Clear selection") { updateSelection([]) }
+              .disabled(model.busy || model.revoked || refreshing || selected.isEmpty)
+          }
+          Text("\(projects.filter { selected.contains($0.id) }.count) current folders selected")
+            .font(.caption).foregroundStyle(.secondary)
           ScrollView {
-            VStack(alignment: .leading, spacing: 7) {
-              ForEach(projects) { project in
-                Toggle(isOn: Binding(
-                  get: { selected.contains(project.id) },
-                  set: { enabled in
-                    var next = selected
-                    if enabled { next.insert(project.id) } else { next.remove(project.id) }
-                    if model.paired { model.setSelection(next, projects: projects) }
-                    else { draftSelection = next; approved = false }
-                  }
-                )) {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                    if model.paired ? model.sharePaths : sharePaths {
+            LazyVStack(alignment: .leading, spacing: 9) {
+              ForEach(visibleProjects) { project in
+                HStack(alignment: .top) {
+                  Toggle(isOn: Binding(
+                    get: { selected.contains(project.id) },
+                    set: { enabled in
+                      var next = selected
+                      if enabled { next.insert(project.id) } else { next.remove(project.id) }
+                      updateSelection(next)
+                    }
+                  )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(project.name)
+                      Text([project.area.label, project.repository].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
                       Text(project.location).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                   }
+                  .disabled(model.busy || model.revoked || refreshing)
+                  Spacer()
+                  if let openInCodex {
+                    Button("Open in Codex") { openInCodex(project) }
+                      .accessibilityLabel("Open \(project.name) in Codex")
+                  }
                 }
-                .disabled(model.busy || model.revoked)
               }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .frame(maxHeight: 180)
+          .frame(maxHeight: 240)
         }
         if model.paired {
           Text(model.revoked ? "Access revoked" : model.sharePaths ? "Paired · exact paths enabled" : "Paired · exact paths stay on this Mac")
           Toggle("Automatically sync selected metadata", isOn: Binding(
             get: { model.automatic }, set: { model.setAutomatic($0, projects: projects) }
-          )).disabled(model.revoked)
+          )).disabled(model.revoked || refreshing)
           HStack {
-            Button("Sync now") { model.syncNow(projects: projects) }.disabled(model.busy || model.revoked)
+            Button("Sync now") { model.syncNow(projects: projects) }.disabled(model.busy || model.revoked || refreshing)
             Button("Disconnect locally") { model.disconnect() }.disabled(model.busy)
           }
           Text("\(model.queuedCount) queued · Last successful sync: \(model.lastSync?.formatted() ?? "None")")
@@ -494,7 +584,7 @@ struct PortalSyncPane: View {
                 approved = false
               }
             }
-          }.disabled(!approved || code.isEmpty || model.busy)
+          }.disabled(!approved || code.isEmpty || model.busy || refreshing)
         }
         Text(model.message).foregroundStyle(.secondary).textSelection(.enabled)
       }

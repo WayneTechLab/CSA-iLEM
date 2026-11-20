@@ -27,6 +27,7 @@ import {
   type RecordKind,
   type WorkspaceEntry,
   useWorkspace,
+  workspaceAreaLabels,
 } from '@/portal/workspace'
 import { ProfileForm, SecurityForm } from './AccountPages'
 import { errorMessage } from '@/portal/authActions'
@@ -35,7 +36,7 @@ import { ACCOUNT_LEVELS } from '@/auth/accountLevels'
 
 const icons = { projects: FolderGit2, devices: Laptop2, backups: HardDrive }
 const descriptions = {
-  projects: 'Find your repositories and see where each workspace is saved.',
+  projects: 'Find each checkout by GitHub repository, Mac, or workspace area.',
   devices: 'Track computers and check when your paired Macs last synced.',
   backups: 'Record recovery locations and see what a paired Mac has verified.',
 }
@@ -86,13 +87,16 @@ function releaseFilename(kind: string) {
   return `csa-iem-${kind}-${date}.csv`
 }
 
-function downloadCSV(rows: (string | null)[][], kind: string) {
+function downloadCSV(rows: (string | null)[][], kind: RecordKind) {
   function quote(value: string | null) {
     let text = value ?? ''
     if (/^[\s]*[=+@-]|^[\t\r\n]/.test(text)) text = "'" + text
     return '"' + text.replaceAll('"', '""') + '"'
   }
-  const file = [['Name', 'Location', 'Notes', 'Source', 'Updated'], ...rows]
+  const headers = ['Name', 'Location', 'Notes', 'Source', 'Updated']
+  if (kind === 'projects')
+    headers.push('GitHub repository', 'Device', 'Workspace area', 'Folder status')
+  const file = [headers, ...rows]
     .map((row) => row.map(quote).join(','))
     .join('\r\n')
   const link = document.createElement('a')
@@ -111,11 +115,13 @@ function RecordBadge({ row, kind }: { row: WorkspaceEntry; kind: RecordKind }) {
   if (kind === 'backups' && row.verifiedAt)
     return (
       <span className="badge positive">
-        <Check size={13} /> Verified by Mac
+        <Check size={13} /> {row.isExport ? 'Verified export' : 'Verified by Mac'}
       </span>
     )
   if (kind === 'devices' && row.source === 'mac')
     return <span className="badge positive">Paired Mac</span>
+  if (kind === 'projects' && row.available === false)
+    return <span className="badge warning">Not found in last scan</span>
   if (kind === 'backups')
     return (
       <span className="badge subdued">
@@ -127,6 +133,11 @@ function RecordBadge({ row, kind }: { row: WorkspaceEntry; kind: RecordKind }) {
       {row.source === 'mac' ? 'From Mac' : 'Manual'}
     </span>
   )
+}
+
+function ReportingDevice({ device }: { device?: WorkspaceEntry }) {
+  if (!device) return <span className="muted">—</span>
+  return <AppLink to={recordURL('devices', device)}>{device.name}</AppLink>
 }
 
 function RecordForm({
@@ -278,6 +289,7 @@ export function InventoryPage({ kind }: { kind: RecordKind }) {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const available = records[kind]
+  const devices = new Map(records.devices.map((device) => [device.id, device]))
   const title =
     kind === 'backups' ? 'Backup save points' : kindLabels[kind] + 's'
   const needle = search.trim().toLocaleLowerCase()
@@ -285,7 +297,14 @@ export function InventoryPage({ kind }: { kind: RecordKind }) {
     if (filter === 'verified' && !row.verifiedAt) return false
     if (filter === 'manual' && row.source !== 'manual') return false
     if (filter === 'mac' && row.source !== 'mac') return false
-    return [row.name, row.location, row.notes].some((value) =>
+    return [
+      row.name,
+      row.location,
+      row.notes,
+      row.repository ?? '',
+      row.area ? workspaceAreaLabels[row.area] : '',
+      devices.get(row.deviceId ?? '')?.name ?? '',
+    ].some((value) =>
       value.toLocaleLowerCase().includes(needle),
     )
   })
@@ -300,6 +319,7 @@ export function InventoryPage({ kind }: { kind: RecordKind }) {
     try {
       const entries = await call<(string | null)[][]>('workspaceExport', {
         kind,
+        includeProjectLocations: kind === 'projects',
       })
       downloadCSV(entries, kind)
     } catch (problem) {
@@ -413,6 +433,7 @@ export function InventoryPage({ kind }: { kind: RecordKind }) {
               <thead>
                 <tr>
                   <th scope="col">Name</th>
+                  {kind === 'projects' && <th scope="col">Device</th>}
                   <th scope="col">Location</th>
                   <th scope="col">Status</th>
                   <th scope="col">Updated</th>
@@ -428,8 +449,15 @@ export function InventoryPage({ kind }: { kind: RecordKind }) {
                       >
                         {row.name} <ArrowUpRight size={15} />
                       </AppLink>
+                      {row.repository && <small className="inventory-context">{row.repository}</small>}
                     </th>
-                    <td>{row.location || 'Not shared'}</td>
+                    {kind === 'projects' && (
+                      <td><ReportingDevice device={devices.get(row.deviceId ?? '')} /></td>
+                    )}
+                    <td>
+                      {row.location || (row.area ? workspaceAreaLabels[row.area] : 'Not shared')}
+                      {row.location && row.area && <small className="inventory-context">{workspaceAreaLabels[row.area]}</small>}
+                    </td>
                     <td>
                       <RecordBadge kind={kind} row={row} />
                     </td>
@@ -455,6 +483,8 @@ function Related({
   kind: RecordKind
   rows: WorkspaceEntry[]
 }) {
+  const { records } = useWorkspace()
+  const devices = new Map(records.devices.map((device) => [device.id, device]))
   return (
     <section className="surface panel">
       <h2>{title}</h2>
@@ -462,10 +492,18 @@ function Related({
         <ul className="related-list">
           {rows.map((row) => (
             <li key={recordURL(kind, row)}>
-              <AppLink to={recordURL(kind, row)}>
-                {row.name}
-                <ArrowUpRight size={15} />
-              </AppLink>
+              <div>
+                <AppLink to={recordURL(kind, row)}>
+                  {row.name}
+                  <ArrowUpRight size={15} />
+                </AppLink>
+                {kind === 'projects' && row.deviceId && (
+                  <small className="inventory-context">
+                    <ReportingDevice device={devices.get(row.deviceId)} />
+                    {row.area && ' · ' + workspaceAreaLabels[row.area]}
+                  </small>
+                )}
+              </div>
               <RecordBadge kind={kind} row={row} />
             </li>
           ))}
@@ -508,8 +546,30 @@ export function RecordDetailPage({
       </>
     )
   const item = row
+  const device = records.devices.find((entry) => entry.id === item.deviceId)
+  const repo = item.repository?.toLowerCase()
+  const otherCopies =
+    kind === 'projects' && repo
+      ? records.projects.filter(
+          (entry) => entry.id !== item.id && entry.repository?.toLowerCase() === repo,
+        )
+      : []
+  const codexPath =
+    kind === 'projects' && item.source === 'mac' && item.available !== false &&
+    item.location.startsWith('/') && !/[\r\n]/.test(item.location)
+      ? item.location
+      : ''
   const canRevoke = kind === 'devices' && item.status === 'paired'
   const canEdit = item.source === 'manual'
+  async function copyCodexCommand() {
+    try {
+      const quotedPath = "'" + codexPath.replaceAll("'", "'\\''") + "'"
+      await navigator.clipboard.writeText('codex app -- ' + quotedPath)
+      setStatus({ text: 'Codex command copied. Run it on the Mac that reported this folder.', error: false })
+    } catch {
+      setStatus({ text: 'Copy failed. Select the folder path to copy it.', error: true })
+    }
+  }
   async function remove() {
     setBusy(true)
     setStatus({ text: '', error: false })
@@ -575,9 +635,31 @@ export function RecordDetailPage({
         ) : (
           <dl className="detail-list">
             <div>
-              <dt>Location</dt>
+              <dt>{item.available === false ? 'Last reported location' : 'Location'}</dt>
               <dd>{item.location || 'Exact path not shared'}</dd>
             </div>
+            {item.area && (
+              <div>
+                <dt>Workspace area</dt>
+                <dd>{workspaceAreaLabels[item.area]}</dd>
+              </div>
+            )}
+            {item.deviceId && (
+              <div>
+                <dt>Reported by</dt>
+                <dd><ReportingDevice device={device} /></dd>
+              </div>
+            )}
+            {item.repository && (
+              <div>
+                <dt>GitHub repository</dt>
+                <dd>
+                  <a href={'https://github.com/' + item.repository}>
+                    {item.repository}
+                  </a>
+                </dd>
+              </div>
+            )}
             <div>
               <dt>Updated</dt>
               <dd>{dateLabel(item.updatedAt)}</dd>
@@ -617,6 +699,11 @@ export function RecordDetailPage({
               </div>
             )}
           </dl>
+        )}
+        {codexPath && (
+          <button className="button secondary" onClick={() => void copyCodexCommand()}>
+            <Copy size={16} /> Copy Codex command
+          </button>
         )}
         {!editing &&
           (canEdit || canRevoke) &&
@@ -662,6 +749,9 @@ export function RecordDetailPage({
           </p>
         )}
       </section>
+      {otherCopies.length > 0 && (
+        <Related title="Other checkouts for this repository" kind="projects" rows={otherCopies} />
+      )}
       {kind !== 'backups' && (
         <Related
           title="Backup save points"

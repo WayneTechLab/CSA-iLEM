@@ -14,6 +14,8 @@ import {
   type Activity,
   type RecordKind,
   type WorkspaceEntry,
+  type WorkspaceArea,
+  workspaceAreaLabels,
 } from './workspace'
 
 const sources = [
@@ -53,6 +55,13 @@ function entry(
     source: native ? 'mac' : 'manual',
     projectId: text(row.projectId) || undefined,
     deviceId: text(row.deviceId) || undefined,
+    repository: native ? text(row.repository) || undefined : undefined,
+    area:
+      native && typeof row.area === 'string' && Object.hasOwn(workspaceAreaLabels, row.area)
+        ? (row.area as WorkspaceArea)
+        : undefined,
+    available: native && typeof row.available === 'boolean' ? row.available : undefined,
+    isExport: native && row.isExport === true,
     verifiedAt: native ? date(row.verifiedAt) : undefined,
     status:
       row.status === 'revoked'

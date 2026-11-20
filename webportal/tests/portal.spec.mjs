@@ -423,3 +423,79 @@ test('Google sign-in completes with a synthetic Auth Emulator identity', async (
   await expect(page.getByRole('heading', { name: 'Welcome, Local Google Member' })).toBeVisible()
   await expect(page.getByText('Level 1 · User / Member', { exact: true })).toBeVisible()
 })
+
+test('GitHub checkouts report separate device and workspace locations', async ({ page }) => {
+  const owner = fixture(5)
+  const bearer = await signInToken(owner)
+  const suffix = randomUUID().slice(0, 8)
+  const repository = 'waynetechlab/fixture-' + suffix
+  const codeName = 'Code checkout ' + suffix
+  const runtimeName = 'Runtime checkout ' + suffix
+  const codeMac = 'Code Mac ' + suffix
+  const runtimeMac = 'Runtime Mac ' + suffix
+  const path = "/Volumes/Workspace/Code/Repos/O'Brien"
+
+  async function connect(name, allowPaths) {
+    const deviceId = randomUUID()
+    const key = randomBytes(32).toString('base64url')
+    const pair = await call('createDevicePairCode', { allowPaths }, bearer)
+    expect(pair.status).toBe(200)
+    const { code } = (await pair.json()).result
+    const claim = await request(service + '/claimDevicePairCode', {
+      code, deviceId, credentialHash: digest(key), name, sharePaths: true,
+    })
+    expect(claim.status).toBe(200)
+    return deviceId + '.' + key
+  }
+
+  async function sync(key, projects, backups = []) {
+    const uploaded = await request(service + '/syncLinkedDevice', {
+      version: 1, batchId: randomUUID(), projects, backups,
+    }, key)
+    expect(uploaded.status).toBe(200)
+  }
+
+  const codeKey = await connect(codeMac, true)
+  const runtimeKey = await connect(runtimeMac, false)
+  const code = { id: 'code', name: codeName, location: path, repository, area: 'code', available: true }
+  const runtime = {
+    id: 'runtime', name: runtimeName, location: '/Volumes/PrivateRuntime',
+    repository: repository.toUpperCase(), area: 'runtime', available: true,
+  }
+  const exportName = 'Verified checkout export ' + suffix
+  await sync(codeKey, [code], [{
+    id: 'export', projectId: code.id, name: exportName, isExport: true,
+    location: '/Volumes/Backup/VerifiedCopy', verifiedAt: new Date().toISOString(),
+  }])
+  await sync(runtimeKey, [runtime, {
+    id: 'import', name: 'Import checkout ' + suffix, location: '/Volumes/PrivateImport',
+    repository, area: 'import', available: true,
+  }])
+
+  await signIn(page, owner)
+  await page.goto('/projects')
+  await page.getByRole('searchbox', { name: 'Search projects' }).fill(repository)
+  const codeRow = page.getByRole('row').filter({ hasText: codeName })
+  await expect(codeRow.getByRole('link', { name: codeMac })).toBeVisible()
+  await expect(codeRow.getByText('Code workspace')).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: runtimeName }).getByText('Runtime workspace')).toBeVisible()
+  await expect(page.getByText('Import staging')).toBeVisible()
+  await expect(page.getByText('/Volumes/PrivateRuntime')).toHaveCount(0)
+  await expect(page.getByText('/Volumes/PrivateImport')).toHaveCount(0)
+  await codeRow.getByRole('link', { name: codeName }).click()
+  await expect(page.getByRole('heading', { name: 'Other checkouts for this repository' })).toBeVisible()
+  await expect(page.getByRole('link', { name: runtimeName })).toBeVisible()
+  await expect(page.getByRole('link', { name: repository, exact: true })).toHaveAttribute('href', 'https://github.com/' + repository)
+  await expect(page.getByRole('button', { name: 'Copy Codex command' })).toBeVisible()
+  await expect(page.getByRole('link', { name: exportName })).toBeVisible()
+  await expect(page.getByText('Verified export', { exact: true })).toBeVisible()
+
+  const csv = await call('workspaceExport', { kind: 'projects', includeProjectLocations: true }, bearer)
+  expect((await csv.json()).result).toContainEqual([
+    codeName, path, '', 'Mac', expect.any(String), repository, codeMac, 'code', 'Present',
+  ])
+  await sync(codeKey, [{ ...code, available: false }])
+  await expect(page.getByText('Not found in last scan')).toBeVisible()
+  await expect(page.getByText('Last reported location')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy Codex command' })).toHaveCount(0)
+})

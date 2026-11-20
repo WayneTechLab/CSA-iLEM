@@ -33,7 +33,7 @@ isolated Mac build paired with the Level 5 fixture, verified a real test backup,
 retried its metadata upload after a simulated connection loss, and honored
 portal revocation.
 
-The 38-page portal went live on 2026-11-20 at
+The initial 38-page portal release went live on 2026-11-20 at
 [csa-ilem.web.app](https://csa-ilem.web.app) in Firebase Hosting version
 `d3a7b531c5d20ee2`. The preview passed all 38 routes on desktop and mobile
 using the production Auth, Functions, and named `portal` Firestore database.
@@ -43,6 +43,13 @@ revocation protocol against the live services.
 The previous Hosting version is `26ce29fcd8991a6e`. The Downloads page offers
 source releases and install instructions while the signed macOS installer
 awaits Developer ID packaging and notarization.
+
+Hosting version `60037db61d2f9e0e` adds the device inventory. The Mac app
+reports individual checkouts from the active Code, Import, and Runtime roots
+and Codex scans. The portal links copies by GitHub repository, shows the
+reporting Mac and workspace area, and records verified selected-project
+exports. The hosted preview verified inventory readback, path consent, and
+export receipts. The Hosting rollback version is `d3a7b531c5d20ee2`.
 
 Portal state repair (2026-11-20): restored Smart Logic decisions remain available
 as saved audit evidence, but the dashboard does not count them as current or

@@ -226,6 +226,7 @@ a.feature-card:hover, a.metric-card:hover { border-color: #8aaee4; box-shadow: 0
 .portal-app tbody tr:hover { background: #fbfcff; }
 .record-link { display: inline-flex; align-items: center; gap: .38rem; color: var(--blue-deep); }
 .record-link:hover { text-decoration: underline; }
+.inventory-context { display: block; margin-top: .25rem; color: var(--muted); font-weight: 500; overflow-wrap: anywhere; }
 .empty { text-align: center; padding: 2.2rem 1rem; color: var(--muted); }
 .empty svg { display: inline; margin-bottom: .75rem; color: #6a82a5; }
 .empty h2 { color: var(--ink); margin-bottom: .45rem; }
