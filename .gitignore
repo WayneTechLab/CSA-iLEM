@@ -18,3 +18,7 @@ move-music-exchange-source.zsh
 # Machine-local archive lane for unmatched, ambiguous, or quarantined data.
 .SYSTEMX/Archive_Data/*
 !.SYSTEMX/Archive_Data/README.md
+
+# Firebase Hosting deployment cache
+.firebase/
+firebase-debug.log

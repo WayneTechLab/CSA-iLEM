@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() { return request.auth != null; }
+    function accountLevel() {
+      return isSignedIn() && request.auth.token.level is int ? request.auth.token.level : 0;
+    }
+    function isAdmin() { return accountLevel() >= 4 || (isSignedIn() && request.auth.token.admin == true); }
+
+    // Per-user uploads with size + content-type limits.
+    match /uploads/{uid}/{file} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isSignedIn() && request.auth.uid == uid
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // Private admin exports or generated reports.
+    match /admin/{file} {
+      allow read, write: if isAdmin();
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function tokenLevel() {
+      return isSignedIn() && request.auth.token.get('level', 0) is int ? request.auth.token.get('level', 0) : 0;
+    }
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+    function adminPath(uid) {
+      return /databases/$(database)/documents/adminUsers/$(uid);
+    }
+    function profileLevel() {
+      return isSignedIn() && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('level', 0) is int
+        ? get(userPath(request.auth.uid)).data.get('level', 0)
+        : 0;
+    }
+    function registryLevel() {
+      return isSignedIn() && exists(adminPath(request.auth.uid))
+        && get(adminPath(request.auth.uid)).data.get('status', 'inactive') == 'active'
+        && get(adminPath(request.auth.uid)).data.get('level', 0) is int
+        ? get(adminPath(request.auth.uid)).data.get('level', 0)
+        : 0;
+    }
+    function accountLevel() {
+      return registryLevel() >= tokenLevel()
+        ? (registryLevel() >= profileLevel() ? registryLevel() : profileLevel())
+        : (tokenLevel() >= profileLevel() ? tokenLevel() : profileLevel());
+    }
+    function hasMinLevel(level) { return isSignedIn() && accountLevel() >= level; }
+    function isAdmin() { return hasMinLevel(4) || (isSignedIn() && request.auth.token.get('admin', false) == true); }
+    function isOwnerLevel() { return hasMinLevel(5); }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function privilegedUserFields() {
+      return [
+        'level',
+        'role',
+        'admin',
+        'subscriptionTier',
+        'tier',
+        'mfaRequired',
+        'securityProfile',
+        'claims'
+      ];
+    }
+    function safeUserCreate() {
+      return !request.resource.data.keys().hasAny(privilegedUserFields());
+    }
+    function safeUserUpdate() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(privilegedUserFields());
+    }
+
+    function safeUserDelete() {
+      return !resource.data.keys().hasAny(privilegedUserFields());
+    }
+
+    // Deny everything by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Per-user documents.
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && safeUserCreate();
+      allow update: if (isOwner(uid) || isAdmin()) && safeUserUpdate();
+      allow delete: if isAdmin() && safeUserDelete();
+    }
+
+    // Admin registry for Level 4/5 users. Owner-level only by default.
+    match /adminUsers/{uid} {
+      allow read, write: if isOwnerLevel();
+    }
+
+    // Public, read-only content (e.g. marketing/site data).
+    match /public/{doc} {
+      allow read: if resource.data.visibility == 'public';
+      allow write: if isAdmin();
+    }
+
+    // Generic member/paywall examples for generated projects.
+    match /members/{doc} {
+      allow read: if hasMinLevel(1);
+      allow write: if isAdmin();
+    }
+
+    match /paid/{doc} {
+      allow read: if hasMinLevel(2);
+      allow write: if isAdmin();
+    }
+
+    match /premium/{doc} {
+      allow read: if hasMinLevel(3);
+      allow write: if isAdmin();
+    }
+
+    // MFA and recovery-code storage is backend-only. Add project-specific
+    // callable/functions access rather than client rules when enabling it.
+    match /emailOtpCodes/{doc} {
+      allow read, write: if false;
+    }
+
+    match /totpSecrets/{doc} {
+      allow read, write: if false;
+    }
+
+    match /backupCodes/{doc} {
+      allow read, write: if false;
+    }
+
+    match /securityProfiles/{uid} {
+      allow read, write: if false;
+    }
+  }
+}

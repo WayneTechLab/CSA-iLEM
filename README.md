@@ -690,3 +690,7 @@ csa-iem --disclaimer
 - relies on GitHub CLI, Git, Docker, Homebrew, Node.js, npm, Visual Studio Code, and the macOS Swift toolchain for the GUI
 - the app keeps legacy `CSA-iLEM` wrappers so older installed commands continue to work
 - legal documents included here are practical production-distribution templates and should still be reviewed by counsel before broad public release
+
+## Web portal
+
+The companion portal is live at https://csa-ilem.web.app. Source is in `webportal/`, adopted from WayneTechLab/WebAppX 3.4.0. Build with `npm --prefix webportal ci` and `npm --prefix webportal run build`; deploy Hosting only with `firebase deploy --only hosting --project csa-ilem`. Native filesystem operations remain in the macOS app.

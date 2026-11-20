@@ -25,10 +25,10 @@ an independently verified complete-archive digest before execution. Optional
 package bootstrap requires `--with-deps`, and native direct Move is blocked
 outside the verified transaction path. A separate public macOS packaging gate
 is present and fails closed, but this Mac still lacks a Developer ID Application
-identity and a configured notarization profile. The registered Firebase Hosting
-site has zero releases and no webapp source has been identified in this repo;
-its root is 404. These external release prerequisites keep public production
-status blocked despite local hardening.
+identity and a configured notarization profile. The Firebase web portal is now deployed at https://csa-ilem.web.app from
+`webportal/`, adopted from the WebAppX standalone starter. Hosting-only
+publication does not enable cloud login or native filesystem control. Public
+macOS distribution remains blocked by signing and notarization prerequisites.
 
 Portal state repair (2026-11-20): restored Smart Logic decisions remain available
 as saved audit evidence, but the dashboard does not count them as current or

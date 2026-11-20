@@ -1,0 +1,54 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+
+# Env / secrets — NEVER commit real values
+.env
+.env.*
+!.env.example
+*.secret
+*secrets*
+!*.secrets.env.example
+*.bak
+
+# Project build-spec ingested during production setup (may hold proprietary info)
+PROMPT-INGEST.md
+
+# Firebase
+.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.emulator-data
+.auth
+.env.test
+.firebaserc.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/mcp.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment-generated markers (not part of the template)
+**/.csa-ilem-generated

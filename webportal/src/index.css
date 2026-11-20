@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light dark;
+  --wtl-font-scale: 100%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html { font-size: var(--wtl-font-scale); }
+html[data-wtl-text-scale='large'] { --wtl-font-scale: 112.5%; }
+html[data-wtl-text-scale='x-large'] { --wtl-font-scale: 125%; }
+html[data-wtl-line-spacing='relaxed'] #content :where(p, li, dd, dt, blockquote) { line-height: 1.9 !important; }
+html[data-wtl-letter-spacing='relaxed'] #content :where(p, li, a, button, input, textarea, select) { letter-spacing: 0.035em; }
+html[data-wtl-contrast='high'] #root { filter: contrast(1.18); }
+html[data-wtl-contrast='high'] #root :focus-visible { outline: 3px solid currentColor !important; outline-offset: 3px !important; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }
+html[data-wtl-motion='reduced'] *, html[data-wtl-motion='reduced'] *::before, html[data-wtl-motion='reduced'] *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }

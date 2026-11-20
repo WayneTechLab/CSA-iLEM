@@ -1,0 +1,56 @@
+{
+  "name": "csa-iem-webportal",
+  "private": true,
+  "version": "3.4.0",
+  "type": "module",
+  "description": "Public React/Vite/Firebase template with managed SYSTEMX tooling, agent coordination, LAN builder and production kits.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b --noCheck && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "emulators": "npx --yes firebase-tools emulators:start",
+    "emulators:export": "npx --yes firebase-tools emulators:start --export-on-exit=.emulator-data --import=.emulator-data",
+    "setup:test-users": "node scripts/setup/seed-test-users.mjs",
+    "setup:test-users:write": "node scripts/setup/seed-test-users.mjs --write",
+    "sync:system": "bash .SYSTEMX/wsg-agi.sh",
+    "sync:system:check": "bash .SYSTEMX/wsg-agi.sh --check",
+    "ci:lint": "eslint . --max-warnings=0",
+    "ci:typecheck": "tsc --noEmit -p tsconfig.json",
+    "ci:test": "npm run test --if-present",
+    "ci:build": "vite build",
+    "ci:audit": "npm audit --audit-level=high",
+    "ci:security": "bash scripts/security/run_security_checks.sh"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "lucide-react": "^0.484.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^17.1.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.60.0",
+    "vite": "^8.1.3"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.5",
+    "re2js": "2.8.7"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "npm@11.11.0"
+}
