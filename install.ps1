@@ -15,7 +15,7 @@ $InstallRoot = if ($env:LOCALAPPDATA) {
 }
 $BinDir = Join-Path $InstallRoot "bin"
 $ForceInstall = $true
-$BootstrapDeps = $true
+$BootstrapDeps = $false
 $UpdatePath = $true
 $ShowHelp = $false
 $ShowVersion = $false
@@ -38,6 +38,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
         }
         "--force" { $ForceInstall = $true }
         "--no-deps" { $BootstrapDeps = $false }
+        "--with-deps" { $BootstrapDeps = $true }
         "--no-path-update" { $UpdatePath = $false }
         default { throw "Unknown argument: $($args[$Index])" }
     }
@@ -59,12 +60,13 @@ Usage:
   # Windows 11 PowerShell / Windows Terminal
   powershell -ExecutionPolicy Bypass -File .\install.ps1
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
-  powershell -ExecutionPolicy Bypass -File .\install.ps1 --no-deps
+  powershell -ExecutionPolicy Bypass -File .\install.ps1 --with-deps
   powershell -ExecutionPolicy Bypass -File .\install.ps1 --install-root C:\Tools\CSA-iEM --bin-dir C:\Tools\CSA-iEM\bin
 
 Install behavior:
   Installs and updates replace the target version by default, update current.txt,
   and remove only receipt-verified older CSA-iEM versions. Unknown folders stay.
+  Dependency bootstrap is off by default; --with-deps enables winget/npm installs.
 "@ | Write-Host
     exit 0
 }
@@ -420,5 +422,5 @@ Write-Host "Then verify:"
 Write-Host "  csa-iem --version"
 Write-Host "  csa-iem-update --help"
 Write-Host ""
-Write-Host "Update to a specific tag, branch, or commit:"
-Write-Host "  csa-iem-update --ref your-tag-or-branch"
+Write-Host "Update with independent release evidence:"
+Write-Host "  csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>"

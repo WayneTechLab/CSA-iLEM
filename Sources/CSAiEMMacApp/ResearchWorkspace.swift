@@ -1,4 +1,63 @@
 import Foundation
+import Darwin
+
+private enum CSAiEMResearchDirectoryWalk {
+  static func fileType(at url: URL) -> mode_t? {
+    url.withUnsafeFileSystemRepresentation { path in
+      guard let path else { return nil }
+      var status = stat()
+      guard Darwin.lstat(path, &status) == 0 else { return nil }
+      return status.st_mode & mode_t(S_IFMT)
+    }
+  }
+
+  static func isActualDirectory(_ root: URL, components: [String] = []) -> Bool {
+    guard fileType(at: root) == mode_t(S_IFDIR) else { return false }
+    var directory = root
+    for component in components {
+      directory.appendPathComponent(component)
+      guard fileType(at: directory) == mode_t(S_IFDIR) else { return false }
+    }
+    return true
+  }
+}
+
+private struct CSAiEMBoundedFileRead {
+  let data: Data
+  let byteCount: Int
+  let hasBytesBeyondLimit: Bool
+
+  static func read(at url: URL, limit: Int) -> Self? {
+    guard limit >= 0 else { return nil }
+    let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+      guard let path else { return -1 }
+      return Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+    }
+    guard descriptor >= 0 else { return nil }
+    var fileStatus = stat()
+    guard Darwin.fstat(descriptor, &fileStatus) == 0,
+          fileStatus.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+      Darwin.close(descriptor)
+      return nil
+    }
+    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    defer { try? handle.close() }
+
+    do {
+      var data = Data()
+      while data.count < limit {
+        let chunk = try handle.read(upToCount: min(limit - data.count, 64_000)) ?? Data()
+        if chunk.isEmpty { break }
+        data.append(chunk)
+      }
+      let extraByte = try handle.read(upToCount: 1) ?? Data()
+      let byteCount = fileStatus.st_size > 0 ? Int(clamping: fileStatus.st_size) : 0
+      return Self(data: data, byteCount: max(byteCount, data.count + extraByte.count), hasBytesBeyondLimit: !extraByte.isEmpty)
+    } catch {
+      return nil
+    }
+  }
+}
 
 struct CSAiEMLocalCodebaseSummary: Identifiable, Hashable, Codable {
   let path: String
@@ -302,39 +361,70 @@ struct CSAiEMLocalDocumentationSummary: Identifiable, Hashable, Codable {
     return kind + " · " + size + " · " + String(headings.count) + " heading" + (headings.count == 1 ? "" : "s") + (truncated ? " · bounded read" : "")
   }
 
-  static func scan(paths: [String], maxFiles: Int = 32, maxBytes: Int = 128_000, maxHeadings: Int = 16) -> [Self] {
+  static func scan(paths: [String], maxFiles: Int = 32, maxBytes: Int = 128_000, maxHeadings: Int = 16, maxVisitedEntries: Int = 2_000, maxDepth: Int = 4) -> [Self] {
+    scanWithWarnings(paths: paths, maxFiles: maxFiles, maxBytes: maxBytes, maxHeadings: maxHeadings, maxVisitedEntries: maxVisitedEntries, maxDepth: maxDepth).summaries
+  }
+
+  static func scanWithWarnings(paths: [String], maxFiles: Int = 32, maxBytes: Int = 128_000, maxHeadings: Int = 16, maxVisitedEntries: Int = 2_000, maxDepth: Int = 4) -> (summaries: [Self], warnings: [String]) {
     let fileManager = FileManager.default
     var candidates: Set<String> = []
+    var warnings: Set<String> = []
+    var visitedEntries = 0
+    let entryLimit = max(0, maxVisitedEntries)
+    let depthLimit = max(0, maxDepth)
     let rootNames = ["README.md", "README", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "GOVERNANCE.md", "CHANGELOG.md", "HISTORY.md", "RELEASES.md"]
     let directories = ["docs", ".github", ".SYSTEMX/Wiki"]
 
-    for path in paths {
+    rootLoop: for path in paths {
       let root = URL(fileURLWithPath: path).standardizedFileURL
+      guard CSAiEMResearchDirectoryWalk.isActualDirectory(root) else {
+        warnings.insert("Skipped missing or symlinked documentation scan root.")
+        continue
+      }
       for name in rootNames { candidates.insert(root.appendingPathComponent(name).path) }
       for directory in directories {
+        let components = directory.split(separator: "/").map(String.init)
+        guard CSAiEMResearchDirectoryWalk.isActualDirectory(root, components: components) else { continue }
         let directoryURL = root.appendingPathComponent(directory)
         guard let enumerator = fileManager.enumerator(at: directoryURL, includingPropertiesForKeys: [.isDirectoryKey], options: [], errorHandler: { _, _ in true }) else { continue }
-        while let url = enumerator.nextObject() as? URL {
+        while visitedEntries < entryLimit, let url = enumerator.nextObject() as? URL {
+          visitedEntries += 1
+          let fileType = CSAiEMResearchDirectoryWalk.fileType(at: url)
+          if fileType == mode_t(S_IFLNK) {
+            enumerator.skipDescendants()
+            warnings.insert("Skipped symlinked documentation entry.")
+            continue
+          }
+          let depth = url.pathComponents.count - directoryURL.pathComponents.count - 1
+          if depth > depthLimit || (fileType == mode_t(S_IFDIR) && depth >= depthLimit) {
+            enumerator.skipDescendants()
+            warnings.insert("Local documentation walk capped at depth " + String(depthLimit) + ".")
+            continue
+          }
           let ext = url.pathExtension.lowercased()
           guard ["md", "mdx", "txt"].contains(ext) else { continue }
           candidates.insert(url.path)
           if candidates.count >= maxFiles { break }
+        }
+        if visitedEntries >= entryLimit {
+          warnings.insert("Local documentation walk capped at " + String(entryLimit) + " entries.")
+          break rootLoop
         }
         if candidates.count >= maxFiles { break }
       }
       if candidates.count >= maxFiles { break }
     }
 
-    return candidates.sorted().prefix(maxFiles).compactMap { scan(path: $0, maxBytes: maxBytes, maxHeadings: maxHeadings) }
+    let summaries = candidates.sorted().prefix(max(0, maxFiles)).compactMap { scan(path: $0, maxBytes: maxBytes, maxHeadings: maxHeadings) }
       .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    return (summaries, warnings.sorted())
   }
 
   static func scan(path: String, maxBytes: Int = 128_000, maxHeadings: Int = 16) -> Self? {
     let url = URL(fileURLWithPath: path).standardizedFileURL
-    guard let data = try? Data(contentsOf: url, options: [.uncached]) else { return nil }
-    let boundedData = data.prefix(maxBytes)
-    guard let text = String(data: boundedData, encoding: .utf8) else {
-      return Self(path: url.path, title: url.deletingPathExtension().lastPathComponent, kind: documentationKind(for: url), headings: [], byteCount: data.count, truncated: true, warnings: ["Documentation is not valid UTF-8."])
+    guard let read = CSAiEMBoundedFileRead.read(at: url, limit: maxBytes) else { return nil }
+    guard let text = String(data: read.data, encoding: .utf8) else {
+      return Self(path: url.path, title: url.deletingPathExtension().lastPathComponent, kind: documentationKind(for: url), headings: [], byteCount: read.byteCount, truncated: true, warnings: ["Documentation is not valid UTF-8."])
     }
     let allHeadings = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
       let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -344,9 +434,9 @@ struct CSAiEMLocalDocumentationSummary: Identifiable, Hashable, Codable {
     let headings = Array(allHeadings.prefix(maxHeadings))
     let title = headings.first ?? url.deletingPathExtension().lastPathComponent
     var warnings: [String] = []
-    if data.count > maxBytes { warnings.append("Documentation read capped at " + String(maxBytes) + " bytes.") }
+    if read.hasBytesBeyondLimit { warnings.append("Documentation read capped at " + String(maxBytes) + " bytes.") }
     if allHeadings.count > maxHeadings { warnings.append("Heading list capped at " + String(maxHeadings) + " entries.") }
-    return Self(path: url.path, title: title, kind: documentationKind(for: url), headings: headings, byteCount: data.count, truncated: data.count > maxBytes || allHeadings.count > maxHeadings, warnings: warnings)
+    return Self(path: url.path, title: title, kind: documentationKind(for: url), headings: headings, byteCount: read.byteCount, truncated: read.hasBytesBeyondLimit || allHeadings.count > maxHeadings, warnings: warnings)
   }
 
   private static func documentationKind(for url: URL) -> String {
@@ -410,23 +500,57 @@ struct CSAiEMLocalWorkflowSummary: Identifiable, Hashable, Codable {
     return workflowName + " · " + (flags.isEmpty ? "no flagged surface" : flags.joined(separator: " · "))
   }
 
-  static func scan(paths: [String], maxFiles: Int = 40, maxBytesPerFile: Int = 64_000) -> [Self] {
+  static func scan(paths: [String], maxFiles: Int = 40, maxBytesPerFile: Int = 64_000, maxVisitedEntries: Int = 2_000, maxDepth: Int = 4) -> [Self] {
+    scanWithWarnings(paths: paths, maxFiles: maxFiles, maxBytesPerFile: maxBytesPerFile, maxVisitedEntries: maxVisitedEntries, maxDepth: maxDepth).summaries
+  }
+
+  static func scanWithWarnings(paths: [String], maxFiles: Int = 40, maxBytesPerFile: Int = 64_000, maxVisitedEntries: Int = 2_000, maxDepth: Int = 4) -> (summaries: [Self], warnings: [String]) {
     var workflowPaths: [String] = []
-    for rootPath in paths {
-      let root = URL(fileURLWithPath: rootPath).appendingPathComponent(".github/workflows")
+    var warnings: Set<String> = []
+    var visitedEntries = 0
+    let entryLimit = max(0, maxVisitedEntries)
+    let depthLimit = max(0, maxDepth)
+    rootLoop: for rootPath in paths {
+      let projectRoot = URL(fileURLWithPath: rootPath).standardizedFileURL
+      guard CSAiEMResearchDirectoryWalk.isActualDirectory(projectRoot) else {
+        warnings.insert("Skipped missing or symlinked workflow scan root.")
+        continue
+      }
+      guard CSAiEMResearchDirectoryWalk.isActualDirectory(projectRoot, components: [".github", "workflows"]) else { continue }
+      let root = projectRoot.appendingPathComponent(".github/workflows")
       guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [], errorHandler: { _, _ in true }) else { continue }
-      while let url = enumerator.nextObject() as? URL {
+      while visitedEntries < entryLimit, let url = enumerator.nextObject() as? URL {
+        visitedEntries += 1
+        let fileType = CSAiEMResearchDirectoryWalk.fileType(at: url)
+        if fileType == mode_t(S_IFLNK) {
+          enumerator.skipDescendants()
+          warnings.insert("Skipped symlinked workflow entry.")
+          continue
+        }
+        let depth = url.pathComponents.count - root.pathComponents.count - 1
+        if depth > depthLimit || (fileType == mode_t(S_IFDIR) && depth >= depthLimit) {
+          enumerator.skipDescendants()
+          warnings.insert("Local workflow walk capped at depth " + String(depthLimit) + ".")
+          continue
+        }
         guard url.pathExtension.lowercased() == "yml" || url.pathExtension.lowercased() == "yaml" else { continue }
         workflowPaths.append(url.path)
         if workflowPaths.count >= maxFiles { break }
       }
+      if visitedEntries >= entryLimit {
+        warnings.insert("Local workflow walk capped at " + String(entryLimit) + " entries.")
+        break rootLoop
+      }
       if workflowPaths.count >= maxFiles { break }
     }
-    return workflowPaths.compactMap { scan(path: $0, maxBytes: maxBytesPerFile) }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    let summaries = workflowPaths.prefix(max(0, maxFiles)).compactMap { scan(path: $0, maxBytes: maxBytesPerFile) }
+      .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    return (summaries, warnings.sorted())
   }
 
   static func scan(path: String, maxBytes: Int = 64_000) -> Self? {
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: [.uncached]), let contents = String(data: data.prefix(maxBytes), encoding: .utf8) else { return nil }
+    guard let read = CSAiEMBoundedFileRead.read(at: URL(fileURLWithPath: path), limit: maxBytes),
+          let contents = String(data: read.data, encoding: .utf8) else { return nil }
     let lines = contents.split(whereSeparator: \.isNewline).map(String.init)
     let workflowName = lines.first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("name:") })?.split(separator: ":", maxSplits: 1).dropFirst().first.map { $0.trimmingCharacters(in: .whitespaces) } ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
     let actionReferences = Array(Set(lines.compactMap { line -> String? in
@@ -439,7 +563,7 @@ struct CSAiEMLocalWorkflowSummary: Identifiable, Hashable, Codable {
     if lower.contains("secrets.") || lower.contains("secrets[") { warnings.append("Workflow references secrets; values were not read.") }
     if lower.contains("permissions:") == false { warnings.append("Workflow does not declare an explicit permissions block.") }
     if lower.contains("pull_request") && lower.contains("fork") { warnings.append("Workflow text references pull-request/fork context; review token scope.") }
-    if data.count >= maxBytes { warnings.append("Workflow read capped at " + String(maxBytes) + " bytes.") }
+    if read.byteCount >= maxBytes { warnings.append("Workflow read capped at " + String(maxBytes) + " bytes.") }
     return Self(path: path, workflowName: workflowName, actionReferences: actionReferences, hasPermissionsBlock: lower.contains("permissions:"), usesPullRequestTarget: lower.contains("pull_request_target"), referencesSecrets: lower.contains("secrets.") || lower.contains("secrets["), referencesForks: lower.contains("fork"), warnings: warnings)
   }
 }

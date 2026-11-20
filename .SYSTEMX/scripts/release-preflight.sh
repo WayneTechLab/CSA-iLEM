@@ -17,12 +17,13 @@ echo "[3/15] SYSTEMX plan validation"
 node .SYSTEMX/scripts/validate-10000-task-plan.mjs
 
 echo "[4/15] Shell syntax"
-bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh uninstall.sh build-gui-app.sh ".SYSTEMX/scripts/release-manifest-smoke.sh" ".SYSTEMX/scripts/github-live-readonly-smoke.sh" ".SYSTEMX/scripts/powershell-parse-smoke.sh" ".SYSTEMX/scripts/remote-install-live-smoke.sh" ".SYSTEMX/scripts/validate-macos-release-tag.sh" ".SYSTEMX/scripts/macos-release-tag-smoke.sh" ".SYSTEMX/scripts/verify-firebase-apple-config.sh" ".SYSTEMX/scripts/install-cleanup-safety-smoke.sh"
+bash -n CSA-iLEM.sh stage2-workspace.sh stage3-cleanup.sh install.sh uninstall.sh build-gui-app.sh install-remote.sh ".SYSTEMX/scripts/release-manifest-smoke.sh" ".SYSTEMX/scripts/github-live-readonly-smoke.sh" ".SYSTEMX/scripts/powershell-parse-smoke.sh" ".SYSTEMX/scripts/remote-install-live-smoke.sh" ".SYSTEMX/scripts/remote-install-trust-smoke.sh" ".SYSTEMX/scripts/validate-macos-release-tag.sh" ".SYSTEMX/scripts/macos-release-tag-smoke.sh" ".SYSTEMX/scripts/verify-firebase-apple-config.sh" ".SYSTEMX/scripts/install-cleanup-safety-smoke.sh" ".SYSTEMX/scripts/install-profile-escape-smoke.sh" ".SYSTEMX/scripts/public-macos-release-readiness.sh" ".SYSTEMX/scripts/package-public-macos-release.sh" ".SYSTEMX/scripts/public-macos-release-smoke.sh"
 
 echo "[5/15] PowerShell static syntax"
 bash .SYSTEMX/scripts/powershell-parse-smoke.sh
 if command -v pwsh >/dev/null 2>&1; then
   pwsh -NoLogo -NoProfile -NonInteractive -File Tests/WindowsInstallerSafety.ps1
+  pwsh -NoLogo -NoProfile -NonInteractive -File Tests/WindowsRemoteTrust.ps1
 fi
 
 echo "[6/15] SHA-256 manifest"
@@ -53,6 +54,8 @@ echo "PASS: no GitHub Actions workflows are configured"
 
 echo "[11/15] Release manifest smoke"
 bash .SYSTEMX/scripts/release-manifest-smoke.sh
+bash .SYSTEMX/scripts/remote-install-trust-smoke.sh
+bash .SYSTEMX/scripts/public-macos-release-smoke.sh
 
 echo "[12/15] macOS release tag smoke"
 bash .SYSTEMX/scripts/macos-release-tag-smoke.sh
@@ -60,6 +63,7 @@ bash .SYSTEMX/scripts/macos-release-tag-smoke.sh
 echo "[13/15] Disposable lifecycle smoke"
 bash .SYSTEMX/scripts/install-lifecycle-smoke.sh
 bash .SYSTEMX/scripts/install-cleanup-safety-smoke.sh
+bash .SYSTEMX/scripts/install-profile-escape-smoke.sh
 
 echo "[14/15] Recovery safety smoke"
 bash .SYSTEMX/scripts/recovery-safety-smoke.sh

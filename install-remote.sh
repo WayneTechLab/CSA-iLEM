@@ -3,18 +3,22 @@ set -euo pipefail
 
 APP_NAME="CSA-iEM"
 APP_VENDOR="Wayne Tech Lab LLC"
+if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
+  echo "Remote install must run from a reviewed local script file; piping a mutable URL into bash is not supported." >&2
+  exit 1
+fi
 REMOTE_INSTALLER_VERSION="$(sed -n '1p' "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/VERSION" 2>/dev/null || printf '0.0.0')"
-DEFAULT_REPO_SLUG="${CSA_IEM_REPO_SLUG:-WayneTechLab/CSA-iLEM}"
-DEFAULT_REF="${CSA_IEM_REF:-main}"
+DEFAULT_REPO_SLUG="WayneTechLab/CSA-iLEM"
 INSTALL_ROOT=""
 BIN_DIR=""
 USE_FORCE=0
 UPDATE_SHELL_PROFILE=1
 KEEP_TEMP=0
-BOOTSTRAP_DEPS=1
+BOOTSTRAP_DEPS=0
 INSTALL_GUI_APP=1
 OPEN_GUI_APP=1
-REF_VALUE="$DEFAULT_REF"
+REF_VALUE=""
+EXPECTED_ARCHIVE_SHA256=""
 REPO_SLUG="$DEFAULT_REPO_SLUG"
 
 print_help() {
@@ -24,20 +28,20 @@ Version: $REMOTE_INSTALLER_VERSION
 Provider: $APP_VENDOR
 
 Usage:
-  # macOS Terminal (zsh / bash)
-  curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash -s -- --force
-  curl -fsSL https://raw.githubusercontent.com/$DEFAULT_REPO_SLUG/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
+  # Run a reviewed local copy with independently obtained release evidence.
+  ./install-remote.sh --ref <40-character-commit-sha> --archive-sha256 <64-character-sha256>
   ./install-remote.sh --version
 
 Options:
-  --ref <value>            Branch, tag, or commit to install. Default: $DEFAULT_REF
+  --ref <sha>              Exact 40-character Git commit SHA; branches and tags are refused.
+  --archive-sha256 <sha>   Expected SHA-256 of the complete GitHub tarball, obtained independently.
   --repo <owner/repo>      GitHub repository slug. Default: $DEFAULT_REPO_SLUG
   --install-root <dir>     Override the versioned install root.
   --bin-dir <dir>          Override the command symlink directory.
   --force                  Force reinstall of the target version.
   --no-shell-profile       Do not modify ~/.zprofile.
-  --no-deps                Skip dependency bootstrap in the local installer.
+  --with-deps              Explicitly allow dependency bootstrap in the local installer.
+  --no-deps                Keep dependency bootstrap off (the default).
   --no-gui-app             Do not build or install the native app bundle.
   --no-open                Do not open the installed app after installation.
   --keep-temp              Keep the downloaded temp directory after install.
@@ -60,6 +64,10 @@ while [[ "$#" -gt 0 ]]; do
       shift
       REF_VALUE="${1:-}"
       ;;
+    --archive-sha256)
+      shift
+      EXPECTED_ARCHIVE_SHA256="${1:-}"
+      ;;
     --repo)
       shift
       REPO_SLUG="${1:-}"
@@ -81,6 +89,9 @@ while [[ "$#" -gt 0 ]]; do
     --no-deps)
       BOOTSTRAP_DEPS=0
       ;;
+    --with-deps)
+      BOOTSTRAP_DEPS=1
+      ;;
     --no-gui-app)
       INSTALL_GUI_APP=0
       OPEN_GUI_APP=0
@@ -99,8 +110,16 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-if [[ -z "$REF_VALUE" || -z "$REPO_SLUG" ]]; then
-  echo "Both --repo and --ref values must be non-empty." >&2
+if [[ ! "$REF_VALUE" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Remote install requires --ref with an exact lowercase 40-character commit SHA; mutable branches and tags are refused." >&2
+  exit 1
+fi
+if [[ ! "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Remote install requires --archive-sha256 from an independent trusted release record." >&2
+  exit 1
+fi
+if [[ ! "$REPO_SLUG" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ || "$REPO_SLUG" == *..* ]]; then
+  echo "Remote install requires a valid owner/repository slug." >&2
   exit 1
 fi
 
@@ -142,8 +161,15 @@ trap cleanup EXIT
 
 echo "Downloading $APP_NAME from $REPO_SLUG ($REF_VALUE)..."
 curl --fail --silent --show-error --location \
+  --proto '=https' --proto-redir '=https' \
   --retry 3 --retry-delay 1 --connect-timeout 20 \
   "$ARCHIVE_URL" -o "$ARCHIVE_PATH"
+
+ACTUAL_ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"
+if [[ "$ACTUAL_ARCHIVE_SHA256" != "$EXPECTED_ARCHIVE_SHA256" ]]; then
+  echo "Downloaded archive digest does not match the independently supplied SHA-256; nothing was extracted or installed." >&2
+  exit 1
+fi
 
 echo "Extracting installer bundle..."
 tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"
@@ -189,8 +215,8 @@ fi
 if [[ "$UPDATE_SHELL_PROFILE" -eq 0 ]]; then
   INSTALL_ARGS+=(--no-shell-profile)
 fi
-if [[ "$BOOTSTRAP_DEPS" -eq 0 ]]; then
-  INSTALL_ARGS+=(--no-deps)
+if [[ "$BOOTSTRAP_DEPS" -eq 1 ]]; then
+  INSTALL_ARGS+=(--with-deps)
 fi
 if [[ "$INSTALL_GUI_APP" -eq 0 ]]; then
   INSTALL_ARGS+=(--no-gui-app)

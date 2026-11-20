@@ -5,6 +5,22 @@ Updated: `2026-11-19`
 
 This file is the current production-status snapshot for `CSA-iEM`.
 
+Security scan and release work (2026-11-19): a standard Codex Security scan of
+the preceding source snapshot found one medium-severity availability issue in
+Repository Intelligence's unbounded documentation and workflow reads. The
+working source now bounds those reads and directory traversal, rejects
+symlinks and special files, and moves snapshot work off the UI queue; focused
+regression tests cover large files, traversal caps, and `/dev/zero`. Both
+remote installers now require an exact commit and
+an independently verified complete-archive digest before execution. Optional
+package bootstrap requires `--with-deps`, and native direct Move is blocked
+outside the verified transaction path. A separate public macOS packaging gate
+is present and fails closed, but this Mac still lacks a Developer ID Application
+identity and a configured notarization profile. The registered Firebase Hosting
+site has zero releases and no webapp source has been identified in this repo;
+its root is 404. These external release prerequisites keep public production
+status blocked despite local hardening.
+
 Production hardening review (2026-11-19): native Move now requires complete
 source-to-stage and source-to-destination read-back before old-source removal;
 late changes leave the original in place for review. Snapshot restore verifies
@@ -26,11 +42,13 @@ the earlier detailed-inventory limits. Public macOS distribution still requires 
 notarization, Gatekeeper acceptance, and a trusted published artifact. The
 separate Firebase Hosting root currently returns 404; the native app uses
 FirebaseCore only. GitHub has one open secret-scanning alert for the Firebase
-Apple client key; its API allowlist exists, while app/bundle restriction and
-non-Firebase targets require review. Dependabot alerts were enabled after the
-initial review and returned no alerts on immediate read-back; code scanning
-remains disabled. Auth/App Check configuration could not be read with current
-provider access.
+Apple client key; the key is intentional client configuration. Cloud SQL Admin
+is on its allowlist but is disabled, and enabled-and-allowed targets were
+Firebase related in the provider review. No public project IAM principal is
+bound. Dependabot alerts were enabled after the initial review and returned no
+alerts on immediate read-back; code scanning remains disabled. An authenticated
+Auth configuration read returned CONFIGURATION_NOT_FOUND, and App Check is
+disabled. No Firebase data product is active in the native app.
 
 Source-update acceptance (2026-10-31): the matrix 1.4 update passed 148 Swift
 regression tests, the complete 15-stage local release preflight, and all 145

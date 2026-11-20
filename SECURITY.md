@@ -48,11 +48,16 @@ Before enabling another Firebase product, review its rules, App Check support,
 API-key restrictions, macOS entitlements, privacy disclosure, and test lane.
 
 The 2026-11-19 provider review found one open GitHub secret-scanning alert for
-the tracked Firebase Apple client key. The key has an API allowlist, but its
-Google Cloud record did not return allowed bundle IDs and includes some APIs
-outside core Firebase. This is a configuration review item, not proof of a
-compromised backend credential. Review the allowlist and application
-restriction in a test lane before a public release. Dependabot alerts were
+the tracked Firebase Apple client key. The key matches the registered app and
+is intentional public client configuration, not evidence of a compromised
+backend credential. Its 27 allowed API targets include Cloud SQL Admin, which
+is disabled in this project; the enabled-and-allowed targets are Firebase
+related. No public IAM principal is bound to the project. The native app uses
+FirebaseCore only, with no active Firestore, Storage, Realtime Database, Auth,
+or App Check configuration to exercise. Review key restrictions in a test lane
+before enabling more APIs or data services; applying an iOS bundle restriction
+to this macOS build without verifying its request headers could break calls.
+Dependabot alerts were
 enabled later on 2026-11-19, and the immediate read-back returned no alerts;
 the dependency graph may still be populating. GitHub code scanning remains
 disabled, so its dashboard does not establish a clean code audit.

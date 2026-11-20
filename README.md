@@ -185,28 +185,7 @@ Compatibility wrappers still ship for older installed commands:
 
 Use Terminal with `zsh` or `bash`.
 
-Install the latest published `main` build:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
-```
-
-The same command also updates an existing install to the latest published `main` build. The installer replaces the target version, repoints `~/.local/share/csa-iem/current`, and removes older installed version folders automatically.
-On macOS, update also builds and installs `CSA-iEM.app` into `/Applications` when writable, or `~/Applications` otherwise, starts it so the menu-bar toolbar appears, and registers a LaunchAgent so the toolbar returns at login.
-
-Force a reinstall of the latest published `main` build:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
-```
-
-Install a specific release, branch, or commit:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
-```
-
-Install from a local checkout:
+Install from a reviewed local checkout:
 
 ```bash
 cd '/path/to/CSA-iEM'
@@ -214,29 +193,48 @@ chmod +x ./install.sh
 ./install.sh
 ```
 
+The local installer verifies its payload manifest, replaces its versioned CLI
+files, and builds `CSA-iEM.app` into `/Applications` when writable or
+`~/Applications` otherwise. It preserves other app copies and the previous
+canonical bundle for recovery.
+
+The remote installer and installed update wrappers require an **exact Git
+commit SHA** and an independently obtained **SHA-256 of the complete archive**.
+They refuse mutable branches, tags, and missing digests; the macOS script also
+refuses piped execution. A
+checksum downloaded inside the same archive is not independent publisher
+evidence. Until a trusted release record supplies both values, use a reviewed
+local checkout:
+
+```bash
+./install-remote.sh --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
+```
+
 The installer:
-- scans for missing Mac dependencies and installs what it can before laying down the app files
-- falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
-- copies the production bundle into `~/.local/share/csa-iem/<version>`
+- installs the app without fetching optional dependencies by default; `--with-deps` explicitly enables dependency bootstrap
+- with `--with-deps`, falls back to a user-local npm prefix for `@devcontainers/cli` when the system npm global prefix is not writable
+- copies the local application source and CLI bundle into `~/.local/share/csa-iem/<version>`
 - creates a stable `current` symlink under `~/.local/share/csa-iem/`
 - removes older installed version folders after the new version is active
 - builds and installs `CSA-iEM.app` into Applications when Swift is available
 - starts the app after install so the menu-bar toolbar appears
 - registers `~/Library/LaunchAgents/com.waynetechlab.csa-iem.toolbar.plist` so the toolbar opens again at login
 - links commands into `~/.local/bin`
-- installs `csa-iem-update` and `csa-ilem-update` so an installed Mac can update from the shipped remote installer without recloning first
+- installs `csa-iem-update` and `csa-ilem-update`; remote updates require the pinned commit and trusted archive digest
 - adds `~/.local/bin` to `~/.zprofile`
 - adds macOS Terminal aliases so `CSA-IEM`, `CSA-iEM`, `CSA-ILEM`, and `CSA-iLEM` resolve to the installed lowercase commands after the shell profile is reloaded
 - installs the Swift package sources, assets, and docs needed for the GUI and app-bundle builder
 - ships the remote installer too, so an installed machine can update again later without recloning first
-- bootstraps Homebrew, git, GitHub CLI, Node.js, Dev Containers CLI, Visual Studio Code, and Docker Desktop when they are missing
+- when `--with-deps` is supplied, bootstraps missing Homebrew, git, GitHub CLI, Node.js, Dev Containers CLI, Visual Studio Code, and Docker Desktop
 - still warns if Swift is not installed yet so the CLI can still be installed cleanly while the GUI path remains explicit
 
-If you want a file-only install with no dependency bootstrap:
+For an install that also fetches optional dependencies:
 
 ```bash
-./install.sh --no-deps
+./install.sh --with-deps
 ```
+
+`--no-deps` remains available for explicit file-only installs.
 
 After install:
 
@@ -247,16 +245,16 @@ csa-iem-update --help
 CSA-IEM --version
 ```
 
-Update an installed macOS copy from any Terminal window:
+Inspect the installed macOS update command:
 
 ```bash
-csa-iem-update
+csa-iem-update --help
 ```
 
-Update to a specific tag, branch, or commit:
+Update only with independently verified release evidence:
 
 ```bash
-csa-iem-update --ref your-tag-or-branch
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
 ```
 
 From an installed copy, you can also inspect the shipped remote installer directly:
@@ -274,27 +272,13 @@ cd '/path/to/CSA-iEM'
 
 ## Install On Windows 11 PowerShell
 
-Use Windows Terminal or PowerShell. Run install commands from an Administrator shell when bootstrapping dependencies or services.
-
-Remote install from the latest published `main` build:
+Use Windows Terminal or PowerShell. Run install commands from an Administrator shell only when you opt into dependency bootstrap or service setup. Review `install-remote.ps1` from a trusted checkout, then supply an exact Git commit SHA and the SHA-256 of the **complete ZIP archive** from an independent trusted release record. The script refuses mutable branches, tags, or missing evidence before downloading or installing.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
-The same command also updates an existing install to the latest published `main` build. The installer replaces the target version, refreshes `%LOCALAPPDATA%\CSA-iEM\current.txt`, and removes older installed version folders automatically.
-
-Force a reinstall of the latest published `main` build:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
-```
-
-Install a specific release, branch, or commit:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref your-tag-or-branch"
-```
+To allow optional `winget` and npm packages, add `--with-deps`. Do not fetch and execute `install-remote.ps1` from a mutable `main` URL.
 
 Local repo install:
 
@@ -314,7 +298,7 @@ The Windows installer:
 - creates `csa-iem.cmd`, `csa-iem-open.cmd`, `csa-iem-tray.cmd`, `csa-iem-update.cmd`, and `openproj.cmd`
 - removes older installed version folders after the new version is active while keeping the shared `bin` directory
 - adds the chosen bin directory to the user PATH
-- bootstraps `git`, `gh`, `node`, `code`, `docker`, and `devcontainer` when possible
+- bootstraps `git`, `gh`, `node`, `code`, `docker`, and `devcontainer` only with `--with-deps`
 - is designed for Windows Terminal and PowerShell admin-shell usage
 - works with `csa-iem`, `CSA-IEM`, or `CSA-iEM` because Windows command lookup is case-insensitive
 
@@ -330,17 +314,11 @@ csa-iem-tray
 Installed Windows update command from any PowerShell window:
 
 ```powershell
-csa-iem-update
-```
-
-Update to a specific tag or version:
-
-```powershell
-csa-iem-update --ref your-tag-or-branch
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
 Important:
-- `csa-iem-update` pulls from the published GitHub repo state.
+- `csa-iem-update` downloads a pinned GitHub ZIP only after the independent digest is provided.
 - if your local checkout contains newer unpushed work, keep that build with the repo-local reinstall command instead of `csa-iem-update`
 
 Windows local checkout refresh:

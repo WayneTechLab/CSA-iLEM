@@ -48,9 +48,10 @@ powershell -ExecutionPolicy Bypass -File .\CSA-iEM.ps1 --help
 Update an installed Windows copy from any PowerShell window:
 
 ```powershell
-csa-iem-update
-csa-iem-update --ref your-tag-or-branch
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
+
+The remote updater requires an exact commit and the SHA-256 of the complete ZIP from an independent trusted release record. For local checkout changes, run `install.ps1` from the checkout instead.
 
 Browse imported projects with the saved workspace roots:
 

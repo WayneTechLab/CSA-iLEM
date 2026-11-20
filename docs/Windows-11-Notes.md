@@ -24,25 +24,21 @@ If you launch PowerShell from somewhere else such as `C:\WINDOWS\system32`, eith
 powershell -ExecutionPolicy Bypass -File H:\WTL-CODE-X\CSA-iEM\install.ps1
 ```
 
-Latest published `main` install from GitHub:
+Remote install from a reviewed local copy of the installer, with an exact commit and an independently obtained SHA-256 of the complete ZIP:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
-Latest published `main` update from GitHub:
+Installed remote update with the same release evidence:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --force"
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
+```
 
 The Windows notification-area tray includes runner start/stop/restart controls, `Stop All Active Runners`, and GitHub Billing shortcuts. Use `csa-iem --billing-report` for the matching CLI report. GitHub organization billing data may require a token with organization billing access.
-```
 
-Specific release, branch, or commit install:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1 --ref your-tag-or-branch"
-```
+Mutable branches and tags are refused by the remote installer. Optional winget/npm bootstrap requires `--with-deps`.
 
 Local git update:
 
@@ -63,16 +59,10 @@ openproj
 Installed Windows update command:
 
 ```powershell
-csa-iem-update
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
-Update to a specific version or tag:
-
-```powershell
-csa-iem-update --ref your-tag-or-branch
-```
-
-`csa-iem-update` updates from the published GitHub repo. If you are actively working in a newer local checkout that is not pushed yet, use the repo-local installer instead:
+`csa-iem-update` refuses a download without independent release evidence. If you are actively working in a newer local checkout that is not pushed yet, use the repo-local installer instead:
 
 ```powershell
 cd H:\WTL-CODE-X\CSA-iEM

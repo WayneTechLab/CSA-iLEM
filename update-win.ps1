@@ -23,8 +23,9 @@ $InstallRoot = if ($env:LOCALAPPDATA) {
 }
 $BinDir = Join-Path $InstallRoot "bin"
 $RepoSlug = "WayneTechLab/CSA-iLEM"
-$RefValue = "main"
-$BootstrapDeps = $true
+$RefValue = ""
+$ExpectedArchiveSha256 = ""
+$BootstrapDeps = $false
 $UpdatePath = $true
 $KeepTemp = $false
 $ShowHelp = $false
@@ -43,6 +44,10 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
             $Index++
             $RefValue = $args[$Index]
         }
+        "--archive-sha256" {
+            $Index++
+            $ExpectedArchiveSha256 = $args[$Index]
+        }
         "--install-root" {
             $Index++
             $InstallRoot = $args[$Index]
@@ -53,6 +58,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
             $BinDir = $args[$Index]
         }
         "--no-deps" { $BootstrapDeps = $false }
+        "--with-deps" { $BootstrapDeps = $true }
         "--no-path-update" { $UpdatePath = $false }
         "--keep-temp" { $KeepTemp = $true }
         default { throw "Unknown argument: $($args[$Index])" }
@@ -71,15 +77,16 @@ Version: $AppVersion
 Provider: $AppVendor
 
 Usage:
-  csa-iem-update
-  csa-iem-update --ref 0.4.9
-  powershell -ExecutionPolicy Bypass -File .\update-win.ps1
+  csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
+  powershell -ExecutionPolicy Bypass -File .\update-win.ps1 --ref <sha> --archive-sha256 <sha256>
 
 Options:
-  --ref VERSION_OR_BRANCH
+  --ref EXACT_40_CHARACTER_COMMIT_SHA
+  --archive-sha256 TRUSTED_COMPLETE_ARCHIVE_SHA256
   --repo OWNER/REPO
   --install-root PATH
   --bin-dir PATH
+  --with-deps
   --no-deps
   --no-path-update
   --keep-temp
@@ -87,13 +94,20 @@ Options:
   --help
 
 Note:
-  csa-iem-update pulls from the published GitHub repo.
+  csa-iem-update requires independent archive evidence before downloading.
   If you want to keep newer local repo changes that are not pushed yet,
   run the repo-local installer instead:
     cd H:\WTL-CODE-X\CSA-iEM
     powershell -ExecutionPolicy Bypass -File .\install.ps1 --force
 "@ | Write-Host
     exit 0
+}
+
+if ($RefValue -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'Remote update requires --ref with an exact lowercase 40-character commit SHA; mutable branches and tags are refused.'
+}
+if ($ExpectedArchiveSha256 -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'Remote update requires --archive-sha256 from an independent trusted release record.'
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
@@ -108,13 +122,14 @@ if (-not (Test-Path $RemoteInstallerPath)) {
 $UpdateArgs = @(
     "--repo", $RepoSlug,
     "--ref", $RefValue,
+    "--archive-sha256", $ExpectedArchiveSha256,
     "--install-root", $InstallRoot,
     "--bin-dir", $BinDir,
     "--force"
 )
 
-if (-not $BootstrapDeps) {
-    $UpdateArgs += "--no-deps"
+if ($BootstrapDeps) {
+    $UpdateArgs += "--with-deps"
 }
 if (-not $UpdatePath) {
     $UpdateArgs += "--no-path-update"

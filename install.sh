@@ -20,7 +20,7 @@ INSTALL_ROLLBACK_KIND=""
 STAGED_INSTALL_DIR=""
 UPDATE_SHELL_PROFILE=1
 FORCE_INSTALL=1
-BOOTSTRAP_DEPS=1
+BOOTSTRAP_DEPS=0
 INSTALL_GUI_APP=1
 OPEN_GUI_APP=1
 
@@ -120,7 +120,7 @@ Usage:
   ./install.sh --install-root <dir>
   ./install.sh --bin-dir <dir>
   ./install.sh --no-shell-profile
-  ./install.sh --no-deps
+  ./install.sh --with-deps
   ./install.sh --no-gui-app
   ./install.sh --no-open
   ./install.sh --force
@@ -135,6 +135,8 @@ Install behavior:
   On macOS, the installer builds and installs one canonical
   /Applications/CSA-iEM.app, preserves other app copies for review, starts
   the canonical app, and registers it to launch at login.
+  Dependency bootstrap is off by default. Use --with-deps to explicitly
+  allow Homebrew, npm, and other package installs.
 
 Cross-platform note:
   Windows 11 admin-shell installers also ship in this repo:
@@ -478,6 +480,15 @@ configure_shell_profiles() {
   esac
 }
 
+escape_shell_double_quoted_literal() {
+  local escaped="$1"
+  escaped="${escaped//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  escaped="${escaped//\$/\\\$}"
+  escaped="${escaped//\`/\\\`}"
+  printf '%s' "$escaped"
+}
+
 build_path_export_line() {
   local bin_path="$1"
   local escaped=""
@@ -489,14 +500,12 @@ build_path_export_line() {
 
   if [[ "$bin_path" == "$HOME/"* ]]; then
     local suffix="${bin_path#$HOME}"
-    suffix="${suffix//\\/\\\\}"
-    suffix="${suffix//\"/\\\"}"
+    suffix="$(escape_shell_double_quoted_literal "$suffix")"
     printf 'export PATH="$HOME%s:$PATH"' "$suffix"
     return
   fi
 
-  escaped="${bin_path//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"
+  escaped="$(escape_shell_double_quoted_literal "$bin_path")"
   printf 'export PATH="%s:$PATH"' "$escaped"
 }
 
@@ -1087,6 +1096,9 @@ while [[ "$#" -gt 0 ]]; do
     --no-deps)
       BOOTSTRAP_DEPS=0
       ;;
+    --with-deps)
+      BOOTSTRAP_DEPS=1
+      ;;
     --no-gui-app)
       INSTALL_GUI_APP=0
       OPEN_GUI_APP=0
@@ -1249,7 +1261,7 @@ printf '  %s\n' \
 echo
 if [[ "$UPDATE_SHELL_PROFILE" -eq 1 ]]; then
   echo "Run one of these now in the current shell if the command is not found yet:"
-  echo "  export PATH=\"$BIN_DIR:\$PATH\""
+  printf '  %s\n' "$(build_path_export_line "$BIN_DIR")"
   echo '  source ~/.zprofile'
   echo '  source ~/.zshrc'
   echo

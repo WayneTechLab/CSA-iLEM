@@ -6,11 +6,12 @@ $AppVendor = "Wayne Tech Lab LLC"
 $LocalVersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "VERSION"
 $InstallerVersion = if (Test-Path $LocalVersionFile) { (Get-Content -Path $LocalVersionFile -TotalCount 1).Trim() } else { "0.0.0" }
 $RepoSlug = "WayneTechLab/CSA-iLEM"
-$RefValue = "main"
+$RefValue = ""
+$ExpectedArchiveSha256 = ""
 $InstallRoot = ""
 $BinDir = ""
 $ForceInstall = $false
-$BootstrapDeps = $true
+$BootstrapDeps = $false
 $UpdatePath = $true
 $KeepTemp = $false
 $ShowHelp = $false
@@ -29,6 +30,10 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
             $Index++
             $RefValue = $args[$Index]
         }
+        "--archive-sha256" {
+            $Index++
+            $ExpectedArchiveSha256 = $args[$Index]
+        }
         "--install-root" {
             $Index++
             $InstallRoot = $args[$Index]
@@ -39,6 +44,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
         }
         "--force" { $ForceInstall = $true }
         "--no-deps" { $BootstrapDeps = $false }
+        "--with-deps" { $BootstrapDeps = $true }
         "--no-path-update" { $UpdatePath = $false }
         "--keep-temp" { $KeepTemp = $true }
         default { throw "Unknown argument: $($args[$Index])" }
@@ -57,40 +63,101 @@ Version: $InstallerVersion
 Provider: $AppVendor
 
 Usage:
-  # Windows 11 PowerShell / Windows Terminal
-  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1
-  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --force
-  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref 0.4.9
+  # Run a reviewed local script with independently obtained release evidence.
+  powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
+
+Options:
+  --ref <sha>              Exact lowercase Git commit SHA; branches and tags are refused.
+  --archive-sha256 <sha>   SHA-256 of the complete GitHub ZIP, obtained independently.
+  --with-deps              Explicitly allow winget/npm dependency bootstrap.
 "@ | Write-Host
     exit 0
+}
+
+if ($RefValue -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'Remote install requires --ref with an exact lowercase 40-character commit SHA; mutable branches and tags are refused.'
+}
+if ($ExpectedArchiveSha256 -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'Remote install requires --archive-sha256 from an independent trusted release record.'
+}
+if ($RepoSlug -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$' -or $RepoSlug.Contains('..')) {
+    throw 'Remote install requires a valid owner/repository slug.'
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "$AppName Windows install is supported only on Windows."
 }
 
+function Save-HttpsArchive {
+    param([string]$Uri, [string]$Destination)
+    Add-Type -AssemblyName System.Net.Http
+    $Current = [uri]$Uri
+    $Handler = [System.Net.Http.HttpClientHandler]::new()
+    $Handler.AllowAutoRedirect = $false
+    $Client = [System.Net.Http.HttpClient]::new($Handler)
+    $Client.DefaultRequestHeaders.UserAgent.ParseAdd('CSA-iEM-Installer/0.8.0')
+    try {
+        for ($Redirect = 0; $Redirect -le 8; $Redirect++) {
+            if ($Current.Scheme -cne 'https') { throw "Archive download refused a non-HTTPS URL: $Current" }
+            $Response = $Client.GetAsync($Current, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            try {
+                $Status = [int]$Response.StatusCode
+                if ($Status -in @(301, 302, 303, 307, 308)) {
+                    if (-not $Response.Headers.Location) { throw 'Archive redirect had no Location header.' }
+                    $Current = [uri]::new($Current, $Response.Headers.Location)
+                    continue
+                }
+                if (-not $Response.IsSuccessStatusCode) { throw "Archive download failed with HTTP $Status." }
+                $InputStream = $Response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                $OutputStream = [System.IO.FileStream]::new($Destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+                try { $InputStream.CopyTo($OutputStream) }
+                finally { $OutputStream.Dispose(); $InputStream.Dispose() }
+                return
+            } finally {
+                $Response.Dispose()
+            }
+        }
+        throw 'Archive download exceeded the redirect limit.'
+    } finally {
+        $Client.Dispose()
+        $Handler.Dispose()
+    }
+}
+
+function Assert-ArchiveDigest {
+    param([string]$ArchivePath, [string]$ExpectedSha256)
+    $Actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $ArchivePath).Hash.ToLowerInvariant()
+    if ($Actual -cne $ExpectedSha256) {
+        throw 'Downloaded archive digest does not match the independently supplied SHA-256; nothing was extracted or installed.'
+    }
+}
+
 function Test-Checksums {
     param([string]$SourceRoot)
     $ChecksumPath = Join-Path $SourceRoot "SHA256SUMS"
-    if (-not (Test-Path $ChecksumPath)) {
+    if (-not (Test-Path -LiteralPath $ChecksumPath -PathType Leaf)) {
         throw "The downloaded archive does not contain SHA256SUMS."
     }
 
-    foreach ($Line in (Get-Content -Path $ChecksumPath)) {
+    $RootFull = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd([char[]]@('\', '/'))
+    foreach ($Line in (Get-Content -LiteralPath $ChecksumPath)) {
         if ([string]::IsNullOrWhiteSpace($Line)) {
             continue
         }
-        $Parts = $Line -split "\s+", 2
-        if ($Parts.Count -lt 2) {
-            continue
+        if ($Line -cnotmatch '^([0-9a-fA-F]{64})\s+\*?(.+)$') { throw 'Malformed SHA256SUMS entry.' }
+        $ExpectedHash = $Matches[1].ToLowerInvariant()
+        $RelativePath = $Matches[2].Trim()
+        if ([System.IO.Path]::IsPathRooted($RelativePath) -or $RelativePath -match '(^|[\\/])\.\.?(?=[\\/]|$)' -or $RelativePath.Contains(':')) {
+            throw "Unsafe checksum path: $RelativePath"
         }
-        $ExpectedHash = $Parts[0].Trim().ToLowerInvariant()
-        $RelativePath = $Parts[1].Trim().TrimStart("*").Trim()
-        $TargetPath = Join-Path $SourceRoot $RelativePath
-        if (-not (Test-Path $TargetPath)) {
+        $TargetPath = [System.IO.Path]::GetFullPath((Join-Path $RootFull $RelativePath))
+        if (-not $TargetPath.StartsWith(($RootFull + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Checksum path escaped archive root: $RelativePath"
+        }
+        if (-not (Test-Path -LiteralPath $TargetPath -PathType Leaf)) {
             throw "Missing file from checksum manifest: $RelativePath"
         }
-        $ActualHash = (Get-FileHash -Algorithm SHA256 -Path $TargetPath).Hash.ToLowerInvariant()
+        $ActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $TargetPath).Hash.ToLowerInvariant()
         if ($ExpectedHash -ne $ActualHash) {
             throw "Checksum mismatch for $RelativePath"
         }
@@ -105,7 +172,9 @@ New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 
 try {
     Write-Host "Downloading $AppName from $RepoSlug ($RefValue)..."
-    Invoke-WebRequest -Uri $ApiUrl -OutFile $ZipPath
+    Save-HttpsArchive -Uri $ApiUrl -Destination $ZipPath
+
+    Assert-ArchiveDigest -ArchivePath $ZipPath -ExpectedSha256 $ExpectedArchiveSha256
 
     Write-Host "Extracting installer bundle..."
     Expand-Archive -Path $ZipPath -DestinationPath $TempRoot -Force
@@ -121,10 +190,6 @@ try {
     }
 
     $ArchiveVersion = (Get-Content -Path $VersionFile -TotalCount 1).Trim()
-    if ($RefValue -match "^[0-9]+\.[0-9]+\.[0-9]+$" -and $ArchiveVersion -ne $RefValue) {
-        throw "Requested ref $RefValue, but the archive reports VERSION $ArchiveVersion."
-    }
-
     Write-Host "Verifying installer bundle checksums..."
     Test-Checksums -SourceRoot $SourceDir.FullName
 
@@ -138,8 +203,8 @@ try {
     if ($ForceInstall) {
         $InstallArgs += "--force"
     }
-    if (-not $BootstrapDeps) {
-        $InstallArgs += "--no-deps"
+    if ($BootstrapDeps) {
+        $InstallArgs += "--with-deps"
     }
     if (-not $UpdatePath) {
         $InstallArgs += "--no-path-update"

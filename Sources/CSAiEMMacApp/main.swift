@@ -8684,26 +8684,30 @@ final class CleanupViewModel: ObservableObject {
         timeout: 30
       )
 
-      DispatchQueue.main.async {
-        self.isLoadingResearchSnapshot = false
-        guard result.status == 0,
-              let metadata = Self.decodeJSONArray(CSAiEMResearchRepositoryMetadata.self, from: result.output) else {
-          let outcome = CSAiEMGitHubProviderOutcome.classify(status: Int(result.status), output: result.output)
-          let detail = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
-          self.researchStatus = "Snapshot failed [" + outcome.title + "]: " + (detail.isEmpty ? "GitHub returned no detail." : detail)
-          self.finishJob(id: jobID, state: .failed, detail: self.researchStatus)
-          return
+      guard result.status == 0,
+            let metadata = Self.decodeJSONArray(CSAiEMResearchRepositoryMetadata.self, from: result.output) else {
+        let outcome = CSAiEMGitHubProviderOutcome.classify(status: Int(result.status), output: result.output)
+        let detail = redactSensitiveText(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = "Snapshot failed [" + outcome.title + "]: " + (detail.isEmpty ? "GitHub returned no detail." : detail)
+        DispatchQueue.main.async {
+          self.isLoadingResearchSnapshot = false
+          self.researchStatus = status
+          self.finishJob(id: jobID, state: .failed, detail: status)
         }
+        return
+      }
 
-        let matches = localProjects
+      let matches = localProjects
           .filter { $0.slug.caseInsensitiveCompare(repo) == .orderedSame }
           .flatMap { project in
             [project.codePath, project.runtimePath].compactMap { $0 }
           }
         let uniqueMatches = Array(Set(matches)).sorted()
         let localSummaries = CSAiEMLocalCodebaseSummary.scan(paths: uniqueMatches)
-        let localDocumentation = CSAiEMLocalDocumentationSummary.scan(paths: uniqueMatches)
-        let localWorkflows = CSAiEMLocalWorkflowSummary.scan(paths: uniqueMatches)
+        let documentationScan = CSAiEMLocalDocumentationSummary.scanWithWarnings(paths: uniqueMatches)
+        let localDocumentation = documentationScan.summaries
+        let workflowScan = CSAiEMLocalWorkflowSummary.scanWithWarnings(paths: uniqueMatches)
+        let localWorkflows = workflowScan.summaries
         let remoteWorkflowsResult = Self.runCommand(
           executable: ghPath,
           arguments: ["workflow", "list", "--all", "--json", "id,name,path,state", "-R", repo],
@@ -8733,7 +8737,7 @@ final class CleanupViewModel: ObservableObject {
           warnings: [
             remoteDocumentationResult.status == 0 ? nil : "Remote documentation inventory unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(remoteDocumentationResult.status), output: remoteDocumentationResult.output).title + "].",
             localDocumentation.count >= 32 ? "Local documentation inventory capped at 32 files." : nil
-          ].compactMap { $0 }
+          ].compactMap { $0 } + documentationScan.warnings
         )
         let security = CSAiEMResearchSecuritySummary(
           vulnerabilityAlerts: Self.researchAvailabilityLabel(vulnerabilityResult),
@@ -8741,12 +8745,12 @@ final class CleanupViewModel: ObservableObject {
           codeScanningAlerts: Self.researchAvailabilityLabel(codeScanningResult),
           workflowCount: remoteWorkflows.count,
           localWorkflowCount: localWorkflows.count,
-          localWorkflowWarnings: localWorkflows.reduce(0) { $0 + $1.warnings.count },
+          localWorkflowWarnings: localWorkflows.reduce(workflowScan.warnings.count) { $0 + $1.warnings.count },
           readBoundary: "Read-only metadata and bounded local workflow text; no secret values, workflow writes, alert dismissal, or administrative changes.",
           warnings: [
             remoteWorkflowsResult.status == 0 ? nil : "Remote workflow inventory unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(remoteWorkflowsResult.status), output: remoteWorkflowsResult.output).title + "].",
             localWorkflows.count >= 40 ? "Local workflow inventory capped at 40 files." : nil
-          ].compactMap { $0 }
+          ].compactMap { $0 } + workflowScan.warnings
         )
         let releaseResult = Self.runCommand(
           executable: ghPath,
@@ -8756,11 +8760,15 @@ final class CleanupViewModel: ObservableObject {
         )
         let releases = releaseResult.status == 0 ? (Self.decodeJSONArray([CSAiEMResearchReleaseEntry].self, from: releaseResult.output) ?? []) : []
         let localChangelogs = CSAiEMLocalChangelogSummary.scan(paths: uniqueMatches)
-        self.researchSnapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs, documentation: documentation, localWorkflows: localWorkflows, security: security)
+        let snapshot = CSAiEMResearchSnapshot.build(metadata: metadata, localMatches: uniqueMatches, localSummaries: localSummaries, releases: releases, localChangelogs: localChangelogs, documentation: documentation, localWorkflows: localWorkflows, security: security)
         let releaseNote = releaseResult.status == 0 ? "" : " Release history was unavailable [" + CSAiEMGitHubProviderOutcome.classify(status: Int(releaseResult.status), output: releaseResult.output).title + "]; local evidence remains available."
-        self.researchStatus = "Read-only intelligence snapshot ready for " + repo + ". Review evidence before any import, merge, backup, or cleanup action." + releaseNote
-        self.finishJob(id: jobID, state: .succeeded, detail: self.researchSnapshot?.summary ?? "Research snapshot ready.")
-      }
+        let status = "Read-only intelligence snapshot ready for " + repo + ". Review evidence before any import, merge, backup, or cleanup action." + releaseNote
+        DispatchQueue.main.async {
+          self.isLoadingResearchSnapshot = false
+          self.researchSnapshot = snapshot
+          self.researchStatus = status
+          self.finishJob(id: jobID, state: .succeeded, detail: snapshot.summary)
+        }
     }
   }
 
@@ -15382,6 +15390,9 @@ final class CleanupViewModel: ObservableObject {
     environment: [String: String]
   ) throws {
     let fm = FileManager.default
+    guard mode == .copyBackup else {
+      throw nativeTransactionError("Direct Move is disabled; use a verified transfer transaction before source cleanup.")
+    }
     let normalizedSource = NSString(string: source).standardizingPath
     let normalizedDestination = NSString(string: destination).standardizingPath
 
@@ -15411,9 +15422,6 @@ final class CleanupViewModel: ObservableObject {
       throw NSError(domain: appTitle, code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "Failed to transfer \(normalizedSource)." : output])
     }
 
-    if mode == .move {
-      try fm.removeItem(atPath: normalizedSource)
-    }
   }
 
   private nonisolated static func stagingPath(for destination: String, transactionID: String) throws -> String {

@@ -12,7 +12,12 @@ fi
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPO_SLUG="${CSA_IEM_REMOTE_REPO:-WayneTechLab/CSA-iLEM}"
-REF_VALUE="${CSA_IEM_REMOTE_REF:-main}"
+REF_VALUE="${CSA_IEM_REMOTE_REF:-}"
+ARCHIVE_SHA256="${CSA_IEM_REMOTE_ARCHIVE_SHA256:-}"
+if [[ ! "$REF_VALUE" =~ ^[0-9a-f]{40}$ || ! "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Set CSA_IEM_REMOTE_REF to a full commit SHA and CSA_IEM_REMOTE_ARCHIVE_SHA256 to an independently obtained archive digest." >&2
+  exit 2
+fi
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/csa-iem-remote-smoke.XXXXXX")"
 
 cleanup() {
@@ -31,6 +36,7 @@ echo "Downloading and installing $REPO_SLUG ($REF_VALUE) into a temporary root"
 bash "$ROOT_DIR/install-remote.sh" \
   --repo "$REPO_SLUG" \
   --ref "$REF_VALUE" \
+  --archive-sha256 "$ARCHIVE_SHA256" \
   --install-root "$INSTALL_ROOT" \
   --bin-dir "$BIN_DIR" \
   --no-shell-profile \

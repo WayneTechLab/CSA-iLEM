@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Closed the Repository Intelligence Snapshot file-read denial of service found in the 2026-11-19 standard security scan: documentation and workflow inspection now opens only regular files without following symlinks, reads a bounded prefix, caps directory entries and depth with visible warnings, and runs repository scanning away from the SwiftUI main queue.
+- Required an exact commit and independently supplied complete-archive SHA-256 before macOS or Windows remote install/update; optional dependency bootstrap now requires `--with-deps`. Escaped user-selected shell PATH entries before writing profile lines, and blocked the latent direct native Move helper.
+- Added a separate, fail-closed public macOS packaging lane that checks clean tagged source, reviewed executable and whole-bundle inventory digests, Developer ID signing, notarization, stapling, Gatekeeper assessment, and final ZIP read-back. The local ad-hoc builder remains a development path.
+
 - Verified native Move stages and promoted destinations with bounded-memory full-tree SHA-256 read-back of files, hidden entries, links, metadata, and extended attributes before source removal; late source changes retain the original and produce a recoverable incomplete result. Added a pre-copy destination capacity check.
 - Verified snapshot preparatory backups and restore/rollback copies, retaining previous roots in durable recovery storage with a job-visible path.
 - Restricted macOS and Windows installer cleanup to receipt-identified versions and verified app bundles; macOS same-version updates now stage, verify, promote, and roll back the prior CLI on failure. The macOS GUI installer preserves other app copies, retains the prior canonical bundle in recovery storage, and stops only the process running from the exact canonical path.

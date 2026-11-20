@@ -144,6 +144,71 @@ checksum. No Google Cloud build pipeline or Firebase deployment is configured
 by removing GitHub Actions. Firebase Hosting does not package or sign the
 native macOS app.
 
+The controlled public packaging lane is separate from `build-gui-app.sh` and
+`install.sh`, which remain local ad-hoc workflows. After the Developer ID
+Application certificate and a named `notarytool` profile are available, use a
+verified locally built app from a clean, exactly tagged checkout. First review
+and record the inventory of the complete ad-hoc signed candidate, including
+every resource and signature file:
+
+```bash
+/usr/bin/python3 .SYSTEMX/scripts/macos-bundle-inventory.py \
+  --list /path/to/reviewed/CSA-iEM.app > /path/to/reviewed-bundle-inventory.txt
+```
+
+The last line records `BUNDLE_INVENTORY_SHA256`. Keep that reviewed digest and
+the independently reviewed executable SHA-256 as release inputs. Do not derive
+them from an unreviewed candidate at packaging time. Package the same candidate:
+
+```bash
+bash .SYSTEMX/scripts/package-public-macos-release.sh \
+  --app /path/to/built/CSA-iEM.app \
+  --output-dir /path/to/new-release-output \
+  --expected-binary-sha256 "$REVIEWED_EXECUTABLE_SHA256" \
+  --expected-bundle-inventory-sha256 "$REVIEWED_BUNDLE_INVENTORY_SHA256" \
+  --identity 'Developer ID Application: Legal Entity (TEAMID)' \
+  --notary-profile 'your-keychain-profile'
+```
+
+It copies the input, signs the copy with Hardened Runtime and a secure
+timestamp, submits a ZIP to Apple, waits for acceptance, staples the app,
+checks Gatekeeper, reopens the distribution ZIP to verify its extracted app,
+and writes a distribution ZIP and SHA-256 manifest. The executable SHA-256
+and inventory SHA-256 must be recorded from a separately reviewed build before
+packaging. The inventory covers every file and directory, relative path, file
+content, size, and mode. Extra or changed resources and symlinks are rejected
+before signing. A successful run also records the final signed app's inventory
+digest in `SIGNED-BUNDLE-INVENTORY.sha256`; retain and review it with the
+distribution ZIP and checksum. Failed
+steps leave the output directory for review. It does not install or publish
+the result. The script rejects unexpected nested code until an inside-out
+signing path is reviewed. This public lane has not been tested with a real
+Developer ID identity or notary profile on this Mac.
+
+After creating a versioned, Developer ID-signed and notarized candidate, run
+the separate **read-only** public gate with the exact Developer ID Application
+identity and a previously stored `notarytool` Keychain profile:
+
+```bash
+bash .SYSTEMX/scripts/public-macos-release-readiness.sh \
+  --app /path/to/CSA-iEM.app \
+  --identity 'Developer ID Application: Legal Entity (TEAMID)' \
+  --notary-profile 'your-keychain-profile' \
+  --expected-signed-bundle-inventory-sha256 "$REVIEWED_SIGNED_BUNDLE_INVENTORY_SHA256"
+```
+
+This gate checks a clean source checkout, the exact `vVERSION` tag, source
+payload manifest, signing identity, Hardened Runtime, secure timestamp,
+the complete signed app inventory, stapled ticket, and Gatekeeper acceptance.
+Supply the signed-bundle digest from the separately reviewed packaging result;
+the gate fails closed when it is missing or different. It authenticates the saved notary
+profile without printing credentials. It does not sign, submit, staple, tag,
+upload, or publish anything.
+The local 15-stage preflight remains valid for the ad-hoc signed development
+build, but cannot satisfy this public gate. Apple's
+[notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
+describes Keychain profile setup and submission.
+
 The current branch installer remains a development/update path. It should not
 be described as an immutable public release installer until a versioned,
 notarized artifact and an independently published checksum are available.
@@ -152,31 +217,28 @@ notarized artifact and an independently published checksum are available.
 
 Use Terminal with `zsh` or `bash`.
 
-Latest published `main` install:
+Remote install from a reviewed local copy of the installer requires an exact
+40-character commit SHA and an independently obtained SHA-256 of the complete
+GitHub tarball. Branches, tags, missing digests, and piped scripts are refused:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
+./install-remote.sh --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
 ```
 
-Latest published `main` update:
+Update with a new reviewed commit and archive digest:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --force
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-archive-sha256>
 ```
 
-Specific release, branch, or commit install:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
-```
-
-Local repo install:
+Local repo install without optional dependency bootstrap:
 
 ```bash
 ./install.sh
 ```
 
-Local git update:
+To allow the local installer to install missing optional tools, explicitly use
+`./install.sh --with-deps`. A local checkout refresh is a development workflow:
 
 ```bash
 git switch main
@@ -197,8 +259,8 @@ CSA-iEM --version
 - run the CLI immediately
 - launch the native SwiftUI app from the installed tree
 - build a standalone `.app` later with `csa-iem-build-gui`
-- update later with `csa-iem-update` or rerun the shipped `install-remote.sh` from the installed copy if needed
-- install `@devcontainers/cli` into a user-local npm prefix automatically if the machine blocks system-wide npm global installs
+- update later with `csa-iem-update` or rerun the shipped `install-remote.sh` from the installed copy using a reviewed pinned commit and independent archive digest
+- install optional dependencies only with `--with-deps`; the `@devcontainers/cli` fallback uses a user-local npm prefix if a system-wide npm global install is blocked
 
 During installation, the native app is built into a disposable temporary
 directory, verified, and atomically moved to the canonical Applications

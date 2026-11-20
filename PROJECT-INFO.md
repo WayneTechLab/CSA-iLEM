@@ -134,40 +134,40 @@ It also reads legacy session paths for compatibility with:
 
 - `build-gui-app.sh` creates `dist/CSA-iEM.app`
 - `install.sh` installs the terminal and GUI source bundle into `~/.local/share/csa-iem/<version>`
-- `install-remote.sh` lets any supported Mac pull and install the app directly from GitHub with `curl ... | bash`
-- `csa-iem-update` lets installed macOS and Windows copies update from the published GitHub repo without recloning first
+- `install-remote.sh` accepts a pinned commit and an independently verified complete archive digest from a reviewed local script
+- `csa-iem-update` uses the same release evidence before downloading an update on macOS or Windows
 - `csa-iem-build-gui` builds the standalone `.app` from an installed copy
 
 ## Terminal Distribution
 
-Recommended latest published macOS install path:
+macOS install from a reviewed local checkout:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash
+./install.sh
 ```
 
-Recommended latest published macOS update path:
+macOS remote update with independent release evidence:
 
 ```bash
-csa-iem-update
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-tarball-sha256>
 ```
 
-Specific tagged release, branch, or commit install path:
+macOS remote install from a reviewed local script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.sh | bash -s -- --ref your-tag-or-branch
+./install-remote.sh --ref <40-character-commit-sha> --archive-sha256 <trusted-tarball-sha256>
 ```
 
-Recommended latest published Windows 11 admin-shell install path:
+Windows 11 remote install from a reviewed local script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/WayneTechLab/CSA-iLEM/main/install-remote.ps1 -OutFile $env:TEMP\csa-iem-install.ps1; & $env:TEMP\csa-iem-install.ps1"
+powershell -ExecutionPolicy Bypass -File .\install-remote.ps1 --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
-Recommended latest published Windows 11 update path:
+Windows 11 remote update with independent release evidence:
 
 ```powershell
-csa-iem-update
+csa-iem-update --ref <40-character-commit-sha> --archive-sha256 <trusted-zip-sha256>
 ```
 
 ## Workspace Model
