@@ -1,23 +1,30 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { createServer as createTCP } from 'node:net'
+import { createConnection, createServer as createTCP } from 'node:net'
 import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { delimiter, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import { seedFixtures } from './fixtures.mjs'
 
-const root = fileURLToPath(new URL('../../', import.meta.url))
+const isWindows = process.platform === 'win32'
+const scriptRoot = fileURLToPath(new URL('../../', import.meta.url))
+// Vite requires the long filesystem path when Windows supplies a DOS alias.
+const root = isWindows ? realpathSync.native(scriptRoot) : scriptRoot
 const local = resolve(root, '.portal-local')
 const lock = resolve(local, 'running.lock')
 const stateFile = resolve(local, 'session.json')
-const configFile = resolve(root, '.firebase.portal-local.json')
+const configName = '.firebase.portal-local.json'
+const configFile = resolve(root, configName)
 const host = '127.0.0.1'
 const project = 'demo-csa-iem'
+const runFile = promisify(execFile)
 const children = []
 const env = { ...process.env }
-for (const key of [
+const isolatedEnvironmentKeys = new Set([
   'GOOGLE_APPLICATION_CREDENTIALS',
   'GOOGLE_CLOUD_PROJECT',
   'GCLOUD_PROJECT',
@@ -30,11 +37,10 @@ for (const key of [
   'HTTPS_PROXY',
   'HTTP_PROXY',
   'ALL_PROXY',
-  'https_proxy',
-  'http_proxy',
-  'all_proxy',
 ])
-  delete env[key]
+for (const key of Object.keys(env)) {
+  if (isolatedEnvironmentKeys.has(key.toUpperCase())) delete env[key]
+}
 
 async function request(url, options) {
   return fetch(url, { signal: AbortSignal.timeout(1300), ...options })
@@ -54,12 +60,17 @@ async function sessionCommand(command) {
   const response = await request(`${session.control}/${command}`, {
     method: command === 'stop' ? 'POST' : 'GET',
     headers: { Authorization: `Bearer ${session.token}` },
+    signal: AbortSignal.timeout(command === 'stop' ? 25_000 : 1300),
   })
-  if (!response.ok)
+  if (response.status === 403)
     throw new Error(
       'The running process did not accept ownership of this session.',
     )
-  console.log(await response.text())
+  const message = await response.text()
+  if (!response.ok) {
+    throw new Error(message || `Local session returned HTTP ${response.status}.`)
+  }
+  console.log(message)
 }
 
 function listen(server, port) {
@@ -108,12 +119,15 @@ async function reservePorts() {
   }
 }
 
-let controller, ownership, waiting, state
+let controller, ownership, waiting, state, ports
 function child(command, args, options = {}) {
+  if (stopping) throw new Error('This local session is stopping.')
   const process = spawn(command, args, {
     cwd: root,
     env,
-    detached: true,
+    // A detached Windows console can bypass the pipes used for readiness.
+    detached: !isWindows,
+    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     ...options,
   })
@@ -142,31 +156,93 @@ async function until(label, probe) {
 }
 
 let stopping = false
-async function shutdown(code) {
-  if (stopping) return
-  stopping = true
-  for (const process of children) {
-    if (
-      process.pid &&
-      process.exitCode === null &&
-      process.signalCode === null
-    ) {
-      try {
-        globalThis.process.kill(-process.pid, 'SIGTERM')
-      } catch {
-        /* Group has already stopped. */
-      }
+function isRunning(subprocess) {
+  return (
+    subprocess.pid &&
+    subprocess.exitCode === null &&
+    subprocess.signalCode === null
+  )
+}
+
+async function stopChild(subprocess) {
+  if (!isRunning(subprocess)) return
+  if (!isWindows) {
+    // Let the Firebase CLI wait for its emulators and workers to stop.
+    subprocess.kill('SIGTERM')
+    return
+  }
+  try {
+    await runFile(
+      'taskkill.exe',
+      ['/pid', String(subprocess.pid), '/t', '/f'],
+      { windowsHide: true, timeout: 10_000 },
+    )
+  } catch (error) {
+    if (isRunning(subprocess)) throw error
+  }
+}
+
+function portClosed(port) {
+  return new Promise((resolveClosed) => {
+    const socket = createConnection({ host, port, timeout: 300 })
+    const stillListening = () => {
+      socket.destroy()
+      resolveClosed(false)
     }
+    socket.once('connect', stillListening)
+    socket.once('timeout', stillListening)
+    socket.once('error', (error) => resolveClosed(error.code === 'ECONNREFUSED'))
+  })
+}
+
+async function waitForShutdown() {
+  const activePorts = state?.ready ? Object.values(ports) : []
+  const deadline = Date.now() + 10_000
+  do {
+    if (!children.some(isRunning)) {
+      const closed = await Promise.all(activePorts.map(portClosed))
+      if (closed.every(Boolean)) return
+    }
+    await delay(100)
+  } while (Date.now() < deadline)
+  throw new Error('The owned services did not stop in time.')
+}
+
+async function shutdown(code, response) {
+  if (stopping) {
+    response?.writeHead(409).end('This local session is already stopping.')
+    return
+  }
+  stopping = true
+  try {
+    const results = await Promise.allSettled(children.map(stopChild))
+    const failure = results.find((result) => result.status === 'rejected')
+    if (failure) throw failure.reason
+    await waitForShutdown()
+    if (ownership) {
+      await Promise.all(
+        [stateFile, configFile].map((file) => rm(file, { force: true })),
+      )
+      await ownership.close()
+      await rm(lock, { force: true })
+    }
+  } catch (error) {
+    console.error(`Local session shutdown failed: ${error.message}`)
+    if (response) {
+      stopping = false
+      response.writeHead(500).end(
+        'Local session shutdown failed. See the launcher log for details.',
+      )
+      return
+    }
+    code = 1
   }
   controller?.close()
-  if (ownership) {
-    await Promise.all(
-      [stateFile, configFile].map((file) => rm(file, { force: true })),
-    )
-    await ownership.close()
-    await rm(lock, { force: true })
+  if (response) {
+    response.end('Stopped the owned CSA-iEM session.', () => process.exit(code))
+  } else {
+    process.exit(code)
   }
-  process.exit(code)
 }
 
 async function start() {
@@ -180,7 +256,7 @@ async function start() {
   await ownership.writeFile(String(process.pid))
   process.on('SIGINT', () => void shutdown(0))
   process.on('SIGTERM', () => void shutdown(0))
-  const ports = await reservePorts()
+  ports = await reservePorts()
   const emulator = (name) => ({ host, port: ports[name] })
   const config = {
     firestore: {
@@ -212,7 +288,7 @@ async function start() {
       return
     }
     if (req.url === '/stop' && req.method === 'POST') {
-      res.end('Stopping the owned CSA-iEM session.', () => void shutdown(0))
+      void shutdown(0, res)
       return
     }
     if (req.url === '/status' && req.method === 'GET') {
@@ -246,7 +322,7 @@ async function start() {
     ...env,
     XDG_CONFIG_HOME: emulatorConfig,
     CLOUDSDK_CONFIG: emulatorConfig,
-    // An explicit nonexistent ADC file prevents discovery of this Mac's live credentials.
+    // An explicit nonexistent ADC file prevents discovery of live credentials.
     GOOGLE_APPLICATION_CREDENTIALS: resolve(
       emulatorConfig,
       'no-live-credentials.json',
@@ -254,22 +330,31 @@ async function start() {
     NO_UPDATE_NOTIFIER: '1',
   }
   if (env.CSA_PORTAL_FUNCTIONS_NODE) {
-    firebaseEnv.PATH =
-      dirname(resolve(env.CSA_PORTAL_FUNCTIONS_NODE)) + ':' + env.PATH
+    const pathKey = isWindows
+      ? Object.keys(firebaseEnv).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH'
+      : 'PATH'
+    firebaseEnv[pathKey] = [
+      dirname(resolve(env.CSA_PORTAL_FUNCTIONS_NODE)),
+      firebaseEnv[pathKey],
+    ].filter(Boolean).join(delimiter)
   }
-  const emulators = child(
-    'firebase',
-    [
-      'emulators:start',
-      '--only',
-      'auth,firestore,functions',
-      '--project',
-      project,
-      '--config',
-      configFile,
-    ],
-    { env: firebaseEnv },
-  )
+  const firebaseArguments = [
+    'emulators:start',
+    '--only',
+    'auth,firestore,functions',
+    '--project',
+    project,
+    '--config',
+    configName,
+  ]
+  // npm installs a firebase.cmd shim on Windows. These arguments are constants
+  // and the config is relative to the child's working directory.
+  const emulators = isWindows
+    ? child('cmd.exe', ['/d', '/s', '/c', `"firebase ${firebaseArguments.join(' ')}"`], {
+        env: firebaseEnv,
+        windowsVerbatimArguments: true,
+      })
+    : child('firebase', firebaseArguments, { env: firebaseEnv })
   let emulatorReadback = ''
   emulators.stdout.on('data', (chunk) => {
     const text = chunk.toString()
@@ -304,7 +389,8 @@ async function start() {
   const vite = child(
     process.execPath,
     [
-      'node_modules/vite/bin/vite.js',
+      resolve(root, 'node_modules/vite/bin/vite.js'),
+      root,
       '--host',
       host,
       '--port',
@@ -325,10 +411,13 @@ async function start() {
   )
   vite.stdout.pipe(process.stdout)
   vite.stderr.pipe(process.stderr)
-  await until(
-    'CSA-iEM Vite app',
-    async () => (await request(`${state.url}/__csa_status`)).ok,
-  )
+  await until('CSA-iEM Vite app', async () => {
+    const [status, page] = await Promise.all([
+      request(`${state.url}/__csa_status`),
+      request(`${state.url}/`),
+    ])
+    return status.ok && page.ok
+  })
   state = {
     ...state,
     ready: true,

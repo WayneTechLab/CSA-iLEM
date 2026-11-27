@@ -119,6 +119,8 @@ function Test-SkippedFolder {
 
 function Invoke-GitText {
     param([string]$Path, [string[]]$Arguments)
+    # Windows PowerShell can treat native stderr as a terminating error.
+    $ErrorActionPreference = "Continue"
     $Output = & git -C $Path @Arguments 2>$null
     if ($LASTEXITCODE -ne 0) { return "" }
     return (($Output | Out-String).Trim())
@@ -378,8 +380,8 @@ function Add-OriginIfNeeded {
 
 function Invoke-SafeRemoteFastForward {
     param([string]$Path, [string]$Branch, [string]$RemoteHead)
-    if (-not $RemoteHead) { return }
-    $Current = Invoke-GitText -Path $Path -Arguments @("rev-parse", "HEAD")
+    if (-not $RemoteHead -or -not (Test-Path -LiteralPath (Join-Path $Path ".git"))) { return }
+    $Current = Invoke-GitText -Path $Path -Arguments @("rev-parse", "--verify", "--quiet", "HEAD")
     if (-not $Current -or $Current -eq $RemoteHead) { return }
     & git -C $Path fetch origin $Branch --prune 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { return }
@@ -400,7 +402,7 @@ function Invoke-OpenProject {
 
 function Test-VerifiedZip {
     param([string]$Archive)
-    if (-not $Archive -or -not (Test-Path $Archive -PathType Leaf)) { return $false }
+    if (-not $Archive -or -not (Test-Path -LiteralPath $Archive -PathType Leaf)) { return $false }
     & tar.exe -tf $Archive *> $null
     return ($LASTEXITCODE -eq 0)
 }
@@ -444,12 +446,13 @@ function Test-GitObjectsRepresented {
 
 function Test-SourceRepresented {
     param([string]$From, [string]$To, [string]$Archive = "")
-    if (-not (Test-Path $From -PathType Container) -or -not (Test-Path $To -PathType Container)) { return $false }
+    if (-not (Test-Path -LiteralPath $From -PathType Container) -or -not (Test-Path -LiteralPath $To -PathType Container)) { return $false }
     $ContentMatches = $true
-    $SourcePrefix = $From.TrimEnd('\') + '\'
+    $Separator = [IO.Path]::DirectorySeparatorChar
+    $SourcePrefix = (Get-Item -LiteralPath $From -Force).FullName.TrimEnd($Separator) + $Separator
     foreach ($Item in @(Get-ChildItem -LiteralPath $From -Recurse -Force -ErrorAction Stop | Where-Object { -not $_.PSIsContainer })) {
         $Relative = $Item.FullName.Substring($SourcePrefix.Length)
-        if ($Relative -eq '.git' -or $Relative.StartsWith('.git\', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($Relative -eq '.git' -or $Relative.StartsWith(".git$Separator", [StringComparison]::OrdinalIgnoreCase)) { continue }
         $DestinationPath = Join-Path $To $Relative
         if (-not (Test-Path -LiteralPath $DestinationPath)) { $ContentMatches = $false; break }
         $DestinationItem = Get-Item -LiteralPath $DestinationPath -Force -ErrorAction Stop
@@ -461,12 +464,8 @@ function Test-SourceRepresented {
         if ((Get-FileHash -LiteralPath $Item.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash) { $ContentMatches = $false; break }
     }
     $GitMatches = Test-GitObjectsRepresented -From $From -To $To
-    if ($ContentMatches -and $GitMatches) { return $true }
-    if (Test-VerifiedZip $Archive) {
-        Write-WarnLine "Canonical state differs from part of the source; the tested ZIP remains the recovery copy."
-        return $true
-    }
-    return $false
+    if (-not $ContentMatches -or -not $GitMatches) { return $false }
+    return (-not $Archive -or (Test-VerifiedZip $Archive))
 }
 
 function Write-Stage2Receipt {
@@ -507,6 +506,9 @@ function Write-Stage2Receipt {
 
 function Remove-VerifiedStage1Source {
     param([string]$Path, [string]$Destination, [string]$Slug, [string]$Archive)
+    if (-not (Test-SourceRepresented -From $Path -To $Destination -Archive $Archive)) {
+        throw "Canonical verification failed before quarantine; the Stage 1 source was retained."
+    }
     $DeleteRoot = Join-Path $Source "_temp\Stage2-Delete\$($script:TransactionId)"
     New-Item -ItemType Directory -Path $DeleteRoot -Force | Out-Null
     $Quarantine = Join-Path $DeleteRoot (Split-Path $Path -Leaf)
@@ -631,7 +633,8 @@ if (-not $Report) { $Report = Join-Path $ReportsDir "stage2-$TransactionId.md" }
 if ($LASTEXITCODE -ne 0) { throw "GitHub CLI is not logged in to $HostName." }
 if (-not $Account) { $Account = ((& gh api user --hostname $HostName --jq '.login') | Out-String).Trim() }
 $CatalogJson = & gh repo list $Account --limit 1000 --json id,nameWithOwner,name,url,defaultBranchRef,isPrivate,isArchived,pushedAt,updatedAt
-$script:Catalog = @($CatalogJson | ConvertFrom-Json | Where-Object { $_ })
+# Windows PowerShell can emit the entire JSON array as one pipeline item.
+$script:Catalog = @(($CatalogJson | ConvertFrom-Json) | Where-Object { $_ })
 
 $Candidates = [System.Collections.Generic.List[string]]::new()
 if ($All) {

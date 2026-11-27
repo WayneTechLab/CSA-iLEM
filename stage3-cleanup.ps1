@@ -207,8 +207,10 @@ function Test-SourceRepresented {
         if ((Get-FileHash -LiteralPath $Item.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash) { $ContentMatches = $false; break }
     }
     $GitMatches = Test-GitObjectsRepresented -From $From -To $To -IncludeGit $IncludeGit
-    if ($ContentMatches -and $GitMatches) { return $true }
-    return Test-VerifiedZip $Archive
+    if (-not $ContentMatches -or -not $GitMatches) { return $false }
+    # A ZIP is supplemental evidence. It cannot approve cleanup when the
+    # canonical checkout does not represent the current source.
+    return (-not $Archive -or (Test-VerifiedZip $Archive))
 }
 
 function Test-SelectorMatch {
@@ -285,7 +287,7 @@ function Add-ReceiptPlan {
     if (-not $SourceCandidate -or -not (Test-Path -LiteralPath $SourceCandidate)) { $SourceCandidate = $OriginalSource }
     if ($Stage -eq "1" -and $DeleteStage1Originals -and (Test-Path -LiteralPath $SourceCandidate -PathType Container)) {
         if (Test-SourceRepresented $SourceCandidate $Destination $Archive $IncludeGit $IncludeFinder $IncludeDependencies) { Add-Plan $Plans "ready-delete-stage1-original" $Stage $ReceiptPath $SourceCandidate $SourceCandidate $Destination $Archive "Receipt and live source-to-destination verification passed." }
-        else { Add-Plan $Plans "blocked-live-verification" $Stage $ReceiptPath $SourceCandidate $SourceCandidate $Destination $Archive "The original no longer matches the verified destination or tested ZIP." }
+        else { Add-Plan $Plans "blocked-live-verification" $Stage $ReceiptPath $SourceCandidate $SourceCandidate $Destination $Archive "Canonical verification or the supplemental ZIP check failed." }
     }
     if ($Stage -eq "2" -and $DeleteStage2Inputs -and (Test-Path -LiteralPath $SourceCandidate -PathType Container)) {
         if ((Test-PathWithin $SourceCandidate $Source) -and (Test-SourceRepresented $SourceCandidate $Destination $Archive $true $true $true)) { Add-Plan $Plans "ready-delete-stage2-input" $Stage $ReceiptPath $SourceCandidate $SourceCandidate $Destination $Archive "Receipt and live canonical verification passed." }

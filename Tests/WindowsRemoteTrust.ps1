@@ -8,7 +8,9 @@ $TemporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('csa-iem-remote-tr
 function Assert-Refused {
     param([string[]]$Arguments, [string]$ExpectedMessage, [string]$ScriptPath = $Script)
     $Output = & pwsh -NoLogo -NoProfile -NonInteractive -File $ScriptPath @Arguments 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0 -or -not $Output.Contains($ExpectedMessage)) {
+    # PowerShell's console error renderer may color and wrap the message.
+    $Message = $Output -replace '\x1b\[[0-?]*[ -/]*[@-~]', '' -replace '\r?\n[ \t]*\|[ \t]*', ' '
+    if ($LASTEXITCODE -eq 0 -or -not $Message.Contains($ExpectedMessage)) {
         throw "Remote installer did not refuse $($Arguments -join ' '): $Output"
     }
 }

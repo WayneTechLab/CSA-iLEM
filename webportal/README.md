@@ -22,6 +22,15 @@ Level 5 account against the demo project. Starting a new session reseeds data.
 Use `npm --prefix webportal run dev:status` to find the URL and
 `npm --prefix webportal run dev:stop` to stop the owned processes.
 
+On Windows, run `npm.cmd --prefix webportal run dev:local` in PowerShell
+from the CSA-iEM checkout. Use Node 24 or newer for the launcher, Java 21
+for Firestore, and a Firebase CLI installation that provides `firebase.cmd`
+on the Windows path. If Node 22 is installed separately for the Functions
+emulator, set `$env:CSA_PORTAL_FUNCTIONS_NODE` to its full `node.exe` path
+before starting.
+Run `npm.cmd --prefix webportal run dev:stop` to stop the Windows Vite and
+emulator process trees owned by this session.
+
 ```bash
 npm --prefix webportal run typecheck
 npm --prefix webportal run lint

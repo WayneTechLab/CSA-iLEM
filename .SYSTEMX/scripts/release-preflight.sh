@@ -24,6 +24,7 @@ bash .SYSTEMX/scripts/powershell-parse-smoke.sh
 if command -v pwsh >/dev/null 2>&1; then
   pwsh -NoLogo -NoProfile -NonInteractive -File Tests/WindowsInstallerSafety.ps1
   pwsh -NoLogo -NoProfile -NonInteractive -File Tests/WindowsRemoteTrust.ps1
+  pwsh -NoLogo -NoProfile -NonInteractive -File Tests/WindowsCleanupVerification.ps1
 fi
 
 echo "[6/15] SHA-256 manifest"
